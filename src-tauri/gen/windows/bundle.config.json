@@ -1,0 +1,25 @@
+{
+  "publisher": "CN=CosmoVideoPublisher",
+  "publisherDisplayName": "Cosmo Video",
+  "capabilities": {
+    "general": [
+      "internetClient"
+    ],
+    "restricted": [
+      "broadFileSystemAccess"
+    ]
+  },
+  "extensions": {
+    "shareTarget": false,
+    "fileAssociations": [],
+    "protocolHandlers": []
+  },
+  "signing": {
+    "pfx": "../../../release/CosmoVideo_Store.pfx",
+    "pfxPassword": "Cosmo123"
+  },
+  "resourceIndex": {
+    "enabled": false,
+    "keepConfig": false
+  }
+}
