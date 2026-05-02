@@ -101,7 +101,9 @@ interface ControlBarProps {
   logs: { t: string; m: string }[];
   setMenu: React.Dispatch<React.SetStateAction<{ x: number; y: number; id: string } | null>>;
   menu: { x: number; y: number; id: string } | null;
+  setGlobalControl: React.Dispatch<React.SetStateAction<string | null>>;
   isFS: boolean;
+
   setIsFS: React.Dispatch<React.SetStateAction<boolean>>;
   isPopout: boolean;
   showHelp: boolean;
@@ -163,7 +165,9 @@ export function ControlBar({
   logs,
   setMenu,
   menu,
+  setGlobalControl,
   isFS,
+
   setIsFS,
   isPopout,
   showHelp,
@@ -226,8 +230,11 @@ export function ControlBar({
                   type="range"
                   min={MIN_ZOOM}
                   max={MAX_ZOOM}
-                  value={zoom}
-                  onChange={(e) => setZoom(parseInt(e.target.value))}
+                  value={ (MAX_ZOOM + MIN_ZOOM) - zoom }
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setZoom((MAX_ZOOM + MIN_ZOOM) - val);
+                  }}
                   onMouseDown={(e) => e.stopPropagation()}
                   className="zoom-slider"
                 />
@@ -242,13 +249,20 @@ export function ControlBar({
             >
               <RotateCcw size={14} />
             </button>
-            <button
-              onClick={() => setImmersive(!immersive)}
-              className={`hdr-btn ${immersive ? 'active-accent' : ''}`}
-              data-tooltip="Toggle UI"
-            >
-              {immersive ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
+              <button
+                onClick={() => {
+                  if (!immersive && !focusedId && filtered.length > 0) {
+                    onToggleFocus(filtered[0].id);
+                  } else if (immersive) {
+                    onToggleFocus(null);
+                  }
+                  setImmersive(!immersive);
+                }}
+                className={`hdr-btn ${immersive ? 'active-accent' : ''}`}
+                data-tooltip="Toggle UI"
+              >
+                {immersive ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
             <button
               onClick={() => {
                 if (confirm('Purge?')) setVideos([]);
@@ -391,7 +405,7 @@ export function ControlBar({
                 setGlobalRepeat(n);
               }}
               className={`hdr-btn repeat-master-btn ${globalRepeat !== 'none' ? 'active-accent' : ''}`}
-              data-tooltip={`Repeat: ${globalRepeat.toUpperCase()}`}
+              data-tooltip={`Repeat: ${globalRepeat === 'none' ? 'OFF' : globalRepeat === 'always' ? 'ONE' : 'FOLDER'}`}
             >
               {globalRepeat === 'always' ? <Repeat1 size={14} /> : <Repeat size={14} />}
               <span className="repeat-label">{globalRepeat === 'none' ? 'OFF' : globalRepeat === 'always' ? 'ONE' : 'FOLDER'}</span>

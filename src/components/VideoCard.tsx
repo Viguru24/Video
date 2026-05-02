@@ -60,6 +60,12 @@ function VideoCardInternal({
     return convertToVideoUrl(video);
   }, [video.realPath, video.url]);
 
+  // Reset playback position when source changes (folder cycling)
+  useEffect(() => {
+    lastTime.current = 0;
+  }, [displayUrl]);
+
+
   useEffect(() => {
     if (videoRef.current) videoRef.current.volume = globalVolume;
   }, [globalVolume]);
@@ -185,10 +191,22 @@ function VideoCardInternal({
     return () => document.removeEventListener('fullscreenchange', handleFS);
   }, []);
 
-   useEffect(() => {
-     if (!videoRef.current) return;
-     videoRef.current.muted = video.muted;
-   }, [video.muted]);
+  const handleMuteToggle = () => {
+    // If master is overriding, turn it off first
+    if (masterMuted) {
+      toggleMasterMute();
+    }
+    // Then toggle individual video
+    onUpdateVideo(video.id, { muted: !effectiveMuted });
+  };
+  
+  // Determine effective mute state: master override takes precedence
+  const effectiveMuted = masterMuted || video.muted;
+  
+  useEffect(() => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = effectiveMuted;
+  }, [effectiveMuted]);
 
    useEffect(() => {
      if (!videoRef.current) return;
@@ -327,7 +345,7 @@ function VideoCardInternal({
           src={displayUrl}
           crossOrigin="anonymous"
           playsInline
-          loop={localRepeat === 'always' || globalRepeat === 'always'}
+          loop={globalRepeat !== 'none' && (localRepeat === 'always' || globalRepeat === 'always')}
           onEnded={onEnded}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={() => {
@@ -418,7 +436,7 @@ function VideoCardInternal({
               <ChevronLeft size={14} />
             </button>
             <button className="mini-btn" onClick={() => onUpdateVideo(video.id, { playing: !video.playing })}>
-              {video.playing ? <Pause size={14} fill="white" /> : <Play size={14} fill="white" />}
+              {video.playing ? <Pause size={14} /> : <Play size={14} />}
             </button>
             <button 
               className="mini-btn" 
@@ -430,9 +448,9 @@ function VideoCardInternal({
               <ChevronRight size={14} />
             </button>
             <button className="mini-btn" onClick={takeSnapshot} data-tooltip="Snapshot"><Camera size={14} /></button>
-            <button className="mini-btn" onClick={() => onUpdateVideo(video.id, { muted: !video.muted })}>
-              {video.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-            </button>
+             <button className="mini-btn" onClick={handleMuteToggle}>
+               {effectiveMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+             </button>
           </div>
         </div>
       )}

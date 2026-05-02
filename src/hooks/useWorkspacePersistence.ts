@@ -1,6 +1,25 @@
+/**
+ * Workspace Persistence Hook
+ * 
+ * Manages application state persistence using Tauri's file system API.
+ * Automatically saves and loads workspace state including videos, collections,
+ * settings, and preferences.
+ * 
+ * Features:
+ * - Auto-save with debouncing (PERSISTENCE_DEBOUNCE)
+ * - Boot guard to ensure initialization
+ * - Legacy data migration support
+ * - Type-safe state management
+ * 
+ * @param addLog - Logging function for telemetry
+ * @param isPopout - Whether this is a popout window
+ * @param masterMuted - Master mute state
+ * @param masterPlaying - Master play state
+ * @returns Workspace state and setters
+ */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import type { VideoItem } from '../types';
+import type { VideoItem, RepeatMode } from '../types';
 import { PERSISTENCE_DEBOUNCE } from '../constants';
 import { isValidVideoExtension, convertToVideoUrl } from '../utils/videoUtils';
 
@@ -10,6 +29,7 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
   const [rotationInterval, setRotationInterval] = useState(10);
   const [snapshotDir, setSnapshotDir] = useState<string>('');
   const [theme, setTheme] = useState<string>('symphony');
+  const [globalRepeat, setGlobalRepeat] = useState<RepeatMode>('none');
   const [isInitialized, setIsInitialized] = useState(false);
   const isLoadedRef = useRef(false);
 
@@ -39,6 +59,7 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
         const r = await invoke<string | null>('load_persistence', { key: 'cosmo-rot-int' });
         const s = await invoke<string | null>('load_persistence', { key: 'cosmo-snap-dir' });
         const t = await invoke<string | null>('load_persistence', { key: 'cosmo-theme' });
+        const gr = await invoke<string | null>('load_persistence', { key: 'cosmo-repeat' });
 
         if (mounted) {
           if (t) setTheme(t);
@@ -94,6 +115,7 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
           }
           if (r) setRotationInterval(parseInt(r) || 10);
           if (s) setSnapshotDir(s);
+          if (gr) setGlobalRepeat(gr as RepeatMode);
 
           isLoadedRef.current = true;
           setIsInitialized(true);
@@ -150,12 +172,21 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
     return () => clearTimeout(timer);
   }, [theme, isInitialized, isPopout]);
 
+  useEffect(() => {
+    if (!isInitialized || isPopout || !isLoadedRef.current) return;
+    const timer = setTimeout(() => {
+      invoke('save_persistence', { key: 'cosmo-repeat', data: globalRepeat }).catch(console.error);
+    }, PERSISTENCE_DEBOUNCE);
+    return () => clearTimeout(timer);
+  }, [globalRepeat, isInitialized, isPopout]);
+
   return {
     videos, setVideos,
     collections, setCollections,
     rotationInterval, setRotationInterval,
     snapshotDir, setSnapshotDir,
     theme, setTheme,
+    globalRepeat, setGlobalRepeat,
     isInitialized, setIsInitialized
   };
 }

@@ -91,27 +91,25 @@ function ErrorFallback({ error }: { error: Error }) {
 }
 
 export default function App() {
-  const [globalRepeat, setGlobalRepeat] = useState<RepeatMode>('always');
+  const urlParams = new URLSearchParams(window.location.search);
+  const isPopout = urlParams.get('popout') === 'true';
+  const popoutUrl = urlParams.get('url');
+
   const [globalControl, setGlobalControl] = useState<string | null>(null);
   const [sessionDuration, setSessionDuration] = useState(0); 
   const [timeLeft, setTimeLeft] = useState(10);
   const [sessionTimeLeft, setSessionTimeLeft] = useState(0);
-
   const [speed, setSpeed] = useState(1);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const [motionActive, setMotionActive] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [logs, setLogs] = useState<{ t: string, m: string }[]>([]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragFile, setDragFile] = useState(false);
   const [masterPlaying, setMasterPlaying] = useState(true);
   const [masterMuted, setMasterMuted] = useState(false);
-  const masterPlayingRef = useRef(masterPlaying);
-  const masterMutedRef = useRef(masterMuted);
-
-  useEffect(() => { masterPlayingRef.current = masterPlaying; }, [masterPlaying]);
-  useEffect(() => { masterMutedRef.current = masterMuted; }, [masterMuted]);
+  const [masterMutedOverride, setMasterMutedOverride] = useState(false); // New: tracks if master is forcing mute
+  const [masterPlaying, setMasterPlaying] = useState(true);
   const [globalVolume, setGlobalVolume] = useState(1);
   const [masterShowUI, setMasterShowUI] = useState(true);
 
@@ -126,6 +124,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [fatalError, setFatalError] = useState<Error | null>(null);
 
+  const [logs, setLogs] = useState<{ t: string, m: string }[]>([]);
   const addLog = useCallback((m: string) => {
     setLogs(p => [{ t: new Date().toLocaleTimeString(), m }, ...p].slice(0, 50));
     invoke('cosmo_log', { msg: m }).catch(console.error);
@@ -135,17 +134,13 @@ export default function App() {
     }
   }, []);
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const isPopout = urlParams.get('popout') === 'true';
-  const popoutUrl = urlParams.get('url');
-
-  // CUSTOM HOOKS
   const {
     videos, setVideos,
     collections, setCollections,
     rotationInterval, setRotationInterval,
     snapshotDir, setSnapshotDir,
     theme, setTheme,
+    globalRepeat, setGlobalRepeat,
     isInitialized, setIsInitialized
   } = useWorkspacePersistence(addLog, isPopout, masterMuted, masterPlaying);
 
@@ -188,7 +183,9 @@ export default function App() {
   const toggleMasterMute = () => {
     const newState = !masterMuted;
     setMasterMuted(newState);
-    setVideos(p => p.map(v => ({ ...v, muted: newState })));
+    setMasterMutedOverride(true);  // Mark that master is overriding
+    // Don't override individual video states anymore
+    // Just set the global flag, videos will respect it in rendering
     addLog(`System Volume: ${newState ? 'OFF' : 'ON'}`);
   };
 
@@ -279,7 +276,8 @@ export default function App() {
     setVideos(prev => prev.map(v => {
       if (v.id !== id) return v;
       
-      const currentMode = v.repeatMode !== 'none' ? v.repeatMode : globalRepeat;
+      // Global 'none' (OFF) should always override local settings for consistent control
+      const currentMode = globalRepeat === 'none' ? 'none' : (v.repeatMode !== 'none' ? v.repeatMode : globalRepeat);
       
       if (currentMode === 'folder' && v.folderFiles && v.folderFiles.length > 0) {
         const nextIdx = ((v.currentIdx || 0) + 1) % v.folderFiles.length;
@@ -289,6 +287,7 @@ export default function App() {
           ...v, 
           currentIdx: nextIdx, 
           url: nextFile.url, 
+          realPath: undefined,  // Clear so convertToVideoUrl uses the updated url
           title: nextFile.name 
         };
       }
@@ -483,7 +482,7 @@ export default function App() {
          case 'f':
            if (filtered.length > 0) onToggleFocus(focusedId ? null : filtered[0].id);
            break;
-         case 'escape':
+         case 'm': toggleMasterMute(); break; case 'l': setGlobalRepeat(prev => { const modes = ['none', 'once', 'always', 'folder']; const next = modes[(modes.indexOf(prev) + 1) % modes.length]; addLog('Global Repeat: ' + next.toUpperCase()); return next; }); break; case 'p': setShowPromo(prev => !prev); break; case 'escape':
            if (focusedId) { onToggleFocus(null); return; }
            if (showSettings) { setShowSettings(false); return; }
            if (showCollections) { setShowCollections(false); return; }
@@ -495,7 +494,7 @@ export default function App() {
      };
      window.addEventListener('keydown', handleKeys, true);
      return () => window.removeEventListener('keydown', handleKeys, true);
-   }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, menu, setZoom, setGlobalControl, setMenu, setShowCollections, setShowLogs, setShowSettings]);
+   }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, menu, setZoom, setGlobalControl, setMenu, setShowCollections, setShowLogs, setShowSettings, toggleMasterMute, setGlobalRepeat, setShowPromo]);
 
   // NATIVE DRAG-DROP HARDENING (v3.2.2)
   useEffect(() => {
@@ -548,20 +547,39 @@ export default function App() {
                  continue;
                }
                
-               // Try Single Video Ingestion
-               if (isValidVideoExtension(path)) {
-                 newVids.push({ 
-                   id: crypto.randomUUID(), 
-                   url: convertFileSrc(path), 
-                   realPath: path, 
-                   title: getFileNameFromPath(path), 
-                   repeatMode: 'always', 
-                   repeatCount: 0, 
-                   cols: 1, 
-                   playing: masterPlayingRef.current, 
-                   muted: masterMutedRef.current 
-                 });
-               }
+               // Try Single Video Ingestion with Sibling Folder Support
+                if (isValidVideoExtension(path)) {
+                  // Get Parent Path for sibling support (v3.2.3)
+                  const lastSep = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
+                  const parentPath = lastSep !== -1 ? path.substring(0, lastSep) : '.';
+                  let folderFiles: { name: string, url: string }[] = [];
+                  
+                  try {
+                    const siblings = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path: parentPath });
+                    if (siblings && siblings.length > 1) {
+                       folderFiles = siblings.map(v => ({ ...v, url: convertFileSrc(v.url) }));
+                    }
+                  } catch (e) {
+                    console.warn("Could not fetch siblings:", e);
+                  }
+
+                  const filename = getFileNameFromPath(path);
+                  const currentIdx = folderFiles.findIndex(f => f.name === filename);
+
+                  newVids.push({ 
+                    id: crypto.randomUUID(), 
+                    url: convertFileSrc(path), 
+                    realPath: path, 
+                    title: filename, 
+                    repeatMode: folderFiles.length > 0 ? 'folder' : 'none', 
+                    repeatCount: 0, 
+                    cols: 1, 
+                    folderFiles: folderFiles.length > 0 ? folderFiles : undefined,
+                    currentIdx: currentIdx !== -1 ? currentIdx : 0,
+                    playing: masterPlayingRef.current, 
+                    muted: masterMutedRef.current 
+                  });
+                }
             } catch (err) { 
               console.error("Ingestion Error:", err); 
             }
@@ -733,12 +751,15 @@ export default function App() {
           fitMode={fitMode}
           setFitMode={setFitMode}
           masterShowUI={showImmersiveUI}
+          setMasterShowUI={setShowImmersiveUI}
+          setGlobalControl={setGlobalControl}
           addLog={addLog}
-          onUpdateVideo={onUpdateVideo}
-          onRemoveVideo={onRemoveVideo}
+          onUpdateVideo={handleUpdate}
+          onRemoveVideo={handleRemove}
           onToggleFocus={onToggleFocus}
           onLog={addLog}
           filtered={filtered}
+
           focusedId={focusedId}
           showSettings={showSettings}
           setShowSettings={setShowSettings}

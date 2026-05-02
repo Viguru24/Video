@@ -171,7 +171,52 @@ export function PromoExporter({ isOpen, onClose, videos }: PromoExporterProps) {
                 <Camera size={14} />
                 <span>Ready for capture. Use <strong>Win + Alt + R</strong> to record this preview.</span>
               </div>
-              <button className="export-btn" onClick={() => window.print()}>
+              <button 
+                className="export-btn" 
+                onClick={() => {
+                  const video = document.querySelector('.preview-video-bg') as HTMLVideoElement;
+                  const viewport = document.querySelector('.preview-viewport');
+                  if (!video || !viewport) return;
+
+                  const canvas = document.createElement('canvas');
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) return;
+
+                  // Set canvas size to match aspect ratio at high resolution
+                  const scale = 2; // 2x for high quality
+                  canvas.width = viewport.clientWidth * scale;
+                  canvas.height = viewport.clientHeight * scale;
+
+                  // 1. Draw Video Frame
+                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                  // 2. Draw Semi-transparent Dark Overlay for text legibility
+                  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                  // 3. Draw Branding (Simplified version of UI for canvas)
+                  ctx.fillStyle = themeColor;
+                  ctx.font = `bold ${24 * scale}px Inter`;
+                  ctx.textAlign = 'center';
+                  ctx.fillText(headline, canvas.width / 2, 60 * scale);
+
+                  ctx.fillStyle = '#ffffff';
+                  ctx.font = `bold ${14 * scale}px Inter`;
+                  ctx.fillText(tagline, canvas.width / 2, canvas.height / 2 + 40 * scale);
+
+                  ctx.fillStyle = themeColor;
+                  ctx.fillRect(canvas.width / 2 - 100 * scale, canvas.height - 80 * scale, 200 * scale, 40 * scale);
+                  ctx.fillStyle = '#ffffff';
+                  ctx.font = `bold ${12 * scale}px Inter`;
+                  ctx.fillText('GET COSMO SYMPHONY', canvas.width / 2, canvas.height - 55 * scale);
+
+                  // 4. Download
+                  const link = document.createElement('a');
+                  link.download = `promo_${selectedVideo.title.replace(/\s+/g, '_')}.jpg`;
+                  link.href = canvas.toDataURL('image/jpeg', 0.9);
+                  link.click();
+                }}
+              >
                 <Download size={16} /> DOWNLOAD PACK
               </button>
             </div>
