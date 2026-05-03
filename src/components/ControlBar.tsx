@@ -44,6 +44,9 @@ import {
   HelpCircle,
   Palette,
   Share2,
+  Sparkles,
+  Save,
+  MousePointer2,
 } from 'lucide-react';
 
 interface ControlBarProps {
@@ -110,6 +113,7 @@ interface ControlBarProps {
   setShowHelp: React.Dispatch<React.SetStateAction<boolean>>;
   showPromo: boolean;
   setShowPromo: React.Dispatch<React.SetStateAction<boolean>>;
+  toggleMasterMute: () => void;
 }
 
 export function ControlBar({
@@ -174,272 +178,253 @@ export function ControlBar({
   setShowHelp,
   showPromo,
   setShowPromo,
+  showCreationStudio,
+  setShowCreationStudio,
   theme,
   setTheme,
+  toggleMasterMute,
 }: ControlBarProps) {
+  const [collectionName, setCollectionName] = useState('');
+
   const toggleMasterPlay = useCallback(() => {
     const newState = !masterPlaying;
     setMasterPlaying(newState);
     setVideos((p) => p.map((v) => ({ ...v, playing: newState })));
   }, [masterPlaying, setMasterPlaying, setVideos]);
 
-  const toggleMasterMute = useCallback(() => {
-    const newState = !masterMuted;
-    setMasterMuted(newState);
-    setVideos((p) => p.map((v) => ({ ...v, muted: newState })));
-    addLog(`System Volume: ${newState ? 'OFF' : 'ON'}`);
-  }, [masterMuted, setMasterMuted, setVideos, addLog]);
+  const saveCollection = () => {
+    if (!collectionName.trim()) return;
+    setCollections(p => ({ ...p, [collectionName]: videos }));
+    setCollectionName('');
+    addLog(`Saved Set: ${collectionName}`);
+  };
+
+  const loadCollection = (col: VideoItem[]) => {
+    setVideos(col);
+    addLog('Loaded workspace set.');
+  };
+
+  const deleteCollection = (name: string) => {
+    setCollections(p => {
+      const n = { ...p };
+      delete n[name];
+      return n;
+    });
+  };
 
   return (
     <>
-      <header className="app-header">
-        <div className="header-row-brand" data-tauri-drag-region>
-          <div className="header-left">
-            <img src="/logo.png" className="app-logo-img" alt="Logo" data-tauri-drag-region />
-            <div className="logo-text" data-tauri-drag-region>
-              <h1 className="brand-main" data-tauri-drag-region>COSMO <span className="brand-sub" data-tauri-drag-region>SYMPHONY</span></h1>
+        <header className="app-header">
+          <div className="header-row brand-row">
+            <div className="header-left">
+              <img src="/logo.png" className="app-logo-img" alt="Logo" />
+              <div className="logo-text">
+                <h1 className="brand-main">COSMO <span className="brand-sub">WHISPER</span></h1>
+              </div>
+              
+              <div className="search-container">
+                <Search size={14} className="search-icon-mini" />
+                <input
+                  type="text"
+                  placeholder="Search units..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onMouseDown={e => e.stopPropagation()}
+                  className="hdr-search-input"
+                />
+              </div>
             </div>
-            <div className="search-container">
-              <Search size={14} className="search-icon-mini" />
-              <input
-                type="text"
-                placeholder="Search Workspace..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="hdr-search-input"
-              />
+            
+            <div className="window-controls" style={{ display: 'flex', gap: '8px', marginLeft: 'auto', paddingRight: '4px', zIndex: 1001, pointerEvents: 'auto' }}>
+              <button className="win-dot min" onClick={() => getCurrentWindow().minimize()} title="Minimize" />
+              <button className="win-dot max" onClick={() => getCurrentWindow().toggleMaximize()} title="Maximize" />
+              <button className="win-dot close" onClick={() => getCurrentWindow().close()} title="Close" />
             </div>
-            {videos.length > 0 && <span className="count-badge">{videos.length}</span>}
           </div>
           
-          <div data-tauri-drag-region style={{ flex: 1, height: '100%', minHeight: '32px' }} />
+          <div className="header-row controls-row">
+            <div className="header-menu-container">
+            {/* INGESTION & AUTO */}
+            <div className="ctrl-group ingestion-group">
+               <button
+                onClick={async () => {
+                  const path = await invoke<string | null>('select_folder_cmd');
+                  if (path) {
+                    const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path });
+                    if (folderVids && folderVids.length > 0) {
+                      const toAssetUrl = (filePath: string) => convertFileSrc(filePath);
+                      const folderWithUrls = folderVids.map((v) => ({ ...v, url: toAssetUrl(v.url) }));
+                      setVideos((p) => [
+                        ...p,
+                        {
+                          id: crypto.randomUUID(),
+                          url: toAssetUrl(folderVids[0].url),
+                          realPath: folderVids[0].url,
+                          title: folderVids[0].name,
+                          repeatMode: 'folder',
+                          repeatCount: 0,
+                          cols: 1,
+                          folderFiles: folderWithUrls,
+                          currentIdx: 0,
+                          playing: masterPlaying,
+                          muted: masterMuted,
+                        },
+                      ]);
+                      addLog(`Added folder: ${path}`);
+                    }
+                  }
+                }}
+                className="hdr-btn"
+                data-tooltip="Add Folder"
+              >
+                <Plus size={14} />
+              </button>
+              <div className="cycle-group" style={{ display: 'flex', alignItems: 'center' }}>
+                <button
+                  onClick={() => setRotating(!rotating)}
+                  className={`hdr-btn ${rotating ? 'active-accent' : ''}`}
+                  data-tooltip="Auto-Cycle"
+                >
+                  <ListRestart size={14} />
+                </button>
+                <select
+                  value={rotationInterval}
+                  onChange={(e) => setRotationInterval(parseInt(e.target.value))}
+                  className="interval-select"
+                  onMouseDown={e => e.stopPropagation()}
+                >
+                  <option value={5}>5s</option>
+                  <option value={10}>10s</option>
+                  <option value={30}>30s</option>
+                  <option value={60}>1m</option>
+                </select>
+              </div>
+            </div>
 
-          <div className="window-controls">
-            <button className="win-dot min" onClick={() => getCurrentWindow().minimize()} data-tooltip="Minimize" />
-            <button className="win-dot max" onClick={() => getCurrentWindow().toggleMaximize()} data-tooltip="Maximize" />
-            <button className="win-dot close" onClick={() => getCurrentWindow().close()} data-tooltip="Close" />
-          </div>
+            {/* STUDIO SUITE */}
+            <div className="ctrl-group studio-group">
+              <button onClick={() => setShowCreationStudio(true)} className={`hdr-btn creation-btn ${showCreationStudio ? 'active-accent' : ''}`} data-tooltip="Studio">
+                <Sparkles size={14} /> <span>STUDIO</span>
+              </button>
+              <button onClick={() => setShowPromo(true)} className={`hdr-btn promo-btn ${showPromo ? 'active-accent' : ''}`} data-tooltip="Promo">
+                <Share2 size={14} />
+              </button>
+              <button onClick={() => setShowCollections(!showCollections)} className={`hdr-btn ${showCollections ? 'active-accent' : ''}`} data-tooltip="Sets">
+                <Bookmark size={14} />
+              </button>
+            </div>
 
+            {/* PLAYBACK ENGINE */}
+            <div className="ctrl-group playback-group">
+              {/* VERTICAL SPEED */}
+              <div className="slider-v-box" data-tooltip={`Speed: ${speed}x`}>
+                <input
+                  type="range"
+                  min="0.25"
+                  max="4"
+                  step="0.25"
+                  value={speed}
+                  onChange={(e) => setSpeed(parseFloat(e.target.value))}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="v-range"
+                />
+                <Gauge size={10} />
+              </div>
+              
+              {/* VERTICAL VOLUME */}
+              <div className="slider-v-box" data-tooltip={`Vol: ${Math.round(globalVolume*100)}%`}>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={globalVolume}
+                  onChange={(e) => {
+                    setGlobalVolume(parseFloat(e.target.value));
+                    if (parseFloat(e.target.value) > 0 && masterMuted) toggleMasterMute();
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="v-range"
+                />
+                <Volume2 size={10} />
+              </div>
 
-        </div>
-        <div className="header-row-controls" data-tauri-drag-region>
-          <div className="ctrl-group">
-            <div className="slider-box" data-tooltip="Density">
-              <LayoutGrid size={12} />
+              <button
+                onClick={() => {
+                  const modes: RepeatMode[] = ['none', 'always', 'folder'];
+                  setGlobalRepeat(modes[(modes.indexOf(globalRepeat) + 1) % modes.length]);
+                }}
+                className={`hdr-btn ${globalRepeat !== 'none' ? 'active-accent' : ''}`}
+                data-tooltip={`Repeat: ${globalRepeat.toUpperCase()}`}
+              >
+                {globalRepeat === 'always' ? <Repeat1 size={14} /> : <Repeat size={14} />}
+              </button>
+              <button onClick={toggleMasterPlay} className={`hdr-btn main-play ${masterPlaying ? 'active-accent' : ''}`} data-tooltip="Play/Pause">
+                {masterPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+              </button>
+              <button onClick={toggleMasterMute} className={`hdr-btn ${masterMuted ? 'active-accent' : ''}`} data-tooltip="Mute">
+                {masterMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+              </button>
+            </div>
+
+            {/* DENSITY & UI */}
+            <div className="ctrl-group density-group">
+              {/* VERTICAL DENSITY */}
+              <div className="slider-v-box" data-tooltip="Density">
                 <input
                   type="range"
                   min={MIN_ZOOM}
                   max={MAX_ZOOM}
                   value={ (MAX_ZOOM + MIN_ZOOM) - zoom }
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    setZoom((MAX_ZOOM + MIN_ZOOM) - val);
-                  }}
+                  onChange={(e) => setZoom((MAX_ZOOM + MIN_ZOOM) - parseInt(e.target.value))}
                   onMouseDown={(e) => e.stopPropagation()}
-                  className="zoom-slider"
+                  className="v-range"
                 />
-            </div>
-            <button
-              onClick={() => {
-                setVideos((p) => p.map((v) => ({ ...v, cols: 1 })));
-                setZoom(4);
-              }}
-              className="hdr-btn"
-              data-tooltip="Reset"
-            >
-              <RotateCcw size={14} />
-            </button>
+                <LayoutGrid size={10} />
+              </div>
+              <button onClick={() => setZoom(4)} className="hdr-btn" data-tooltip="Reset Zoom"><RotateCcw size={14} /></button>
               <button
-                onClick={() => {
-                  if (!immersive && !focusedId && filtered.length > 0) {
-                    onToggleFocus(filtered[0].id);
-                  } else if (immersive) {
-                    onToggleFocus(null);
-                  }
-                  setImmersive(!immersive);
-                }}
+                onClick={() => setImmersive(!immersive)}
                 className={`hdr-btn ${immersive ? 'active-accent' : ''}`}
                 data-tooltip="Toggle UI"
               >
                 {immersive ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
-            <button
-              onClick={() => {
-                if (confirm('Purge?')) setVideos([]);
-              }}
-              className="hdr-btn purge-btn"
-              data-tooltip="Purge"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
+            </div>
 
-          <div className="ctrl-group">
-            <button
-              onClick={() => setShowCollections(!showCollections)}
-              className={`hdr-btn ${showCollections ? 'active-accent' : ''}`}
-              data-tooltip="Sets"
-            >
-              <Bookmark size={14} />
-            </button>
-            <button
-              onClick={() => setShowLogs(!showLogs)}
-              className={`hdr-btn ${showLogs ? 'active-accent' : ''}`}
-              data-tooltip="Logs"
-            >
-              <Layers size={14} />
-            </button>
-            <button
-              onClick={() => {
-                setAlwaysOnTop(!alwaysOnTop);
-                invoke('set_always_on_top', { flag: !alwaysOnTop });
-              }}
-              className={`hdr-btn ${alwaysOnTop ? 'active-accent' : ''}`}
-              data-tooltip="Top"
-            >
-              <Monitor size={14} />
-            </button>
-            <button onClick={() => window.location.reload()} className="hdr-btn" data-tooltip="Reload">
-              <RefreshCw size={14} />
-            </button>
-          </div>
-
-          <div className="ctrl-group">
-            <button
-              onClick={async () => {
-                const path = await invoke<string | null>('select_folder_cmd');
-                if (path) {
-                  const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path });
-                  const toAssetUrl = (filePath: string) => {
-                    return convertFileSrc(filePath);
-                  };
-                  if (folderVids && folderVids.length > 0) {
-                    const folderWithUrls = folderVids.map((v) => ({ ...v, url: toAssetUrl(v.url) }));
-                    setVideos((p) => [
-                      ...p,
-                      {
-                        id: crypto.randomUUID(),
-                        url: toAssetUrl(folderVids[0].url),
-                        realPath: folderVids[0].url,
-                        title: folderVids[0].name,
-                        repeatMode: 'folder',
-                        repeatCount: 0,
-                        cols: 1,
-                        folderFiles: folderWithUrls,
-                        currentIdx: 0,
-                        playing: masterPlaying,
-                        muted: masterMuted,
-                      },
-                    ]);
-                    addLog(`Added folder: ${path}`);
-                  }
-                }
-              }}
-              className="hdr-btn folder-btn"
-              data-tooltip="Add Folder"
-            >
-              <Plus size={14} /> FOLDER
-            </button>
-
-            <div className="cycle-group">
+            {/* SYSTEM TOOLS */}
+            <div className="ctrl-group system-group">
+              <button onClick={() => { if (confirm('Purge?')) setVideos([]); }} className="hdr-btn" data-tooltip="Purge"><Trash2 size={14} /></button>
+              <button onClick={() => window.location.reload()} className="hdr-btn" data-tooltip="Reload"><RefreshCw size={14} /></button>
+              <button 
+                onClick={() => {
+                  setAlwaysOnTop(!alwaysOnTop);
+                  invoke('set_always_on_top', { flag: !alwaysOnTop });
+                }} 
+                className={`hdr-btn ${alwaysOnTop ? 'active-accent' : ''}`} 
+                data-tooltip="Top"
+              >
+                <Monitor size={14} />
+              </button>
               <button
-                onClick={() => setRotating(!rotating)}
-                className={`hdr-btn cycle-toggle ${rotating ? 'active-accent' : ''}`}
-                data-tooltip="Auto-Cycle"
+                onClick={() => {
+                  const themes = ['symphony', 'midnight', 'nordic', 'solarized', 'cyberpunk'];
+                  setTheme(themes[(themes.indexOf(theme) + 1) % themes.length]);
+                }}
+                className="hdr-btn"
+                data-tooltip="Theme"
               >
-                <ListRestart size={14} />
-                <span>{rotating ? 'AUTO' : 'OFF'}</span>
+                <Palette size={14} />
               </button>
-              <select
-                value={rotationInterval}
-                onChange={(e) => setRotationInterval(parseInt(e.target.value))}
-                className="interval-select"
-              >
-                <option value={5}>5s</option>
-                <option value={10}>10s</option>
-                <option value={30}>30s</option>
-                <option value={60}>1m</option>
-              </select>
+              <button onClick={() => setShowLogs(!showLogs)} className={`hdr-btn ${showLogs ? 'active-accent' : ''}`} data-tooltip="Logs"><Layers size={14} /></button>
+              <button onClick={() => setShowHelp(true)} className={`hdr-btn ${showHelp ? 'active-accent' : ''}`} data-tooltip="Guide"><HelpCircle size={14} /></button>
+              <button onClick={() => setShowSettings(!showSettings)} className={`hdr-btn ${showSettings ? 'active-accent' : ''}`} data-tooltip="Settings"><Settings size={14} /></button>
+            </div>
+
             </div>
           </div>
+        </header>
 
-          <div className="ctrl-group">
-            <div className="slider-box" data-tooltip={`Speed: ${speed}x`}>
-              <Gauge size={12} />
-              <input
-                type="range"
-                min="0.25"
-                max="4"
-                step="0.25"
-                value={speed}
-                 onChange={(e) => {
-                   const s = parseFloat(e.target.value);
-                   setSpeed(s);
-                 }}
-                 className="zoom-slider"
-              />
-            </div>
-            <button onClick={toggleMasterPlay} className={`hdr-btn main-play ${masterPlaying ? 'active-accent' : ''}`} data-tooltip="Master Play">
-              {masterPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
-            </button>
-            <div className="slider-box" data-tooltip="Volume">
-              <Volume2 size={12} />
-               <input
-                 type="range"
-                 min="0"
-                 max="1"
-                 step="0.01"
-                 value={globalVolume}
-                 onChange={(e) => setGlobalVolume(parseFloat(e.target.value))}
-                 onMouseDown={(e) => e.stopPropagation()}
-                 className="zoom-slider volume-slider"
-               />
-            </div>
-            <button onClick={toggleMasterMute} className={`hdr-btn ${masterMuted ? 'active-accent' : ''}`} data-tooltip="Mute">
-              {masterMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-            </button>
-            <button
-              onClick={() => {
-                const modes: RepeatMode[] = ['none', 'always', 'folder'];
-                const n = modes[(modes.indexOf(globalRepeat) + 1) % modes.length];
-                setGlobalRepeat(n);
-              }}
-              className={`hdr-btn repeat-master-btn ${globalRepeat !== 'none' ? 'active-accent' : ''}`}
-              data-tooltip={`Repeat: ${globalRepeat === 'none' ? 'OFF' : globalRepeat === 'always' ? 'ONE' : 'FOLDER'}`}
-            >
-              {globalRepeat === 'always' ? <Repeat1 size={14} /> : <Repeat size={14} />}
-              <span className="repeat-label">{globalRepeat === 'none' ? 'OFF' : globalRepeat === 'always' ? 'ONE' : 'FOLDER'}</span>
-              </button>
-            <button onClick={() => setShowHelp(true)} className={`hdr-btn ${showHelp ? 'active-accent' : ''}`} data-tooltip="Guide">
-              <HelpCircle size={14} />
-            </button>
-            <button
-              onClick={() => {
-                const themes = ['symphony', 'midnight', 'nordic', 'solarized', 'cyberpunk'];
-                const next = themes[(themes.indexOf(theme) + 1) % themes.length];
-                setTheme(next);
-                addLog(`Theme: ${next.toUpperCase()}`);
-              }}
-              className="hdr-btn"
-              data-tooltip="Switch Theme"
-            >
-              <Palette size={14} />
-            </button>
-            <button onClick={() => setShowSettings(!showSettings)} className={`hdr-btn ${showSettings ? 'active-accent' : ''}`} data-tooltip="Settings">
-              <Settings size={14} />
-            </button>
-            <button 
-              onClick={() => setShowPromo(true)} 
-              className={`hdr-btn promo-btn ${showPromo ? 'active-accent' : ''}`} 
-              data-tooltip="Social Promo Studio"
-            >
-              <Share2 size={14} />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Settings Modal */}
       {showSettings && (
         <div className="settings-overlay" onClick={() => setShowSettings(false)}>
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
@@ -485,7 +470,7 @@ export function ControlBar({
                 <div className="shortcut-list">
                   <div className="shortcut-item">
                     <kbd>SPACE</kbd>
-                    <span>Master Play / Pause Toggle</span>
+                    <span>COSMO SYMPHONY — v3.2.1 (BETA-ACTIVE)</span>
                   </div>
                   <div className="shortcut-item">
                     <kbd>S</kbd>
@@ -506,70 +491,41 @@ export function ControlBar({
         </div>
       )}
 
-      {/* Collections Modal */}
       {showCollections && (
-        <div className="settings-overlay" onClick={() => setShowCollections(false)}>
-          <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="settings-header">
-              <h2>Cosmo Sets</h2>
-              <button onClick={() => setShowCollections(false)}>
+        <div className="modal-overlay" onClick={() => setShowCollections(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ width: '400px' }}>
+            <div className="modal-header">
+              <h2>Workspace Collections</h2>
+              <button onClick={() => setShowCollections(false)} className="close-logs">
                 <X size={20} />
               </button>
             </div>
-            <div className="settings-body">
+            <div className="modal-body">
               <div className="collection-save">
                 <input
-                  type="text"
-                  placeholder="New Set Name..."
-                  value={newCollectionName}
-                  onChange={(e) => setNewCollectionName(e.target.value)}
+                  placeholder="Set Name..."
+                  value={collectionName}
+                  onChange={(e) => setCollectionName(e.target.value)}
+                  onMouseDown={e => e.stopPropagation()}
                 />
-                   <button
-                   onClick={() => {
-                     const validationError = validateCollectionName(newCollectionName);
-                     if (validationError) {
-                       addLog(`Error: ${validationError}`);
-                       return;
-                     }
-                     setCollections((p) => ({ ...p, [newCollectionName]: videos }));
-                     setNewCollectionName('');
-                     addLog(`Saved Collection: ${newCollectionName}`);
-                   }}
-                   className="save-btn"
-                 >
-                  <Plus size={16} /> SAVE CURRENT
+                <button onClick={saveCollection} className="save-btn">
+                  <Save size={14} /> SAVE
                 </button>
               </div>
               <div className="collection-list">
+                {Object.entries(collections).length === 0 && <p className="empty-msg" style={{ textAlign: 'center', opacity: 0.5, fontSize: '12px', padding: '20px' }}>No sets saved yet.</p>}
                 {Object.entries(collections).map(([name, vids]) => (
                   <div key={name} className="collection-item">
                     <div className="coll-info">
                       <span className="coll-name">{name}</span>
-                      <span className="coll-meta">{vids.length} VIDEOS</span>
+                      <span className="coll-meta">{vids.length} units</span>
                     </div>
                     <div className="coll-actions">
-                      <button
-                        onClick={() => {
-                          setVideos(vids);
-                          setShowCollections(false);
-                          addLog(`Loaded: ${name}`);
-                        }}
-                        className="coll-btn load"
-                      >
-                        <Play size={14} /> LOAD
+                      <button onClick={() => loadCollection(vids)} className="coll-btn load" title="Load Set">
+                        <Play size={12} fill="currentColor" />
                       </button>
-                      <button
-                        onClick={() => {
-                          if (confirm('Delete Set?'))
-                            setCollections((p) => {
-                              const n = { ...p };
-                              delete n[name];
-                              return n;
-                            });
-                        }}
-                        className="coll-btn del"
-                      >
-                        <Trash2 size={14} />
+                      <button onClick={() => deleteCollection(name)} className="coll-btn del" title="Delete Set">
+                        <Trash2 size={12} />
                       </button>
                     </div>
                   </div>
@@ -580,44 +536,69 @@ export function ControlBar({
         </div>
       )}
 
-      {/* Logs Modal */}
       {showLogs && (
         <div className="logs-overlay" onClick={() => setShowLogs(false)}>
-          <motion.div
-            initial={{ x: 400 }}
-            animate={{ x: 0 }}
-            exit={{ x: 400 }}
-            className="logs-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="logs-modal" onClick={(e) => e.stopPropagation()}>
             <div className="logs-header">
-              <h2>ACTIVITY TELEMETRY</h2>
+              <h2>NPU Logs</h2>
               <button onClick={() => setShowLogs(false)} className="close-logs">
                 <X size={20} />
               </button>
             </div>
             <div className="logs-body">
-              {logs.length === 0 ? (
-                <div className="no-logs">System ready. Awaiting commands...</div>
-              ) : (
-                logs.map((l, i) => (
-                  <div key={i} className="log-entry">
-                    <span className="log-time">[{l.t}]</span>
-                    <span className="log-msg">{l.m}</span>
-                  </div>
-                ))
-              )}
+              {logs.length === 0 && <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No logs yet.</p>}
+              {logs.map((log, i) => (
+                <div key={i} className="log-entry">
+                  <span className="log-time">{log.t}</span>
+                  <span className="log-msg">{log.m}</span>
+                </div>
+              ))}
             </div>
-          </motion.div>
+          </div>
         </div>
-       )}
+      )}
 
-       {/* Help Modal */}
-       {showHelp && (
-         <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
-       )}
+      {showHelp && (
+        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="modal-header">
+              <h2>COSMO SYMPHONY GUIDE</h2>
+              <button onClick={() => setShowHelp(false)} className="close-logs">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body">
+               <div className="settings-section">
+                <h3>Workspace Interaction</h3>
+                <div className="interaction-list">
+                   <div className="interaction-item">
+                    <div className="i-icon"><MousePointer2 size={16}/></div>
+                    <div className="i-content">
+                      <strong>Drag & Drop</strong>
+                      <span>Drop video files or folders anywhere to ingest.</span>
+                    </div>
+                  </div>
+                   <div className="interaction-item">
+                    <div className="i-icon"><Maximize2 size={16}/></div>
+                    <div className="i-content">
+                      <strong>Deep Focus</strong>
+                      <span>Double click any unit to solo. ESC to return to wall.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="settings-section" style={{ marginTop: '20px' }}>
+                <h3>Autonomous Production</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  The <strong>Studio</strong> button opens the generative creation pipeline. Describe the video you want, 
+                  and the system will orchestrate local assets and AI generation to produce it.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
-       {/* Dropdown Context Menu */}
       {menu && (
         <ContextMenu
           x={menu.x}
@@ -633,7 +614,6 @@ export function ControlBar({
             if (a === 'popout') invoke('pop_out', { url: v.url, title: v.title });
             if (a === 'focus') onToggleFocus(v.id === focusedId ? null : v.id);
              if (a === 'snapshot') {
-               // Trigger snapshot via global control
                setGlobalControl(`snapshot-${v.id}-${Date.now()}`);
              }
              if (a === 'play') onUpdateVideo(v.id, { playing: !v.playing });

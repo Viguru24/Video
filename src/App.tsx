@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { ResizeHandles } from './components/ResizeHandles';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,6 +12,7 @@ import { ClockDisplay } from './components/ClockDisplay';
 import { ControlBar } from './components/ControlBar';
 import { ContextMenu } from './components/ContextMenu';
 import { PromoExporter } from './components/PromoExporter';
+import { CreationStudio } from './components/CreationStudio';
 import {
   DndContext,
   KeyboardSensor,
@@ -107,15 +109,20 @@ export default function App() {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragFile, setDragFile] = useState(false);
   const [masterPlaying, setMasterPlaying] = useState(true);
-  const [masterMuted, setMasterMuted] = useState(false);
-  const [masterMutedOverride, setMasterMutedOverride] = useState(false); // New: tracks if master is forcing mute
-  const [masterPlaying, setMasterPlaying] = useState(true);
-  const [globalVolume, setGlobalVolume] = useState(1);
+  const [masterMuted, setMasterMuted] = useState(true);
+  const [masterMutedOverride, setMasterMutedOverride] = useState(false);
+  const [globalVolume, setGlobalVolume] = useState(0);
+  const [preMuteVolume, setPreMuteVolume] = useState(1);
   const [masterShowUI, setMasterShowUI] = useState(true);
 
   const [showSettings, setShowSettings] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
   const [showPromo, setShowPromo] = useState(false);
+  const [showCreationStudio, setShowCreationStudio] = useState(() => localStorage.getItem('show_studio') === 'true');
+  
+  useEffect(() => {
+    localStorage.setItem('show_studio', showCreationStudio.toString());
+  }, [showCreationStudio]);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [showImmersiveUI, setShowImmersiveUI] = useState(true);
   const immersiveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -123,6 +130,17 @@ export default function App() {
   const [isFS, setIsFS] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [fatalError, setFatalError] = useState<Error | null>(null);
+
+  const masterPlayingRef = useRef(masterPlaying);
+  const masterMutedRef = useRef(masterMuted);
+
+  useEffect(() => {
+    masterPlayingRef.current = masterPlaying;
+  }, [masterPlaying]);
+
+  useEffect(() => {
+    masterMutedRef.current = masterMuted;
+  }, [masterMuted]);
 
   const [logs, setLogs] = useState<{ t: string, m: string }[]>([]);
   const addLog = useCallback((m: string) => {
@@ -183,9 +201,15 @@ export default function App() {
   const toggleMasterMute = () => {
     const newState = !masterMuted;
     setMasterMuted(newState);
-    setMasterMutedOverride(true);  // Mark that master is overriding
-    // Don't override individual video states anymore
-    // Just set the global flag, videos will respect it in rendering
+    setMasterMutedOverride(true);
+    
+    if (newState) {
+      setPreMuteVolume(globalVolume);
+      setGlobalVolume(0);
+    } else {
+      setGlobalVolume(preMuteVolume > 0 ? preMuteVolume : 1);
+    }
+    
     addLog(`System Volume: ${newState ? 'OFF' : 'ON'}`);
   };
 
@@ -483,18 +507,21 @@ export default function App() {
            if (filtered.length > 0) onToggleFocus(focusedId ? null : filtered[0].id);
            break;
          case 'm': toggleMasterMute(); break; case 'l': setGlobalRepeat(prev => { const modes = ['none', 'once', 'always', 'folder']; const next = modes[(modes.indexOf(prev) + 1) % modes.length]; addLog('Global Repeat: ' + next.toUpperCase()); return next; }); break; case 'p': setShowPromo(prev => !prev); break; case 'escape':
-           if (focusedId) { onToggleFocus(null); return; }
-           if (showSettings) { setShowSettings(false); return; }
-           if (showCollections) { setShowCollections(false); return; }
-           if (showLogs) { setShowLogs(false); return; }
-           if (menu) { setMenu(null); return; }
-           invoke('exit_app').catch(console.error);
-           break;
+            e.preventDefault();
+            e.stopPropagation();
+            if (menu) { setMenu(null); return; }
+            if (showSettings) { setShowSettings(false); return; }
+            if (showCollections) { setShowCollections(false); return; }
+            if (showLogs) { setShowLogs(false); return; }
+            if (showCreationStudio) { setShowCreationStudio(false); return; }
+            if (focusedId) { onToggleFocus(null); return; }
+            if (immersive) { setImmersive(false); return; }
+            break;
        }
      };
      window.addEventListener('keydown', handleKeys, true);
      return () => window.removeEventListener('keydown', handleKeys, true);
-   }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, menu, setZoom, setGlobalControl, setMenu, setShowCollections, setShowLogs, setShowSettings, toggleMasterMute, setGlobalRepeat, setShowPromo]);
+   }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, showCreationStudio, menu, setZoom, setGlobalControl, setMenu, setShowCollections, setShowLogs, setShowSettings, setShowCreationStudio, toggleMasterMute, setGlobalRepeat, setShowPromo, immersive]);
 
   // NATIVE DRAG-DROP HARDENING (v3.2.2)
   useEffect(() => {
@@ -703,6 +730,7 @@ export default function App() {
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => e.preventDefault()}
     >
+      <ResizeHandles />
       <div className="nebula-bg" />
       <AnimatePresence>
         {toast && (
@@ -779,6 +807,9 @@ export default function App() {
           setShowHelp={setShowHelp}
           showPromo={showPromo}
           setShowPromo={setShowPromo}
+          showCreationStudio={showCreationStudio}
+          setShowCreationStudio={setShowCreationStudio}
+          toggleMasterMute={toggleMasterMute}
         />
       )}
 
@@ -882,6 +913,7 @@ export default function App() {
         onClose={() => setShowPromo(false)} 
         videos={videos}
       />
+      {showCreationStudio && <CreationStudio onClose={() => setShowCreationStudio(false)} addLog={addLog} />}
     </main>
   );
 }

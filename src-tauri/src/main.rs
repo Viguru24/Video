@@ -275,11 +275,18 @@ fn main() {
                     .unwrap();
             }
 
-            // SECURITY: Restrict to allowed directories (customize these for your environment)
+            // SECURITY: Restrict to allowed directories
             let allowed_prefixes = [
-                std::path::PathBuf::from(r"C:\Users"),
-                std::path::PathBuf::from(r"D:\Media"),
-                // Add your allowed media directories here
+                std::path::PathBuf::from(r"C:\"),
+                std::path::PathBuf::from(r"D:\"),
+                std::path::PathBuf::from(r"E:\"),
+                std::path::PathBuf::from(r"F:\"),
+                std::path::PathBuf::from(r"G:\"),
+                std::path::PathBuf::from(r"H:\"),
+                std::path::PathBuf::from(r"M:\"),
+                std::path::PathBuf::from(r"S:\"),
+                std::path::PathBuf::from(r"Z:\"),
+                std::path::PathBuf::from(r"\\?\"), // UNC paths
             ];
 
             let is_allowed = allowed_prefixes.iter().any(|prefix| {

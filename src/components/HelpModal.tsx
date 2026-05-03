@@ -140,7 +140,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <div className="help-footer">
                 <div className="footer-info">
                   <Info size={14} />
-                  <span>COSMO SYMPHONY — v3.0.0 (STABLE)</span>
+                  <span>COSMO SYMPHONY — v3.2.1 (BETA-ACTIVE)</span>
                 </div>
                 <div className="footer-status">SYMPHONY SYSTEM STABLE</div>
               </div>
