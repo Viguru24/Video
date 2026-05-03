@@ -72,6 +72,10 @@ function VideoCardInternal({
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(masterPlaying);
   const [muted, setMuted] = useState(masterMuted);
+
+  useEffect(() => {
+    setMuted(masterMuted);
+  }, [masterMuted]);
   const [localRepeat, setLocalRepeat] = useState<RepeatMode>(video.repeatMode || 'none');
   const [recovering, setRecovering] = useState(false);
   const [snapshotToast, setSnapshotToast] = useState<number | null>(null);
