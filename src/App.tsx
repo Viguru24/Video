@@ -12,7 +12,7 @@ import { ClockDisplay } from './components/ClockDisplay';
 import { ControlBar } from './components/ControlBar';
 import { ContextMenu } from './components/ContextMenu';
 import { PromoExporter } from './components/PromoExporter';
-import { CreationStudio } from './components/CreationStudio';
+import { SymphonyWorkshop } from './components/SymphonyWorkshop';
 import {
   DndContext,
   KeyboardSensor,
@@ -118,11 +118,11 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
   const [showPromo, setShowPromo] = useState(false);
-  const [showCreationStudio, setShowCreationStudio] = useState(() => localStorage.getItem('show_studio') === 'true');
+  const [showSymphonyWorkshop, setShowSymphonyWorkshop] = useState(() => localStorage.getItem('show_workshop') === 'true');
   
   useEffect(() => {
-    localStorage.setItem('show_studio', showCreationStudio.toString());
-  }, [showCreationStudio]);
+    localStorage.setItem('show_workshop', showSymphonyWorkshop.toString());
+  }, [showSymphonyWorkshop]);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [showImmersiveUI, setShowImmersiveUI] = useState(true);
   const immersiveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -448,6 +448,25 @@ export default function App() {
     };
   }, [videos.length, zoom, immersive, filtered.length, isPopout, setIdToRow, setRowOffsets]);
 
+  // Play subtle scroll sound (Web Audio API)
+  const playScrollSound = () => {
+    if (masterMuted) return;
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 800;
+      gain.gain.value = 0.05;
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+      osc.stop(ctx.currentTime + 0.05);
+    } catch (e) {
+      // ignore
+    }
+  };
+
   // MOUSE WHEEL: CTRL+WHEEL = DENSITY
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -466,11 +485,12 @@ export default function App() {
           }
           return prev;
         });
-      } else {
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop += e.deltaY;
-        }
-      }
+       } else {
+         playScrollSound(); // Auditory feedback on scroll
+         if (scrollRef.current) {
+           scrollRef.current.scrollTop += e.deltaY;
+         }
+       }
     };
     window.addEventListener('wheel', handleWheel, { passive: false });
     return () => window.removeEventListener('wheel', handleWheel);
@@ -513,7 +533,7 @@ export default function App() {
             if (showSettings) { setShowSettings(false); return; }
             if (showCollections) { setShowCollections(false); return; }
             if (showLogs) { setShowLogs(false); return; }
-            if (showCreationStudio) { setShowCreationStudio(false); return; }
+            if (showSymphonyWorkshop) { setShowSymphonyWorkshop(false); return; }
             if (focusedId) { onToggleFocus(null); return; }
             if (immersive) { setImmersive(false); return; }
             break;
@@ -521,7 +541,7 @@ export default function App() {
      };
      window.addEventListener('keydown', handleKeys, true);
      return () => window.removeEventListener('keydown', handleKeys, true);
-   }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, showCreationStudio, menu, setZoom, setGlobalControl, setMenu, setShowCollections, setShowLogs, setShowSettings, setShowCreationStudio, toggleMasterMute, setGlobalRepeat, setShowPromo, immersive]);
+   }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, showSymphonyWorkshop, menu, setZoom, setGlobalControl, setMenu, setShowCollections, setShowLogs, setShowSettings, setShowSymphonyWorkshop, toggleMasterMute, setGlobalRepeat, setShowPromo, immersive]);
 
   // NATIVE DRAG-DROP HARDENING (v3.2.2)
   useEffect(() => {
@@ -807,8 +827,8 @@ export default function App() {
           setShowHelp={setShowHelp}
           showPromo={showPromo}
           setShowPromo={setShowPromo}
-          showCreationStudio={showCreationStudio}
-          setShowCreationStudio={setShowCreationStudio}
+          showSymphonyWorkshop={showSymphonyWorkshop}
+          setShowSymphonyWorkshop={setShowSymphonyWorkshop}
           toggleMasterMute={toggleMasterMute}
         />
       )}
@@ -913,7 +933,7 @@ export default function App() {
         onClose={() => setShowPromo(false)} 
         videos={videos}
       />
-      {showCreationStudio && <CreationStudio onClose={() => setShowCreationStudio(false)} addLog={addLog} />}
+      {showSymphonyWorkshop && <SymphonyWorkshop onClose={() => setShowSymphonyWorkshop(false)} addLog={addLog} />}
     </main>
   );
 }
