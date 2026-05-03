@@ -729,8 +729,9 @@ const API_BASE = 'http://localhost:8000';
                 >
                   CLOSE SIDEBAR
                 </button>
-                              </div>
-            )}
+                 </div>
+               </motion.div>
+             )}
           </AnimatePresence>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', flex: 1 }}>
