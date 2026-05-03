@@ -730,6 +730,7 @@ const API_BASE = 'http://localhost:8000';
                   CLOSE SIDEBAR
                 </button>
                  </div>
+               </div>
                </motion.div>
              )}
           </AnimatePresence>
