@@ -345,8 +345,9 @@ function VideoCardInternal({
           src={displayUrl}
           crossOrigin="anonymous"
           playsInline
-          loop={globalRepeat !== 'none' && (localRepeat === 'always' || globalRepeat === 'always')}
-          onEnded={onEnded}
+           loop={true}
+           muted={muted}
+           onEnded={onEnded}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={() => {
             setDuration(videoRef.current?.duration || 0);

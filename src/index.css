@@ -1810,7 +1810,7 @@ input[type="range"]:active::-webkit-slider-thumb {
   opacity: 1;
 }
 
-/* === SOCIAL PROMO STUDIO === */
+/* === SOCIAL PROMO WORKSHOP === */
 .promo-modal {
   width: 90vw;
   height: 90vh;
@@ -1825,7 +1825,7 @@ input[type="range"]:active::-webkit-slider-thumb {
   
 }
 
-.promo-studio-body {
+.promo-workshop-body {
   flex: 1;
   display: flex;
   overflow: hidden;

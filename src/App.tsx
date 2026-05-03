@@ -448,25 +448,6 @@ export default function App() {
     };
   }, [videos.length, zoom, immersive, filtered.length, isPopout, setIdToRow, setRowOffsets]);
 
-  // Play subtle scroll sound (Web Audio API)
-  const playScrollSound = () => {
-    if (masterMuted) return;
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 800;
-      gain.gain.value = 0.05;
-      osc.start();
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
-      osc.stop(ctx.currentTime + 0.05);
-    } catch (e) {
-      // ignore
-    }
-  };
-
   // MOUSE WHEEL: CTRL+WHEEL = DENSITY
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -486,7 +467,6 @@ export default function App() {
           return prev;
         });
        } else {
-         playScrollSound(); // Auditory feedback on scroll
          if (scrollRef.current) {
            scrollRef.current.scrollTop += e.deltaY;
          }
