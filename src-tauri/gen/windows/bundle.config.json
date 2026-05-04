@@ -1,9 +1,10 @@
 {
-  "publisher": "CN=CosmoVideoPublisher",
-  "publisherDisplayName": "Cosmo Video",
+  "publisher": "CN=CosmoSymphony, O=Cosmo, C=UK",
+  "publisherDisplayName": "Cosmo Symphony",
   "capabilities": {
     "general": [
-      "internetClient"
+      "internetClient",
+      "privateNetworkClientServer"
     ],
     "restricted": [
       "broadFileSystemAccess"
@@ -15,8 +16,8 @@
     "protocolHandlers": []
   },
   "signing": {
-    "pfx": "../../../release/CosmoVideo_Store.pfx",
-    "pfxPassword": "Cosmo123"
+    "pfx": "../../certificates/dev.pfx",
+    "pfxPassword": "Cosmo2026!"
   },
   "resourceIndex": {
     "enabled": false,

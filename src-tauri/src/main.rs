@@ -37,10 +37,36 @@ fn get_telemetry(state: tauri::State<AppState>) -> serde_json::Value {
     let total_mem = sys.total_memory() / 1024 / 1024 / 1024; // GB
     let used_mem = sys.used_memory() / 1024 / 1024 / 1024; // GB
 
+    let gpu_temp = std::process::Command::new("nvidia-smi")
+        .args(&["--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"])
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|s| s.trim().parse::<f32>().ok())
+        .unwrap_or(0.0);
+
+    let vram_data = std::process::Command::new("nvidia-smi")
+        .args(&["--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"])
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|s| {
+            let parts: Vec<&str> = s.split(',').collect();
+            if parts.len() >= 2 {
+                let used = parts[0].trim().parse::<f32>().ok()? / 1024.0;
+                let total = parts[1].trim().parse::<f32>().ok()? / 1024.0;
+                Some(format!("{:.1}/{:.1}GB", used, total))
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| format!("{}/{}GB", used_mem, total_mem));
+
     serde_json::json!({
         "cpu": format!("{:.1}%", cpu_usage),
-        "mem": format!("{}/{}GB", used_mem, total_mem),
-        "gpu": "SYMPHONY GPU",
+        "mem": vram_data,
+        "gpu": "RTX 5080",
+        "temp": gpu_temp,
         "fps": "STABLE"
     })
 }
@@ -72,9 +98,7 @@ async fn select_folder_cmd(app: AppHandle) -> Result<String, String> {
     use tauri_plugin_dialog::DialogExt;
     
     // Offload the blocking OS dialog to a worker thread to keep the main event loop fluid
-    let folder = tauri::async_runtime::spawn_blocking(move || {
-        app.dialog().file().blocking_pick_folder()
-    }).await.map_err(|e| e.to_string())?;
+    let folder = app.dialog().file().blocking_pick_folder();
 
     if let Some(path) = folder {
         Ok(path.to_string())
@@ -92,7 +116,7 @@ async fn get_folder_videos(path: String) -> Result<Vec<serde_json::Value>, Strin
                 let p = entry.path();
                 if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
                     if [
-                        "mp4", "webm", "mkv", "mov", "m4v", "avi", "flv", "wmv", "asf",
+                        "mp4", "webm", "mov", "m4v", "3gp", "avi"
                     ]
                     .contains(&ext.to_lowercase().as_str())
                     {
@@ -157,16 +181,51 @@ fn load_persistence(app: AppHandle, key: String) -> Option<String> {
 
 #[tauri::command]
 fn open_folder(path: String) {
-    // Mitigate command injection by joining the argument correctly
-    // and ensuring no shell metacharacters are executed.
-    let _ = std::process::Command::new("explorer")
-        .arg(format!("/select,{}", path))
+    let normalized_path = path.replace("/", "\\");
+    let p = std::path::Path::new(&normalized_path);
+    
+    if !p.exists() {
+        println!("System Error: Path not found -> {}", normalized_path);
+        return;
+    }
+
+    // Use PowerShell to open the folder and highlight the file
+    // PowerShell is more robust than raw explorer.exe calls with spaces/commas
+    let script = if p.is_dir() {
+        format!("explorer.exe \"{}\"", normalized_path)
+    } else {
+        format!("explorer.exe /select,\"{}\"", normalized_path)
+    };
+
+    let _ = std::process::Command::new("powershell")
+        .args(&["-NoProfile", "-Command", &script])
         .spawn();
 }
 
 #[tauri::command]
 fn exit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+async fn recycle_unit(path: String) -> Result<(), String> {
+    // SECURITY: Escape single quotes for PowerShell
+    let escaped_path = path.replace("'", "''");
+    let script = format!(
+        "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', 'OnlyErrorDialogs', 'SendToRecycleBin')",
+        escaped_path
+    );
+    
+    let output = std::process::Command::new("powershell")
+        .args(&["-NoProfile", "-Command", &script])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
 }
 
 #[tauri::command]
@@ -177,12 +236,39 @@ async fn set_always_on_top(app: AppHandle, flag: bool) {
 }
 
 #[tauri::command]
+async fn rename_video(old_path: String, new_name: String) -> Result<String, String> {
+    let old_p = std::path::PathBuf::from(&old_path);
+    if !old_p.exists() {
+        return Err("Source file not found".into());
+    }
+
+    let parent = old_p.parent().ok_or("Invalid parent directory")?;
+    let extension = old_p.extension().and_then(|e| e.to_str()).ok_or("File has no extension")?;
+    
+    // Sanitize new_name to prevent path traversal
+    let sanitized_name = new_name.replace(|c: char| !c.is_alphanumeric() && c != ' ' && c != '_' && c != '-', "");
+    if sanitized_name.is_empty() {
+        return Err("Invalid new name".into());
+    }
+
+    let new_filename = format!("{}.{}", sanitized_name, extension);
+    let new_p = parent.join(new_filename);
+
+    if new_p.exists() {
+        return Err("A file with that name already exists".into());
+    }
+
+    std::fs::rename(&old_p, &new_p).map_err(|e| e.to_string())?;
+
+    Ok(new_p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 async fn pop_out(app: AppHandle, url: String, title: String) {
     let encoded_url = urlencoding::encode(&url);
     let route = format!("/?popout=true&url={}", encoded_url);
 
-    let _ = tauri::async_runtime::spawn(async move {
-        let _ = WebviewWindowBuilder::new(
+    let _ = WebviewWindowBuilder::new(
             &app,
             format!("pop-{}", chrono::Local::now().timestamp()),
             WebviewUrl::App(route.into()),
@@ -190,12 +276,32 @@ async fn pop_out(app: AppHandle, url: String, title: String) {
         .title(title)
         .inner_size(800.0, 600.0)
         .build();
-    });
+}
+
+#[tauri::command]
+async fn get_video_metadata(path: String) -> Result<serde_json::Value, String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err("File not found".into());
+    }
+
+    let metadata = fs::metadata(&p).map_err(|e| e.to_string())?;
+    let size_mb = metadata.len() as f64 / 1024.0 / 1024.0;
+    let extension = p.extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_uppercase();
+
+    Ok(serde_json::json!({
+        "size": format!("{:.2} MB", size_mb),
+        "format": extension,
+        "path": path,
+        "name": p.file_name().and_then(|s| s.to_str()).unwrap_or("Unknown")
+    }))
 }
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_log::Builder::default()
@@ -208,6 +314,7 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .register_uri_scheme_protocol("cosmo", |_app, request| {
             // HIGH-PERFORMANCE ASYNC DRIVE ENGINE (v4)
             // This handler is optimized for 24-core parallel streaming
@@ -238,8 +345,20 @@ fn main() {
 
             // SECURITY: Proper path traversal prevention with canonicalization
             let mut components = Vec::new();
+            let mut has_prefix = false;
+            
             for component in std::path::Path::new(&path_decoded).components() {
                 match component {
+                    std::path::Component::Prefix(p) => {
+                        components.push(p.as_os_str());
+                        has_prefix = true;
+                    }
+                    std::path::Component::RootDir => {
+                        // Preserve RootDir if it's the first or after a prefix
+                        if components.is_empty() || has_prefix {
+                            components.push(component.as_os_str());
+                        }
+                    }
                     std::path::Component::Normal(name) => components.push(name),
                     std::path::Component::CurDir => continue,
                     std::path::Component::ParentDir => {
@@ -251,12 +370,6 @@ fn main() {
                                 .body(Vec::new())
                                 .unwrap();
                         }
-                    }
-                    _ => {
-                        return tauri::http::Response::builder()
-                            .status(400) // Bad Request
-                            .body(Vec::new())
-                            .unwrap();
                     }
                 }
             }
@@ -335,30 +448,24 @@ fn main() {
             let chunk_size = (end - start + 1) as usize;
             
             let mime = match path.extension().and_then(|s| s.to_str()).unwrap_or("") {
-                "mp4" => "video/mp4",
+                "mp4" | "m4v" => "video/mp4",
                 "webm" => "video/webm",
-                "mkv" => "video/x-matroska",
                 "mov" => "video/quicktime",
-                "avi" => "video/x-msvideo",
                 _ => "video/mp4",
             };
 
-            // ASYNC IO BLOCK
-            // We use a separate thread for the blocking read to keep the protocol pool reactive
-            let (_file, buffer) = std::thread::spawn(move || {
-                use std::io::{Read, Seek, SeekFrom};
-                match std::fs::File::open(&path) {
-                    Ok(mut f) => {
-                        let mut buf = vec![0; chunk_size];
-                        let _ = f.seek(SeekFrom::Start(start));
-                        let _ = f.read_exact(&mut buf);
-                        (Some(f), buf)
-                    },
-                    Err(_) => (None, Vec::new())
-                }
-            }).join().unwrap();
+            use std::io::{Read, Seek, SeekFrom};
+            let mut buffer = vec![0; chunk_size];
+            let mut file = match std::fs::File::open(&path) {
+                Ok(mut f) => {
+                    let _ = f.seek(SeekFrom::Start(start));
+                    let _ = f.read_exact(&mut buffer);
+                    Some(f)
+                },
+                Err(_) => None
+            };
 
-            if _file.is_none() {
+            if file.is_none() {
                 return tauri::http::Response::builder()
                     .status(404)
                     .header("Access-Control-Allow-Origin", "*")
@@ -386,7 +493,7 @@ fn main() {
             last_refresh: Mutex::new(std::time::Instant::now()),
         })
         .invoke_handler(tauri::generate_handler![
-            cosmo_log,
+            // cosmo_log,
             select_folder_cmd,
             get_folder_videos,
             save_snapshot,
@@ -396,11 +503,16 @@ fn main() {
             set_always_on_top,
             pop_out,
             get_telemetry,
+            get_video_metadata,
+            rename_video,
+            recycle_unit,
             exit_app
         ])
         .setup(|app| {
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.set_decorations(false);
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
             }
             Ok(())
         })

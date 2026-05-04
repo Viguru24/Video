@@ -8,10 +8,9 @@ import { VideoCard } from './components/VideoCard';
 import { SortableVideoCard } from './components/SortableVideoCard';
 import { VideoGrid } from './components/VideoGrid';
 import { TelemetryPanel } from './components/TelemetryPanel';
-import { ClockDisplay } from './components/ClockDisplay';
 import { ControlBar } from './components/ControlBar';
+import { ClockDisplay } from './components/ClockDisplay';
 import { ContextMenu } from './components/ContextMenu';
-import { ShareModal } from './components/ShareModal';
 import { SymphonyWorkshop } from './components/SymphonyWorkshop';
 import {
   DndContext,
@@ -101,6 +100,7 @@ export default function App() {
   const [speed, setSpeed] = useState(1);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const [motionActive, setMotionActive] = useState(false);
+  const [isFS, setIsFS] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -114,7 +114,6 @@ export default function App() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
-  const [showShare, setShowShare] = useState(false);
   const [showSymphonyWorkshop, setShowSymphonyWorkshop] = useState(false);
   
   useEffect(() => {
@@ -124,7 +123,6 @@ export default function App() {
   const [showImmersiveUI, setShowImmersiveUI] = useState(true);
   const immersiveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [fitMode, setFitMode] = useState<'cover' | 'contain'>('contain');
-  const [isFS, setIsFS] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [fatalError, setFatalError] = useState<Error | null>(null);
 
@@ -144,7 +142,6 @@ export default function App() {
 
   const [menu, setMenu] = useState<{ x: number, y: number, id: string } | null>(null);
   const [menuMetadata, setMenuMetadata] = useState<any>(null);
-  const [sharingVideo, setSharingVideo] = useState<VideoItem | null>(null);
   const [logs, setLogs] = useState<{ t: string, m: string }[]>([]);
   const addLog = useCallback((m: string) => {
     setLogs(p => [{ t: new Date().toLocaleTimeString(), m }, ...p].slice(0, 50));
@@ -220,13 +217,57 @@ export default function App() {
     setVideos(p => p.map(v => ({ ...v, playing: newState })));
   };
 
-  const handleRemove = useCallback((id: string) => {
+  const handleDecommission = useCallback((id: string) => {
     if (confirmDeletion) {
-      if (!window.confirm("ARE YOU SURE?\nThis will remove the unit from the workstation.")) return;
+      if (!window.confirm("PROTOCOL: DECOMMISSION UNIT\n\nThis will remove the unit from the workstation list.\nThe physical file on your disk will NOT be affected.\n\nProceed?")) return;
     }
     setVideos(p => p.filter(x => x.id !== id));
-    addLog("Unit Decommissioned");
+    addLog("Unit Decommissioned (List Only)");
   }, [setVideos, addLog, confirmDeletion]);
+
+  const handleAnnihilate = useCallback(async (id: string) => {
+    const video = videos.find(v => v.id === id);
+    if (!video || !video.realPath) {
+      addLog("Annihilation Error: Native path missing");
+      return;
+    }
+
+    if (confirmDeletion) {
+      if (!window.confirm(`PROTOCOL: ANNIHILATE ASSET\n\nTarget: ${video.title}\n\nThis will physically MOVE THE FILE TO THE RECYCLE BIN.\nThis action is reversible via the OS Recycle Bin, but the file will be gone from disk.\n\nPROCEED WITH DESTRUCTION?`)) return;
+    }
+
+    try {
+      await invoke('recycle_unit', { path: video.realPath });
+      setVideos(p => p.filter(x => x.id !== id));
+      addLog("Unit Annihilated (Recycle Bin)");
+    } catch (e) {
+      console.error(e);
+      addLog("Annihilation Failed: " + e);
+    }
+  }, [videos, setVideos, addLog, confirmDeletion]);
+
+  const handleBatchRemove = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    if (confirmDeletion) {
+      if (!window.confirm(`PROTOCOL: BATCH DECOMMISSION\n\nThis will remove ${selectedIds.size} units from the workstation.\nFiles will remain physically on disk.\n\nProceed?`)) return;
+    }
+    setVideos(p => p.filter(x => !selectedIds.has(x.id)));
+    addLog(`${selectedIds.size} Units Decommissioned`);
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  }, [selectedIds, confirmDeletion, setVideos, addLog, setSelectedIds, setSelectionMode]);
+
+  const handleBatchMute = useCallback((muteState: boolean) => {
+    if (selectedIds.size === 0) return;
+    setVideos(p => p.map(v => selectedIds.has(v.id) ? { ...v, muted: muteState } : v));
+    addLog(`Batch ${muteState ? 'Mute' : 'Unmute'}: ${selectedIds.size} units`);
+  }, [selectedIds, setVideos, addLog]);
+
+  const handleBatchPlay = useCallback((playState: boolean) => {
+    if (selectedIds.size === 0) return;
+    setVideos(p => p.map(v => selectedIds.has(v.id) ? { ...v, playing: playState } : v));
+    addLog(`Batch ${playState ? 'Play' : 'Stop'}: ${selectedIds.size} units`);
+  }, [selectedIds, setVideos, addLog]);
 
   const handleFocus = useCallback((id: string) => {
     setFocusedId(id);
@@ -278,7 +319,7 @@ export default function App() {
   }, []);
 
   const onUpdateVideo = handleUpdate;
-  const onRemoveVideo = handleRemove;
+  const onRemoveVideo = handleDecommission;
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -305,7 +346,12 @@ export default function App() {
       setVideos((items) => {
         const oldIndex = items.findIndex((v) => v.id === active.id);
         const newIndex = items.findIndex((v) => v.id === over.id);
-        return arrayMove(items, oldIndex, newIndex);
+        if (oldIndex !== -1 && newIndex !== -1) {
+          const next = arrayMove(items, oldIndex, newIndex);
+          addLog(`Reordered Units: [${items[oldIndex].title}] moved to position ${newIndex + 1}`);
+          return next;
+        }
+        return items;
       });
     }
   };
@@ -333,7 +379,7 @@ export default function App() {
           ...v, 
           currentIdx: nextIdx, 
           url: nextFile.url, 
-          realPath: undefined, 
+          realPath: nextFile.path, // Maintain path for physical actions
           title: nextFile.name 
         };
       }
@@ -359,10 +405,7 @@ export default function App() {
       const f = prev.findIndex(x => x.id === fromId);
       const t = prev.findIndex(x => x.id === toId);
       if (f === -1 || t === -1) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(f, 1);
-      next.splice(t, 0, moved);
-      return next;
+      return arrayMove(prev, f, t);
     });
     setDragId(null);
   }, [setVideos]);
@@ -497,8 +540,23 @@ export default function App() {
    // GLOBAL KEYBOARD MASTERY - MODAL PERSISTENCE (v3.2.5)
    useEffect(() => {
      const handleKeys = (e: KeyboardEvent) => {
-       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+       const target = e.target as HTMLElement;
+       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
        const key = e.key.toLowerCase();
+
+       // MODAL PERSISTENCE PROTOCOL: Neutralize Backspace navigation
+       if (key === 'backspace' && !isInput) {
+         e.preventDefault();
+         return;
+       }
+
+       if (isInput) {
+         if (key === 'escape') {
+           target.blur();
+           e.preventDefault();
+         }
+         return;
+       }
        
        if (key >= '1' && key <= '8') { 
          setZoom(parseInt(key) * 2); 
@@ -524,6 +582,45 @@ export default function App() {
          case 'f':
            if (filtered.length > 0) onToggleFocus(focusedId ? null : filtered[0].id);
            break;
+         case 'm': toggleMasterMute(); break;
+         case 'l': setGlobalRepeat(prev => { const modes: RepeatMode[] = ['none', 'once', 'always', 'folder']; const next = modes[(modes.indexOf(prev) + 1) % modes.length]; addLog('Global Repeat: ' + next.toUpperCase()); return next; }); break;
+          case 'delete':
+            e.preventDefault();
+            if (e.shiftKey) {
+              if (selectedIds.size > 0) {
+                 if (confirmDeletion) {
+                   if (!window.confirm(`PROTOCOL: BATCH ANNIHILATION\n\nThis will move ${selectedIds.size} files to the Recycle Bin.\n\nPROCEED?`)) return;
+                 }
+                 Array.from(selectedIds).forEach(id => handleAnnihilate(id));
+                 setSelectedIds(new Set());
+                 setSelectionMode(false);
+              } else if (focusedId) {
+                handleAnnihilate(focusedId);
+              }
+            } else {
+              if (selectedIds.size > 0) {
+                handleBatchRemove();
+              } else if (focusedId) {
+                handleDecommission(focusedId);
+              }
+            }
+            break;
+         case 'escape':
+           e.preventDefault();
+           e.stopPropagation();
+           if (immersive) { setImmersive(false); return; }
+           if (menu) { setMenu(null); return; }
+           if (showSettings) { setShowSettings(false); return; }
+           if (showCollections) { setShowCollections(false); return; }
+           if (showLogs) { setShowLogs(false); return; }
+           if (showSymphonyWorkshop) { setShowSymphonyWorkshop(false); return; }
+           if (focusedId) { onToggleFocus(null); return; }
+           break;
+       }
+     };
+     window.addEventListener('keydown', handleKeys, true);
+     return () => window.removeEventListener('keydown', handleKeys, true);
+    }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, showSymphonyWorkshop, menu, setZoom, setGlobalControl, setMenu, toggleMasterMute, setGlobalRepeat, immersive, confirmDeletion, setVideos, setImmersive, handleDecommission, selectedIds, handleBatchRemove]);
 
   useEffect(() => {
     if (isPopout) return;
@@ -556,11 +653,15 @@ export default function App() {
                 const folderVids = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path });
                 if (folderVids && folderVids.length > 0) {
                   addLog(`Ingesting Set: ${path} (${folderVids.length} units)`);
-                  const folderWithUrls = folderVids.map(v => ({ ...v, url: convertFileSrc(v.url) }));
+                  const folderWithUrls = folderVids.map(v => ({ 
+                    ...v, 
+                    url: convertFileSrc(v.url),
+                    path: v.url // Capture raw path
+                  }));
                   newVids.push({ 
                     id: crypto.randomUUID(), 
                     url: folderWithUrls[0].url, 
-                    realPath: path, 
+                    realPath: folderVids[0].url, 
                     title: getFileNameFromPath(path) || 'Set', 
                     repeatMode: 'folder', 
                     repeatCount: 0, 
@@ -780,9 +881,12 @@ export default function App() {
           setGlobalControl={setGlobalControl}
           addLog={addLog}
           onUpdateVideo={handleUpdate}
-          onRemoveVideo={handleRemove}
+          onRemoveVideo={handleDecommission}
           onToggleFocus={onToggleFocus}
           onLog={addLog}
+          onBatchRemove={handleBatchRemove}
+          onBatchMute={handleBatchMute}
+          onBatchPlay={handleBatchPlay}
           filtered={filtered}
           focusedId={focusedId}
           showSettings={showSettings}
@@ -801,8 +905,6 @@ export default function App() {
           isPopout={isPopout}
           showHelp={showHelp}
           setShowHelp={setShowHelp}
-          showShare={showShare}
-          setShowShare={setShowShare}
           showSymphonyWorkshop={showSymphonyWorkshop}
           setShowSymphonyWorkshop={setShowSymphonyWorkshop}
           toggleMasterMute={toggleMasterMute}
@@ -810,6 +912,7 @@ export default function App() {
           setSelectedIds={setSelectedIds}
           selectionMode={selectionMode}
           setSelectionMode={setSelectionMode}
+          globalControl={globalControl}
         />
       )}
 
@@ -838,7 +941,8 @@ export default function App() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onUpdateVideo={handleUpdate}
-          onRemoveVideo={handleRemove}
+          onRemoveVideo={handleDecommission}
+          onAnnihilate={handleAnnihilate}
           onLog={addLog}
           onFocus={handleFocus}
           onCloseFocus={() => setFocusedId(null)}
@@ -877,12 +981,18 @@ export default function App() {
               case 'play': onUpdateVideo(v.id, { playing: !v.playing }); break;
               case 'mute': onUpdateVideo(v.id, { muted: !v.muted }); break;
               case 'stop': onUpdateVideo(v.id, { playing: false }); break;
-              case 'remove': onRemoveVideo(v.id); break;
+              case 'decommission': handleDecommission(v.id); break;
+              case 'annihilate': handleAnnihilate(v.id); break;
               case 'focus': onToggleFocus(v.id); break;
               case 'snapshot': invoke('save_snapshot', { id: v.id, path: v.realPath }); break;
-              case 'folder': invoke('open_folder', { path: v.realPath }); break;
+               case 'folder': 
+                 if (v.realPath) {
+                   invoke('open_folder', { path: v.realPath }); 
+                 } else {
+                   addLog("Error: Native path lost for this unit.");
+                 }
+                 break;
               case 'popout': invoke('pop_out', { id: v.id, url: v.url, title: v.title }); break;
-              case 'share': setSharingVideo(v); break;
               case 'rename_selected':
                 setGlobalControl(`batch-rename-selected-${Date.now()}`);
                 break;
@@ -943,12 +1053,7 @@ export default function App() {
         ))}
       </div>
 
-      <ShareModal 
-        isOpen={!!sharingVideo} 
-        onClose={() => setSharingVideo(null)} 
-        title={sharingVideo?.title || 'COSMO SYMPHONY'}
-        description={`Video Source: ${sharingVideo?.realPath || 'Symphony Asset'}`}
-      />
+      {/* Unit Decommissioned */}
       {showSymphonyWorkshop && <SymphonyWorkshop onClose={() => setShowSymphonyWorkshop(false)} addLog={addLog} />}
     </main>
   );

@@ -8,7 +8,7 @@ export interface VideoItem {
   repeatMode: RepeatMode;
   repeatCount: number;
   cols: number;
-  folderFiles?: { name: string; url: string }[];
+  folderFiles?: { name: string; url: string; path: string }[];
   currentIdx?: number;
   playing: boolean;
   muted: boolean;
@@ -18,4 +18,5 @@ export interface TelemetryData {
   cpu: string;
   mem: string;
   gpu: string;
+  temp?: number;
 }
