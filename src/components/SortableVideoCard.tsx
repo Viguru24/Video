@@ -24,7 +24,7 @@ interface SortableVideoCardProps {
   masterMuted: boolean;
   globalVolume: number;
   masterShowUI: boolean;
-  toggleMasterMute: () => void;
+  toggleMasterMute: (soloId?: string) => void;
   toggleMasterPlay: () => void;
   onEnded: () => void;
   onEndedProp?: () => void;

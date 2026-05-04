@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ResizeHandles } from './components/ResizeHandles';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { VideoItem, RepeatMode, TelemetryData } from './types';
 import { VideoCard } from './components/VideoCard';
@@ -30,7 +29,14 @@ import { Minimize2, CheckCircle2, Search, LayoutGrid, Zap, Trash2, RotateCcw, Re
 import { useWorkspacePersistence } from './hooks/useWorkspacePersistence';
 import { useWorkspaceControls } from './hooks/useWorkspaceControls';
 import { TELEMETRY_INTERVAL, ROW_THRESHOLD_PX, ROW_MATCH_THRESHOLD, LAYOUT_CALC_DELAY, MIN_ZOOM, MAX_ZOOM, SWIPE_THRESHOLD, DRAG_ACTIVATION_DISTANCE, PERSISTENCE_DEBOUNCE, FPS, STEP_INTERVAL, STEP_DELAY, SNAPSHOT_TOAST_DURATION, SNAPSHOT_THUMBNAIL_DURATION, IMMERSIVE_HIDE_DELAY } from './constants';
-import { convertToVideoUrl, isValidVideoExtension, getFileNameFromPath } from './utils/videoUtils';
+import { 
+  convertToVideoUrl, 
+  isValidVideoExtension, 
+  isValidPictureExtension,
+  isValidMediaExtension,
+  getFileNameFromPath,
+  toCosmoUrl
+} from './utils/videoUtils';
 import { handleError, isAbortError } from './utils/errorHandler';
 
 function ClockDisplayWrapper() {
@@ -114,11 +120,19 @@ export default function App() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
+  const [mediaMode, setMediaMode] = useState<'video' | 'picture'>(() => {
+    const saved = localStorage.getItem('cosmo-media-mode');
+    return saved === 'picture' ? 'picture' : 'video';
+  });
   const [showSymphonyWorkshop, setShowSymphonyWorkshop] = useState(false);
   
   useEffect(() => {
     localStorage.setItem('show_workshop', showSymphonyWorkshop.toString());
   }, [showSymphonyWorkshop]);
+
+  useEffect(() => {
+    localStorage.setItem('cosmo-media-mode', mediaMode);
+  }, [mediaMode]);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [showImmersiveUI, setShowImmersiveUI] = useState(true);
   const immersiveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -196,7 +210,7 @@ export default function App() {
     }
   }, [timeLeft, rotating, collections, rotIdx, addLog]);
 
-  const toggleMasterMute = () => {
+  const toggleMasterMute = (soloId?: string) => {
     const newState = !masterMuted;
     setMasterMuted(newState);
     setMasterMutedOverride(true);
@@ -206,10 +220,12 @@ export default function App() {
       setGlobalVolume(0);
     } else {
       setGlobalVolume(preMuteVolume > 0 ? preMuteVolume : 1);
+      
     }
     
-    addLog(`System Volume: ${newState ? 'OFF' : 'ON'}`);
+    addLog(`System Volume: ${newState ? 'OFF' : 'ON'}${soloId ? ' (Individual)' : ''}`);
   };
+
 
   const toggleMasterPlay = () => {
     const newState = !masterPlaying;
@@ -358,12 +374,15 @@ export default function App() {
 
   const filtered = useMemo(() => {
     if (!Array.isArray(videos)) return [];
+    
+    const isValid = (v: VideoItem) => v.realPath ? isValidMediaExtension(v.realPath, mediaMode) : true;
+
     return videos.filter(v => {
       const t = v.title || 'Untitled Unit';
       const s = search || '';
-      return t.toLowerCase().includes(s.toLowerCase());
+      return t.toLowerCase().includes(s.toLowerCase()) && isValid(v);
     });
-  }, [videos, search]);
+  }, [videos, search, mediaMode]);
 
   const handleVideoEnded = useCallback((id: string) => {
     setVideos(prev => prev.map(v => {
@@ -620,7 +639,7 @@ export default function App() {
      };
      window.addEventListener('keydown', handleKeys, true);
      return () => window.removeEventListener('keydown', handleKeys, true);
-    }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, showSymphonyWorkshop, menu, setZoom, setGlobalControl, setMenu, toggleMasterMute, setGlobalRepeat, immersive, confirmDeletion, setVideos, setImmersive, handleDecommission, selectedIds, handleBatchRemove]);
+    }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, showSymphonyWorkshop, menu, setZoom, setGlobalControl, setMenu, toggleMasterMute, setGlobalRepeat, immersive, confirmDeletion, setVideos, setImmersive, handleDecommission, selectedIds, handleBatchRemove, mediaMode]);
 
   useEffect(() => {
     if (isPopout) return;
@@ -632,30 +651,46 @@ export default function App() {
     window.addEventListener('dragover', stopDefaults);
     window.addEventListener('drop', stopDefaults);
     
-    let unlistenDrop: any;
-    let unlistenEnter: any;
-    let unlistenLeave: any;
+    let unlistenDragDrop: any;
 
     const setupListeners = async () => {
       try {
         const win = getCurrentWindow();
         
-        unlistenDrop = await win.listen('tauri://drag-drop', async (event: any) => {
+        unlistenDragDrop = await win.onDragDropEvent(async (event: any) => {
+          if (event.payload.type === 'over') {
+            setDragFile(true);
+            return;
+          }
+          
+          if (event.payload.type !== 'drop') {
+            setDragFile(false);
+            return;
+          }
+          
           setDragFile(false);
           const paths = event.payload.paths;
           if (!paths || paths.length === 0) return;
           
           addLog(`System: Intercepting ${paths.length} drop assets...`);
           
+          const validPaths = paths; // Allow all paths to be checked (folders + files)
            const newVids: VideoItem[] = [];
-           for (const path of paths) {
+           for (const path of validPaths) {
              try {
-                const folderVids = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path });
+                // TRY AS FOLDER FIRST
+                let folderVids: { name: string, url: string }[] = [];
+                try {
+                  folderVids = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path, mode: mediaMode });
+                } catch (e) {
+                  // Not a folder or backend error, proceed to file check
+                }
+
                 if (folderVids && folderVids.length > 0) {
                   addLog(`Ingesting Set: ${path} (${folderVids.length} units)`);
                   const folderWithUrls = folderVids.map(v => ({ 
                     ...v, 
-                    url: convertFileSrc(v.url),
+                    url: toCosmoUrl(v.url),
                     path: v.url // Capture raw path
                   }));
                   newVids.push({ 
@@ -673,16 +708,17 @@ export default function App() {
                   });
                   continue;
                 }
+
                 
-                 if (isValidVideoExtension(path)) {
+                 if (isValidMediaExtension(path, mediaMode)) {
                    const lastSep = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
                    const parentPath = lastSep !== -1 ? path.substring(0, lastSep) : '.';
                    let folderFiles: { name: string, url: string }[] = [];
                    
                    try {
-                     const siblings = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path: parentPath });
+                     const siblings = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path: parentPath, mode: mediaMode });
                      if (siblings && siblings.length > 1) {
-                        folderFiles = siblings.map(v => ({ ...v, url: convertFileSrc(v.url) }));
+                        folderFiles = siblings.map(v => ({ ...v, url: toCosmoUrl(v.url) }));
                      }
                    } catch (e) {
                      console.warn("Could not fetch siblings:", e);
@@ -693,7 +729,7 @@ export default function App() {
 
                    newVids.push({ 
                      id: crypto.randomUUID(), 
-                     url: convertFileSrc(path), 
+                     url: toCosmoUrl(path), 
                      realPath: path, 
                      title: filename, 
                      repeatMode: folderFiles.length > 0 ? 'folder' : 'none', 
@@ -715,22 +751,17 @@ export default function App() {
              addLog(`System: Successfully ingested ${newVids.length} units.`);
            }
         });
-
-        unlistenEnter = await win.listen('tauri://drag-enter', () => setDragFile(true));
-        unlistenLeave = await win.listen('tauri://drag-leave', () => setDragFile(false));
       } catch (err) { console.error("Listener Setup Error:", err); }
     };
 
     setupListeners();
 
-     return () => {
-       window.removeEventListener('dragover', stopDefaults);
-       window.removeEventListener('drop', stopDefaults);
-       safeUnlisten(unlistenDrop);
-       safeUnlisten(unlistenEnter);
-       safeUnlisten(unlistenLeave);
+      return () => {
+        window.removeEventListener('dragover', stopDefaults);
+        window.removeEventListener('drop', stopDefaults);
+        safeUnlisten(unlistenDragDrop);
     };
-  }, [isPopout, setVideos, addLog]);
+  }, [isPopout, setVideos, addLog, mediaMode]);
 
   const safeUnlisten = useCallback(async (unlisten: (() => Promise<void>) | undefined) => {
     if (!unlisten) return;
@@ -838,7 +869,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {dragFile && <div className="drag-overlay"><img src="/logo.png" className="empty-logo-img" /><p>Drop to Add Videos</p></div>}
+      {dragFile && <div className="drag-overlay"><img src="/logo.png" className="empty-logo-img" /><p>{mediaMode === 'picture' ? 'Drop to Add Images' : 'Drop to Add Videos'}</p></div>}
       
       {!immersive && (
         <ControlBar
@@ -895,6 +926,8 @@ export default function App() {
           setShowCollections={setShowCollections}
           showLogs={showLogs}
           setShowLogs={setShowLogs}
+          mediaMode={mediaMode}
+          setMediaMode={setMediaMode}
           newCollectionName={newCollectionName}
           setNewCollectionName={setNewCollectionName}
           logs={logs}
@@ -1006,7 +1039,7 @@ export default function App() {
                         const extension = v.title.substring(v.title.lastIndexOf('.'));
                         onUpdateVideo(v.id, { 
                           realPath: newPath, 
-                          url: convertFileSrc(newPath),
+                          url: toCosmoUrl(newPath),
                           title: `${newName}${extension}` 
                         });
                         addLog(`Unit renamed: ${newName}${extension}`);
@@ -1035,6 +1068,7 @@ export default function App() {
             fitMode={fitMode}
             onUpdateVideo={() => {}}
             onRemove={() => {}}
+            onAnnihilate={() => {}}
             onLog={() => {}}
             onFocus={() => {}}
             isFocused={false}
@@ -1044,6 +1078,7 @@ export default function App() {
             masterMuted={true}
             globalVolume={0}
             masterShowUI={false}
+            isVisible={false}
             toggleMasterMute={() => {}}
             toggleMasterPlay={() => {}}
             onEnded={() => {}}

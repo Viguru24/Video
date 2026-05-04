@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import { toCosmoUrl } from '../utils/videoUtils';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion } from 'framer-motion';
 import type { VideoItem, RepeatMode } from '../types';
@@ -52,7 +53,9 @@ import {
   Keyboard,
   Info,
   Hash,
-  Type
+  Type,
+  Image as ImageIcon,
+  Film
 } from 'lucide-react';
 
 interface ControlBarProps {
@@ -122,12 +125,14 @@ interface ControlBarProps {
   setShowHelp: React.Dispatch<React.SetStateAction<boolean>>;
   showSymphonyWorkshop: boolean;
   setShowSymphonyWorkshop: (val: boolean) => void;
-  toggleMasterMute: () => void;
+  toggleMasterMute: (soloId?: string) => void;
   selectedIds: Set<string>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   selectionMode: boolean;
   setSelectionMode: React.Dispatch<React.SetStateAction<boolean>>;
   globalControl: string | null;
+  mediaMode: 'video' | 'picture';
+  setMediaMode: (mode: 'video' | 'picture') => void;
 }
 
 export function ControlBar({
@@ -203,6 +208,8 @@ export function ControlBar({
   selectionMode,
   setSelectionMode,
   globalControl,
+  mediaMode,
+  setMediaMode,
 }: ControlBarProps) {
   const [collectionName, setCollectionName] = useState('');
   const [showBatchRename, setShowBatchRename] = useState(false);
@@ -292,7 +299,7 @@ export function ControlBar({
               ...newVideos[idx], 
               title: finalName, 
               realPath: resultPath,
-              url: convertFileSrc(resultPath) 
+              url: toCosmoUrl(resultPath) 
             };
           }
           addLog(`SYNCED [${i+1}/${sorted.length}]: ${v.title} -> ${finalNewName}`);
@@ -338,26 +345,46 @@ export function ControlBar({
             <div className="header-left">
               <img src="/logo.png" className="app-logo-img" alt="Logo" />
               <div className="logo-text">
-                <h1 className="brand-main">COSMO <span className="brand-sub">SYMPHONY <span className="version-tag">v3.3.0</span></span></h1>
+                <h1 className="brand-main">COSMO <span className="brand-sub">SYMPHONY <span className="version-tag">v3.4.0</span></span></h1>
               </div>
               
-              <div className="search-container">
+              <div className="search-box">
                 <Search size={14} className="search-icon-mini" />
-                <input
-                  type="text"
-                  placeholder="Search units..."
+                <input 
+                  type="text" 
+                  placeholder={mediaMode === 'video' ? "Search Videos..." : "Search Pictures..."}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   onMouseDown={e => e.stopPropagation()}
                   className="hdr-search-input"
                 />
+                {search && (
+                  <button 
+                    className="search-clear-btn" 
+                    onClick={() => setSearch('')}
+                    data-tooltip="Clear Search"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              <div className="mode-switch-group">
                 <button 
-                  className="search-clear-btn" 
-                  onClick={() => setSearch('')}
-                  title="Clear search"
-                  data-tooltip="Clear Search"
+                  className={`mode-btn ${mediaMode === 'video' ? 'active' : ''}`}
+                  onClick={() => setMediaMode('video')}
+                  data-tooltip="Video Mode"
                 >
-                  🧹
+                  <Film size={14} />
+                  <span>VIDEO</span>
+                </button>
+                <button 
+                  className={`mode-btn ${mediaMode === 'picture' ? 'active' : ''}`}
+                  onClick={() => setMediaMode('picture')}
+                  data-tooltip="Picture Mode"
+                >
+                  <ImageIcon size={14} />
+                  <span>STILL</span>
                 </button>
               </div>
             </div>
@@ -377,12 +404,12 @@ export function ControlBar({
                 onClick={async () => {
                   const path = await invoke<string | null>('select_folder_cmd');
                   if (path) {
-                    const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path });
+                    const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path, mode: mediaMode });
                     if (folderVids && folderVids.length > 0) {
-                      const toAssetUrl = (filePath: string) => convertFileSrc(filePath);
+                      const toAssetUrl = (filePath: string) => toCosmoUrl(filePath);
                       const folderWithUrls = folderVids.map((v) => ({ 
                         ...v, 
-                        url: convertFileSrc(v.url),
+                        url: toCosmoUrl(v.url),
                         path: v.url // Store raw path for physical operations
                       }));
                       setVideos((p) => [
@@ -737,7 +764,7 @@ export function ControlBar({
               <div className="settings-footer" style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.6, fontSize: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <Info size={12} />
-                  <span>COSMO SYMPHONY v3.2.5</span>
+                  <span>COSMO SYMPHONY v3.4.0</span>
                 </div>
                 <span>SYSTEM STABLE</span>
               </div>

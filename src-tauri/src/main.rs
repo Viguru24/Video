@@ -108,18 +108,19 @@ async fn select_folder_cmd(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn get_folder_videos(path: String) -> Result<Vec<serde_json::Value>, String> {
+async fn get_folder_videos(path: String, mode: String) -> Result<Vec<serde_json::Value>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut vids = Vec::new();
+        let video_exts = ["mp4", "webm", "mov", "m4v", "3gp", "avi", "mkv", "flv", "wmv"];
+        let image_exts = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff"];
+        
+        let target_exts = if mode == "picture" { &image_exts[..] } else { &video_exts[..] };
+
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 let p = entry.path();
                 if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                    if [
-                        "mp4", "webm", "mov", "m4v", "3gp", "avi"
-                    ]
-                    .contains(&ext.to_lowercase().as_str())
-                    {
+                    if target_exts.contains(&ext.to_lowercase().as_str()) {
                         if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
                             vids.push(serde_json::json!({
                                 "name": name,
@@ -447,11 +448,23 @@ fn main() {
 
             let chunk_size = (end - start + 1) as usize;
             
-            let mime = match path.extension().and_then(|s| s.to_str()).unwrap_or("") {
+            let mime = match path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).as_deref().unwrap_or("") {
                 "mp4" | "m4v" => "video/mp4",
                 "webm" => "video/webm",
                 "mov" => "video/quicktime",
-                _ => "video/mp4",
+                "mkv" => "video/x-matroska",
+                "avi" => "video/x-msvideo",
+                "3gp" => "video/3gpp",
+                "flv" => "video/x-flv",
+                "wmv" => "video/x-ms-wmv",
+                "jpg" | "jpeg" => "image/jpeg",
+                "png" => "image/png",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                "bmp" => "image/bmp",
+                "svg" => "image/svg+xml",
+                "tiff" | "tif" => "image/tiff",
+                _ => "application/octet-stream",
             };
 
             use std::io::{Read, Seek, SeekFrom};

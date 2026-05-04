@@ -37,7 +37,7 @@ interface VideoGridProps {
   onFocus: (id: string) => void;
   onCloseFocus: () => void;
   onEnded: (id: string) => void;
-  toggleMasterMute: () => void;
+  toggleMasterMute: (soloId?: string) => void;
   toggleMasterPlay: () => void;
   onContextMenu: (id: string, x: number, y: number) => void;
   onDeepFocus: (id: string) => void;
