@@ -1,16 +1,18 @@
 import { useEffect, useRef } from 'react';
-import { Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, Volume2, VolumeX, ExternalLink } from 'lucide-react';
+import { Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, Volume2, VolumeX, ExternalLink, Share2, Info, Edit2 } from 'lucide-react';
+import type { VideoItem } from '../types';
 
 interface ContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
   onAction: (action: string) => void;
-  playing?: boolean;
-  muted?: boolean;
+  video: VideoItem;
+  metadata?: any;
+  selectedCount?: number;
 }
 
-export function ContextMenu({ x, y, onClose, onAction, playing, muted }: ContextMenuProps) {
+export function ContextMenu({ x, y, onClose, onAction, video, metadata, selectedCount = 0 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -20,7 +22,6 @@ export function ContextMenu({ x, y, onClose, onAction, playing, muted }: Context
       }
     };
     
-    // Slight delay to prevent immediate closure from the click that opened it
     setTimeout(() => {
       window.addEventListener('click', handleClickOutside);
       window.addEventListener('contextmenu', handleClickOutside);
@@ -32,29 +33,41 @@ export function ContextMenu({ x, y, onClose, onAction, playing, muted }: Context
     };
   }, [onClose]);
 
-  // Handle screen bounds
   const style: React.CSSProperties = {
     position: 'fixed',
-    top: Math.min(y, window.innerHeight - 300),
-    left: Math.min(x, window.innerWidth - 200),
+    top: Math.min(y, window.innerHeight - 450),
+    left: Math.min(x, window.innerWidth - 220),
     zIndex: 10000,
   };
 
   return (
     <div className="context-menu" ref={menuRef} style={style}>
-      <div className="context-menu-item" onClick={() => onAction('play')}>
-        {playing ? <Pause size={14} /> : <Play size={14} />}
-        <span>{playing ? 'Pause' : 'Play'}</span>
-      </div>
-      <div className="context-menu-item" onClick={() => onAction('mute')}>
-        {muted ? <Volume2 size={14} /> : <VolumeX size={14} />}
-        <span>{muted ? 'Unmute' : 'Mute'}</span>
-      </div>
-      <div className="context-menu-item" onClick={() => onAction('stop')}>
-        <Square size={14} />
-        <span>Stop & Reset</span>
-      </div>
-      <div className="context-menu-separator"></div>
+      {metadata && (
+        <div className="context-summary">
+          <div className="summary-header">
+            <Info size={12} />
+            <span>UNIT SUMMARY</span>
+          </div>
+          <div className="summary-details">
+            <div className="summary-row"><span>Format:</span> <strong>{metadata.format}</strong></div>
+            <div className="summary-row"><span>Size:</span> <strong>{metadata.size}</strong></div>
+            <div className="summary-row"><span>Location:</span> <strong className="path-text">{metadata.path}</strong></div>
+          </div>
+          <div className="context-menu-separator"></div>
+        </div>
+      )}
+
+      {selectedCount > 1 && (
+        <>
+          <div className="context-menu-item accent-text" onClick={() => onAction('rename_selected')}>
+            <Edit2 size={14} />
+            <span>Rename Selected ({selectedCount})</span>
+          </div>
+          <div className="context-menu-separator"></div>
+        </>
+      )}
+
+
       <div className="context-menu-item" onClick={() => onAction('focus')}>
         <Maximize2 size={14} />
         <span>Focus Mode</span>
@@ -72,10 +85,18 @@ export function ContextMenu({ x, y, onClose, onAction, playing, muted }: Context
         <ExternalLink size={14} />
         <span>Pop Out</span>
       </div>
+      <div className="context-menu-item" onClick={() => onAction('rename')}>
+        <Edit2 size={14} />
+        <span>Rename Video</span>
+      </div>
       <div className="context-menu-separator"></div>
-      <div className="context-menu-item danger" onClick={() => onAction('remove')}>
+      <div className="context-menu-item" onClick={() => onAction('decommission')}>
         <Trash2 size={14} />
-        <span>Remove</span>
+        <span>Remove Video from Set</span>
+      </div>
+      <div className="context-menu-item danger" onClick={() => onAction('annihilate')}>
+        <Trash2 size={14} />
+        <span style={{ fontWeight: 800 }}>Recycle Bin</span>
       </div>
     </div>
   );

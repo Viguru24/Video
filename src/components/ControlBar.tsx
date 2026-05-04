@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion } from 'framer-motion';
@@ -97,6 +97,9 @@ interface ControlBarProps {
   onRemoveVideo: (id: string) => void;
   onToggleFocus: (id: string | null) => void;
   onLog: (msg: string) => void;
+  onBatchRemove: () => void;
+  onBatchMute: (mute: boolean) => void;
+  onBatchPlay: (play: boolean) => void;
   filtered: VideoItem[];
   focusedId: string | null;
   showSettings: boolean;
@@ -117,8 +120,6 @@ interface ControlBarProps {
   isPopout: boolean;
   showHelp: boolean;
   setShowHelp: React.Dispatch<React.SetStateAction<boolean>>;
-  showShare: boolean;
-  setShowShare: React.Dispatch<React.SetStateAction<boolean>>;
   showSymphonyWorkshop: boolean;
   setShowSymphonyWorkshop: (val: boolean) => void;
   toggleMasterMute: () => void;
@@ -126,6 +127,7 @@ interface ControlBarProps {
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   selectionMode: boolean;
   setSelectionMode: React.Dispatch<React.SetStateAction<boolean>>;
+  globalControl: string | null;
 }
 
 export function ControlBar({
@@ -168,6 +170,9 @@ export function ControlBar({
   onRemoveVideo,
   onToggleFocus,
   onLog,
+  onBatchRemove,
+  onBatchMute,
+  onBatchPlay,
   filtered,
   focusedId,
   showSettings,
@@ -188,8 +193,6 @@ export function ControlBar({
   isPopout,
   showHelp,
   setShowHelp,
-  showShare,
-  setShowShare,
   showSymphonyWorkshop,
   setShowSymphonyWorkshop,
   theme,
@@ -228,6 +231,7 @@ export function ControlBar({
 
   const loadCollection = (col: VideoItem[]) => {
     setVideos(col);
+    setShowCollections(false);
     addLog('Loaded workspace set.');
   };
 
@@ -240,69 +244,101 @@ export function ControlBar({
   };
   
   const executeBatchRename = async () => {
-    // Filter by selection if active
-    const targets = selectedIds.size > 0 
-      ? videos.filter(v => selectedIds.has(v.id))
-      : videos;
+    // HARD REQUIREMENT: Only rename selected videos
+    const targets = videos.filter(v => selectedIds.has(v.id));
     
     if (targets.length === 0) {
-      addLog("ERROR: NO UNITS TARGETED FOR ORCHESTRATION.");
+      addLog("REJECTED: NO UNITS SELECTED FOR BATCH RENAMING.");
+      alert("Please select the videos you want to rename first.");
       return;
     }
     
-    if (!confirm(`CAUTION: This will rename ${targets.length} files on disk. Proceed?`)) return;
+    if (!confirm(`CAUTION: This will rename ${targets.length} selected physical assets. Proceed?`)) return;
     
     setIsRenaming(true);
-    addLog(`INITIALIZING BATCH RENAME: ${batchPrefix}_###`);
+    addLog(`INITIALIZING SMART BATCH RENAME: ${batchPrefix}_###`);
     
-    // Sort by current title or ID for consistent indexing
-    const sorted = [...targets].sort((a, b) => a.title.localeCompare(b.title));
+    // Sort selected items by their current order in the grid
+    const sorted = [...targets].sort((a, b) => {
+      const idxA = videos.findIndex(v => v.id === a.id);
+      const idxB = videos.findIndex(v => v.id === b.id);
+      return idxA - idxB;
+    });
+    
     const newVideos = [...videos];
     
     for (let i = 0; i < sorted.length; i++) {
       const v = sorted[i];
-      // Rust backend handles extension preservation and path construction
-      const newNameOnly = `${batchPrefix}_${String(i + 1).padStart(3, '0')}`;
-      
-      try {
-        const resultPath = await invoke<string>('rename_video', { 
-          oldPath: v.realPath, 
-          newName: newNameOnly 
-        });
-        
-        const idx = newVideos.findIndex(nv => nv.id === v.id);
-        if (idx !== -1) {
-          const finalName = resultPath.split(/[\\/]/).pop() || resultPath;
-          newVideos[idx] = { ...newVideos[idx], title: finalName, realPath: resultPath };
+      if (!v.realPath) continue;
+
+      let baseNewName = `${batchPrefix}_${String(i + 1).padStart(3, '0')}`;
+      let finalNewName = baseNewName;
+      let attempt = 0;
+      let success = false;
+      let lastError = "";
+
+      // CLEVER CONFLICT RESOLUTION LOOP
+      while (!success && attempt < 10) {
+        try {
+          const resultPath = await invoke<string>('rename_video', { 
+            oldPath: v.realPath, 
+            newName: finalNewName 
+          });
+          
+          const idx = newVideos.findIndex(nv => nv.id === v.id);
+          if (idx !== -1) {
+            const finalName = resultPath.split(/[\\/]/).pop() || resultPath;
+            newVideos[idx] = { 
+              ...newVideos[idx], 
+              title: finalName, 
+              realPath: resultPath,
+              url: convertFileSrc(resultPath) 
+            };
+          }
+          addLog(`SYNCED [${i+1}/${sorted.length}]: ${v.title} -> ${finalNewName}`);
+          success = true;
+        } catch (err: any) {
+          lastError = err.toString();
+          if (lastError.includes("already exists")) {
+            attempt++;
+            finalNewName = `${baseNewName}_${attempt}`;
+            addLog(`CONFLICT: ${baseNewName} exists. Retrying as ${finalNewName}...`);
+          } else {
+            break; // Non-collision error, stop trying
+          }
         }
-        addLog(`RENAMED: ${v.title} -> ${newNameOnly}`);
-      } catch (err) {
-        addLog(`CRITICAL RENAME ERROR [${v.title}]: ${err}`);
+      }
+
+      if (!success) {
+        addLog(`FAILED [${v.title}]: ${lastError}`);
       }
     }
     
     setVideos(newVideos);
     setIsRenaming(false);
     setShowBatchRename(false);
-    setSelectedIds(new Set()); // Clear selection after batch
+    setSelectedIds(new Set()); 
     setSelectionMode(false);
-    addLog("BATCH ORCHESTRATION COMPLETE.");
+    addLog("SMART BATCH ORCHESTRATION COMPLETE.");
   };
 
   return (
     <>
-        <header className="app-header">
-          <div 
-            className="header-drag-handle" 
-            onMouseDown={(e) => {
-              if (e.button === 0) getCurrentWindow().startDragging();
-            }}
-          />
+        <header 
+          className="app-header"
+          onMouseDown={(e) => {
+            const target = e.target as HTMLElement;
+            const isInteractive = target.closest('button, input, select, [role="button"], .mini-btn, .win-dot');
+            if (e.button === 0 && !isInteractive) {
+              getCurrentWindow().startDragging();
+            }
+          }}
+        >
           <div className="header-row brand-row">
             <div className="header-left">
               <img src="/logo.png" className="app-logo-img" alt="Logo" />
               <div className="logo-text">
-                <h1 className="brand-main">COSMO <span className="brand-sub">SYMPHONY</span></h1>
+                <h1 className="brand-main">COSMO <span className="brand-sub">SYMPHONY <span className="version-tag">v3.3.0</span></span></h1>
               </div>
               
               <div className="search-container">
@@ -344,7 +380,11 @@ export function ControlBar({
                     const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path });
                     if (folderVids && folderVids.length > 0) {
                       const toAssetUrl = (filePath: string) => convertFileSrc(filePath);
-                      const folderWithUrls = folderVids.map((v) => ({ ...v, url: toAssetUrl(v.url) }));
+                      const folderWithUrls = folderVids.map((v) => ({ 
+                        ...v, 
+                        url: convertFileSrc(v.url),
+                        path: v.url // Store raw path for physical operations
+                      }));
                       setVideos((p) => [
                         ...p,
                         {
@@ -403,6 +443,42 @@ export function ControlBar({
                 </div>
               </button>
             </div>
+
+            {selectedIds.size > 0 && (
+              <div className="ctrl-group selection-group" style={{ 
+                background: 'rgba(0, 0, 0, 0.85)', 
+                border: '1px solid var(--accent)',
+                boxShadow: '0 0 20px rgba(var(--accent-rgb), 0.2)',
+                padding: '0 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                borderRadius: '8px',
+                height: '34px',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <span style={{ fontSize: '10px', fontWeight: 900, padding: '0 8px', color: 'var(--accent)', letterSpacing: '0.1em' }}>
+                  {selectedIds.size} UNITS CAPTURED
+                </span>
+                <div className="mini-divider" style={{ background: 'rgba(255,255,255,0.1)', height: '20px' }} />
+                <button onClick={() => onBatchPlay(true)} className="hdr-btn" data-tooltip="Batch Sync: Play"><Play size={16} color="var(--accent)" /></button>
+                <button onClick={() => onBatchPlay(false)} className="hdr-btn" data-tooltip="Batch Sync: Stop"><Square size={16} color="var(--accent)" /></button>
+                <button onClick={() => onBatchMute(false)} className="hdr-btn" data-tooltip="Batch Sync: Unmute"><Volume2 size={16} color="var(--accent)" /></button>
+                <button onClick={() => onBatchMute(true)} className="hdr-btn" data-tooltip="Batch Sync: Mute"><VolumeX size={16} color="var(--accent)" /></button>
+                <div className="mini-divider" style={{ background: 'rgba(255,255,255,0.1)', height: '20px' }} />
+                <button 
+                  onClick={() => {
+                    if (window.confirm(`Are you sure you want to decommission ${selectedIds.size} units?`)) {
+                      onBatchRemove();
+                    }
+                  }} 
+                  className="hdr-btn danger" 
+                  data-tooltip="DECOMMISSION SELECTION"
+                >
+                  <Trash2 size={16} color="#ff4444" />
+                </button>
+              </div>
+            )}
 
             {/* SYMPHONY WORKSHOP */}
             <div className="ctrl-group symphony-group">
@@ -494,7 +570,7 @@ export function ControlBar({
 
             {/* SYSTEM TOOLS */}
             <div className="ctrl-group system-group">
-              <button onClick={() => { if (confirm('Purge?')) setVideos([]); }} className="hdr-btn" data-tooltip="Purge"><Trash2 size={14} /></button>
+              <button onClick={() => { if (confirm('Purge Set?')) setVideos([]); }} className="hdr-btn" data-tooltip="Purge Set"><Trash2 size={14} /></button>
               <button onClick={() => window.location.reload()} className="hdr-btn" data-tooltip="Reload"><RefreshCw size={14} /></button>
               <button 
                 onClick={() => {
@@ -554,8 +630,12 @@ export function ControlBar({
                   </div>
                 </div>
                 <div className="setting-item">
-                  <label>Display Mode</label>
-                  <div className="mode-toggle">
+                  <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>DISPLAY ARCHITECTURE</label>
+                  <div className="premium-segmented-control">
+                    <div 
+                      className="control-highlight" 
+                      style={{ transform: `translateX(${fitMode === 'cover' ? '0%' : '100%'})` }}
+                    />
                     <button className={fitMode === 'cover' ? 'active' : ''} onClick={() => setFitMode('cover')}>
                       WALL
                     </button>
@@ -566,14 +646,34 @@ export function ControlBar({
                 </div>
 
                 <div className="setting-item">
-                  <label>Deletion Safeguard</label>
-                  <button 
-                    className={	oggle-btn }
-                    onClick={() => setConfirmDeletion(!confirmDeletion)}
-                  >
-                    <div className="toggle-handle" />
-                    <span>{confirmDeletion ? 'ON' : 'OFF'}</span>
-                  </button>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>DELETION SAFEGUARD</label>
+                    <button 
+                      className={`premium-switch ${confirmDeletion ? 'active' : ''}`}
+                      onClick={() => setConfirmDeletion(!confirmDeletion)}
+                      data-label={confirmDeletion ? 'SECURE' : 'EXPOSED'}
+                    >
+                      <div className="switch-rail">
+                        <div className="switch-thumb" />
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="protocol-box">
+                <div className="protocol-header">
+                  <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--accent)', letterSpacing: '1px' }}>OPERATIONAL PROTOCOLS</label>
+                </div>
+                <div className="protocol-content">
+                  <div className="protocol-row">
+                    <strong>DECOMMISSION:</strong>
+                    <span>Removes from list only. File stays on disk.</span>
+                  </div>
+                  <div className="protocol-row">
+                    <strong>ANNIHILATE:</strong>
+                    <span>Moves physical file to Windows Recycle Bin.</span>
+                  </div>
                 </div>
               </div>
 
@@ -716,11 +816,16 @@ export function ControlBar({
 
       {showBatchRename && (
         <div className="modal-overlay">
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ width: '380px' }}>
+          <div className="modal-content premium-glass" onClick={(e) => e.stopPropagation()} style={{ width: '420px' }}>
             <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Hash size={18} className="text-accent" />
-                <h2>BATCH ORCHESTRATION</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div className="accent-icon-box">
+                  <Hash size={20} className="text-accent" />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '16px', letterSpacing: '1px' }}>BATCH ORCHESTRATION</h2>
+                  <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 800 }}>SEQUENTIAL ASSET RE-INDEXING</span>
+                </div>
               </div>
               {!isRenaming && (
                 <button onClick={() => setShowBatchRename(false)} className="premium-close-btn">
@@ -730,38 +835,60 @@ export function ControlBar({
             </div>
             <div className="modal-body">
               <div className="settings-section">
-                <h3>SEQUENTIAL RE-INDEXING</h3>
                 <div className="setting-item">
-                  <label>Base Prefix</label>
+                  <label style={{ color: 'var(--accent)', fontSize: '10px', fontWeight: 900 }}>RE-INDEX PREFIX</label>
                   <input 
                     type="text" 
                     value={batchPrefix}
                     onChange={(e) => setBatchPrefix(e.target.value.toUpperCase())}
-                    placeholder="e.g. SHOT, UNIT, SCENE"
+                    placeholder="e.g. UNIT, SHOT, SCENE"
                     disabled={isRenaming}
-                    style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', padding: '10px', borderRadius: '6px', color: 'white' }}
+                    onMouseDown={e => e.stopPropagation()}
+                    className="premium-input"
                   />
                 </div>
-                <div className="preview-box" style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '11px', color: 'var(--text-muted)' }}>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                     <span>PREVIEW:</span>
-                     <span className="text-accent">{(selectedIds.size > 0 ? selectedIds.size : videos.length)} UNITS</span>
+                
+                <div className="orchestration-preview">
+                   <div className="preview-header">
+                     <span>SEQUENCE PREVIEW</span>
+                     <span className="unit-count">{(selectedIds.size > 0 ? selectedIds.size : videos.length)} UNITS TARGETED</span>
                    </div>
-                   <div style={{ opacity: 0.8 }}>
-                     <div>{batchPrefix || '...'}_001.mp4</div>
-                     <div>{batchPrefix || '...'}_002.mp4</div>
-                     <div style={{ fontStyle: 'italic' }}>...and so on.</div>
+                   <div className="preview-list">
+                     <div className="preview-row">
+                       <span className="old">OLD_NAME.mp4</span>
+                       <span className="arrow">→</span>
+                       <span className="new">{batchPrefix || '...'}_001.mp4</span>
+                     </div>
+                     <div className="preview-row">
+                       <span className="old">OLD_NAME.mp4</span>
+                       <span className="arrow">→</span>
+                       <span className="new">{batchPrefix || '...'}_002.mp4</span>
+                     </div>
+                     <div className="preview-row muted">...Sequential re-indexing applied to all units.</div>
                    </div>
                 </div>
                 
                 <button 
                   onClick={executeBatchRename} 
-                  disabled={isRenaming || !batchPrefix.trim() || (selectedIds.size === 0 && videos.length === 0)}
-                  className="save-btn"
-                  style={{ width: '100%', justifyContent: 'center', marginTop: '10px', padding: '12px' }}
+                  disabled={isRenaming || !batchPrefix.trim() || selectedIds.size === 0}
+                  className={`execute-btn ${isRenaming ? 'loading' : ''} ${selectedIds.size === 0 ? 'disabled-selection' : ''}`}
                 >
-                  {isRenaming ? 'ORCHESTRATING...' : 'EXECUTE SEQUENCE'}
+                  {isRenaming ? (
+                    <>
+                      <RefreshCw size={16} className="spin" />
+                      <span>INITIALIZING SYNC...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap size={16} />
+                      <span>EXECUTE SEQUENCE</span>
+                    </>
+                  )}
                 </button>
+                
+                <p style={{ fontSize: '9px', opacity: 0.4, textAlign: 'center', marginTop: '12px', lineHeight: '1.4' }}>
+                  CAUTION: Physical assets will be renamed on disk. This operation is non-reversible within the Symphony Workshop.
+                </p>
               </div>
             </div>
           </div>

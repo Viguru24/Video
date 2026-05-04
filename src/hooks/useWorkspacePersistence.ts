@@ -30,6 +30,7 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
   const [snapshotDir, setSnapshotDir] = useState<string>('');
   const [theme, setTheme] = useState<string>('symphony');
   const [globalRepeat, setGlobalRepeat] = useState<RepeatMode>('none');
+  const [confirmDeletion, setConfirmDeletion] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
   const isLoadedRef = useRef(false);
 
@@ -60,6 +61,7 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
         const s = await invoke<string | null>('load_persistence', { key: 'cosmo-snap-dir' });
         const t = await invoke<string | null>('load_persistence', { key: 'cosmo-theme' });
         const gr = await invoke<string | null>('load_persistence', { key: 'cosmo-repeat' });
+        const cd = await invoke<string | null>('load_persistence', { key: 'cosmo-confirm-del' });
 
         if (mounted) {
           if (t) setTheme(t);
@@ -116,6 +118,7 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
           if (r) setRotationInterval(parseInt(r) || 10);
           if (s) setSnapshotDir(s);
           if (gr) setGlobalRepeat(gr as RepeatMode);
+          if (cd) setConfirmDeletion(cd === 'true');
 
           isLoadedRef.current = true;
           setIsInitialized(true);
@@ -180,6 +183,14 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
     return () => clearTimeout(timer);
   }, [globalRepeat, isInitialized, isPopout]);
 
+  useEffect(() => {
+    if (!isInitialized || isPopout || !isLoadedRef.current) return;
+    const timer = setTimeout(() => {
+      invoke('save_persistence', { key: 'cosmo-confirm-del', data: confirmDeletion.toString() }).catch(console.error);
+    }, PERSISTENCE_DEBOUNCE);
+    return () => clearTimeout(timer);
+  }, [confirmDeletion, isInitialized, isPopout]);
+
   return {
     videos, setVideos,
     collections, setCollections,
@@ -187,6 +198,7 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
     snapshotDir, setSnapshotDir,
     theme, setTheme,
     globalRepeat, setGlobalRepeat,
+    confirmDeletion, setConfirmDeletion,
     isInitialized, setIsInitialized
   };
 }

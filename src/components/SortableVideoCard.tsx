@@ -10,7 +10,8 @@ interface SortableVideoCardProps {
   globalSpeed: number;
   fitMode: 'cover' | 'contain';
   onUpdateVideo: (id: string, updates: Partial<VideoItem>) => void;
-  onRemove: () => void;
+  onRemove: (id: string) => void;
+  onAnnihilate: (id: string) => void;
   onLog: (msg: string) => void;
   onFocus: () => void;
   focusedId: string | null;
@@ -29,6 +30,9 @@ interface SortableVideoCardProps {
   onEndedProp?: () => void;
   onContextMenu: (x: number, y: number) => void;
   onDeepFocus: () => void;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+  selectionMode?: boolean;
 }
 
 function SortableVideoCardInternal(props: SortableVideoCardProps) {

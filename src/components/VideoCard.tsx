@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { SWIPE_THRESHOLD, SNAPSHOT_TOAST_DURATION, FPS, STEP_INTERVAL, STEP_DELAY } from '../constants';
@@ -16,7 +17,8 @@ interface VideoCardProps {
   globalSpeed: number;
   fitMode: 'cover' | 'contain';
   onUpdateVideo: (id: string, updates: Partial<VideoItem>) => void;
-  onRemove: () => void;
+  onRemove: (id: string) => void;
+  onAnnihilate: (id: string) => void;
   onLog: (msg: string) => void;
   onFocus: () => void;
   isFocused: boolean;
@@ -48,6 +50,7 @@ function VideoCardInternal({
   masterPlaying, masterMuted, globalVolume, masterShowUI, toggleMasterMute, toggleMasterPlay, onEnded, onContextMenu, onDeepFocus,
   quality = 'high', isVisible, isSelected, onToggleSelect, selectionMode
 }: VideoCardProps & { quality?: 'low' | 'high' }) {
+  const unitRepeatMode = video.repeatMode || 'none';
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastTime = useRef<number>(0);
 
@@ -79,7 +82,6 @@ function VideoCardInternal({
   useEffect(() => {
     setMuted(masterMuted);
   }, [masterMuted]);
-  const [localRepeat, setLocalRepeat] = useState<RepeatMode>(video.repeatMode || 'none');
   const [recovering, setRecovering] = useState(false);
   const [snapshotToast, setSnapshotToast] = useState<number | null>(null);
   const [isLocalFS, setIsLocalFS] = useState(false);
@@ -400,7 +402,15 @@ function VideoCardInternal({
         <div key={snapshotToast} className="snapshot-toast">SNAPSHOT SAVED</div>
       )}
 
-      <div className={`video-overlay ${(showControls && !isFocused) && masterShowUI ? 'visible' : 'hidden'}`}>
+      <div className={`video-overlay ${(selectionMode || (showControls && !isFocused)) && masterShowUI ? 'visible' : 'hidden'}`}>
+        {selectionMode && (
+          <div 
+            className={`selection-indicator ${isSelected ? 'selected' : ''}`}
+            onClick={(e) => { e.stopPropagation(); onToggleSelect?.(); }}
+          >
+            {isSelected ? <CheckCircle2 size={18} fill="var(--accent)" color="black" /> : <div className="indicator-empty" />}
+          </div>
+        )}
         {isFocused && (
           <div className="focused-exit-overlay">
             <button 
@@ -418,11 +428,19 @@ function VideoCardInternal({
             <div className="drag-handle-mini" {...dragListeners} {...dragAttributes}>
               <GripVertical size={14} />
             </div>
-            <span className="unit-title">{video.title}</span>
-            <button onClick={onRemove} className="mini-close-btn"><X size={14} /></button>
+            <div className="header-meta">
+              <span className="unit-id">{String(video.id).slice(0, 4)}</span>
+              <span className="unit-title" title={video.title}>{video.title}</span>
+            </div>
+            <button 
+              onClick={(e) => { e.stopPropagation(); onRemove(video.id); }} 
+              className="premium-close-btn"
+              data-tooltip="DECOMMISSION UNIT"
+            >
+              <X size={16} />
+            </button>
           </div>
         )}
-
 
         {/* Centre: click to toggle play or select */}
         <div className="overlay-center" onClick={() => {
@@ -432,53 +450,84 @@ function VideoCardInternal({
             onUpdateVideo(video.id, { playing: !video.playing });
           }
         }}>
-          {selectionMode && (
-            <div className={`selection-indicator ${isSelected ? 'selected' : ''}`}>
-              {isSelected ? <CheckCircle2 size={32} fill="var(--accent)" color="black" /> : <div className="indicator-empty" />}
-            </div>
-          )}
+          
+          <motion.div 
+            initial={false}
+            animate={{ opacity: showControls ? 1 : 0, scale: showControls ? 1 : 0.8 }}
+            className="play-indicator-subtle"
+          >
+             {!selectionMode && (video.playing ? <Pause size={24} fill="rgba(255,255,255,0.4)" color="transparent" /> : <Play size={24} fill="rgba(255,255,255,0.4)" color="transparent" />)}
+          </motion.div>
         </div>
 
         {!isFocused && (
           <div className="overlay-footer">
-          <div className="scrub-container" onMouseDown={(e) => { isScrubbing.current = true; handleScrub(e); }}>
-            <div className="scrub-bar-bg">
-              <div ref={progressRef} className="scrub-progress" style={{ width: '0%' }} />
+            <div 
+              className="scrub-container" 
+              onMouseDown={(e) => { isScrubbing.current = true; handleScrub(e); }}
+            >
+              <div className="scrub-bar-bg">
+                <div ref={progressRef} className="scrub-progress" style={{ width: '0%' }} />
+              </div>
+              <div ref={handleRef} className="scrub-handle" style={{ left: '0%' }} />
+              <div ref={textRef} className="progress-text">0%</div>
             </div>
-            <div ref={handleRef} className="scrub-handle" style={{ left: '0%' }} />
-            <div ref={textRef} className="progress-text">0%</div>
-          </div>
 
-          <div className="mini-controls">
-            <button 
-              className="mini-btn" 
-              onMouseDown={() => startStep(-1)} 
-              onMouseUp={stopStep} 
-              onMouseLeave={stopStep} 
-              data-tooltip="Prev Frame"
-            >
-              <ChevronLeft size={14} />
-            </button>
-            <button className="mini-btn" onClick={() => onUpdateVideo(video.id, { playing: !video.playing })}>
-              {video.playing ? <Pause size={14} /> : <Play size={14} />}
-            </button>
-            <button 
-              className="mini-btn" 
-              onMouseDown={() => startStep(1)} 
-              onMouseUp={stopStep} 
-              onMouseLeave={stopStep} 
-              data-tooltip="Next Frame"
-            >
-              <ChevronRight size={14} />
-            </button>
-            <button className="mini-btn" onClick={takeSnapshot} data-tooltip="Snapshot"><Camera size={14} /></button>
-            <button className="mini-btn" onClick={onRemove} data-tooltip="Decommission"><Trash2 size={14} /></button>
-             <button className="mini-btn" onClick={handleMuteToggle}>
-               {effectiveMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-             </button>
+            <div className="mini-controls">
+              <button 
+                className="mini-btn" 
+                onMouseDown={() => startStep(-1)} 
+                onMouseUp={stopStep} 
+                onMouseLeave={stopStep} 
+              >
+                <ChevronLeft size={14} />
+              </button>
+              
+              <button 
+                className="mini-btn highlight" 
+                onClick={() => onUpdateVideo(video.id, { playing: !video.playing })}
+              >
+                {video.playing ? <Pause size={14} fill="white" /> : <Play size={14} fill="white" />}
+              </button>
+              
+              <button 
+                className="mini-btn" 
+                onMouseDown={() => startStep(1)} 
+                onMouseUp={stopStep} 
+                onMouseLeave={stopStep} 
+              >
+                <ChevronRight size={14} />
+              </button>
+
+              <div className="mini-divider" />
+
+              <button className="mini-btn" onClick={takeSnapshot}><Camera size={14} /></button>
+              <button className="mini-btn" onClick={handleMuteToggle}>
+                {effectiveMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+              </button>
+              
+              <button 
+                className={`mini-btn ${unitRepeatMode === 'always' ? 'active-accent' : ''}`}
+                onClick={(e) => { e.stopPropagation(); onUpdateVideo(video.id, { repeatMode: unitRepeatMode === 'always' ? 'none' : 'always' }); }}
+              >
+                <Repeat1 size={14} />
+              </button>
+              
+              <button className="mini-btn" onClick={() => onToggleFocus(video.id)}><Maximize2 size={14} /></button>
+              
+              <div className="mini-divider" />
+              
+              <button 
+                className="mini-btn danger-hover" 
+                onClick={(e) => { e.stopPropagation(); onAnnihilate(video.id); }}
+                title="Move to Recycle Bin"
+                data-tooltip="Recycle Bin"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
     </div>
   </div>
   );

@@ -32,6 +32,7 @@ interface VideoGridProps {
   onDragEnd: (event: DragEndEvent) => void;
   onUpdateVideo: (id: string, updates: Partial<VideoItem>) => void;
   onRemoveVideo: (id: string) => void;
+  onAnnihilate: (id: string) => void;
   onLog: (msg: string) => void;
   onFocus: (id: string) => void;
   onCloseFocus: () => void;
@@ -43,6 +44,9 @@ interface VideoGridProps {
   onReorder: (fromId: string, toId: string) => void;
   onToggleFocus: (id: string | null) => void;
   jumpToUnit: (id: string) => void;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
+  selectionMode: boolean;
 }
 
 export function VideoGrid({
@@ -71,6 +75,7 @@ export function VideoGrid({
   onDragEnd,
   onUpdateVideo,
   onRemoveVideo,
+  onAnnihilate,
   onLog,
   onFocus,
   onCloseFocus,
@@ -82,6 +87,9 @@ export function VideoGrid({
   onReorder,
   onToggleFocus,
   jumpToUnit,
+  selectedIds,
+  onToggleSelect,
+  selectionMode,
 }: VideoGridProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -100,10 +108,6 @@ export function VideoGrid({
 
   const handleDragEnd = (event: DragEndEvent) => {
     onDragEnd(event);
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      onReorder(active.id as string, over.id as string);
-    }
   };
 
   return (
@@ -163,6 +167,11 @@ export function VideoGrid({
                     toggleMasterPlay={toggleMasterPlay}
                     onContextMenu={(x, y) => onContextMenu(v.id, x, y)}
                     onDeepFocus={() => onDeepFocus(v.id)}
+                    onAnnihilate={() => onAnnihilate(v.id)}
+                    
+                    isSelected={selectedIds.has(v.id)}
+                    onToggleSelect={() => onToggleSelect(v.id)}
+                    selectionMode={selectionMode}
                   />
                 ))}
               </AnimatePresence>
