@@ -18,10 +18,10 @@
  * @returns Workspace state and setters
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem, RepeatMode } from '../types';
 import { PERSISTENCE_DEBOUNCE } from '../constants';
-import { isValidVideoExtension, convertToVideoUrl } from '../utils/videoUtils';
+import { isValidVideoExtension, isValidPictureExtension, convertToVideoUrl } from '../utils/videoUtils';
 
 export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout: boolean, masterMuted: boolean, masterPlaying: boolean) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -69,15 +69,14 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
             try {
               const parsed = JSON.parse(v);
               if (Array.isArray(parsed)) {
-                const videoExts = ["mp4", "webm", "mkv", "mov", "m4v", "avi", "flv", "wmv", "asf"];
-                 const filteredVids = parsed.filter(v => {
-                   const path = v.realPath || v.url;
-                   return isValidVideoExtension(path);
-                 }).map(v => {
-                   // MIGRATION: Convert legacy cosmo:// URLs to native Asset Protocol
+                  const filteredVids = parsed.filter(v => {
+                    const path = v.realPath || v.url;
+                    return isValidVideoExtension(path) || isValidPictureExtension(path);
+                  }).map(v => {
+                   // MIGRATION: Convert to high-performance cosmo:// protocol
                    let updatedUrl = v.url;
                    if (v.realPath) {
-                     updatedUrl = convertFileSrc(v.realPath);
+                     updatedUrl = toCosmoUrl(v.realPath);
                    }
                    return { ...v, url: updatedUrl, muted: masterMuted, playing: masterPlaying };
                  });
@@ -91,13 +90,13 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
             try {
               const parsed = JSON.parse(c);
               if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
-                // MIGRATION: Convert legacy cosmo:// URLs to native Asset Protocol
+                // MIGRATION: Convert to high-performance cosmo:// protocol
                 const migrated = Object.entries(parsed).reduce((acc, [name, items]) => {
                   if (Array.isArray(items)) {
                     acc[name] = items.map(v => {
                       let updatedUrl = v.url;
                       if (v.realPath) {
-                        updatedUrl = convertFileSrc(v.realPath);
+                        updatedUrl = toCosmoUrl(v.realPath);
                       }
                       return { ...v, url: updatedUrl };
                     });

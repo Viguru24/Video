@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { SWIPE_THRESHOLD, SNAPSHOT_TOAST_DURATION, FPS, STEP_INTERVAL, STEP_DELAY } from '../constants';
-import { convertToVideoUrl } from '../utils/videoUtils';
+import { convertToVideoUrl, isValidPictureExtension } from '../utils/videoUtils';
 import {
   Play, Pause, Square, RefreshCw, Camera, Repeat, Repeat1,
   Volume2, VolumeX, GripVertical, Maximize2, Minimize2, FolderOpen, X, AlertCircle, ChevronLeft, ChevronRight, Maximize, CheckCircle2, Trash2
@@ -31,7 +31,7 @@ interface VideoCardProps {
   masterMuted: boolean;
   globalVolume: number;
   masterShowUI: boolean;
-  toggleMasterMute: () => void;
+  toggleMasterMute: (soloId?: string) => void;
   toggleMasterPlay: () => void;
   onEnded: () => void;
   onContextMenu: (x: number, y: number) => void;
@@ -72,17 +72,17 @@ function VideoCardInternal({
   }, [displayUrl]);
 
 
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.volume = globalVolume;
-  }, [globalVolume]);
-  const [error, setError] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(masterPlaying);
-  const [muted, setMuted] = useState(masterMuted);
+  const isImage = React.useMemo(() => {
+    return isValidPictureExtension(video.realPath || video.url);
+  }, [video.realPath, video.url]);
 
   useEffect(() => {
-    setMuted(masterMuted);
-  }, [masterMuted]);
+    if (!isImage && videoRef.current) videoRef.current.volume = globalVolume;
+  }, [globalVolume, isImage]);
+  const [error, setError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(masterPlaying);
   const [recovering, setRecovering] = useState(false);
+
   const [snapshotToast, setSnapshotToast] = useState<number | null>(null);
   const [isLocalFS, setIsLocalFS] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -201,34 +201,38 @@ function VideoCardInternal({
   }, []);
 
   const handleMuteToggle = () => {
-    // If master is overriding, turn it off first
+    // If master is overriding, turn it off first but solo this video
     if (masterMuted) {
-      toggleMasterMute();
+      toggleMasterMute(video.id);
+    } else {
+      // Then toggle individual video
+      onUpdateVideo(video.id, { muted: !video.muted });
     }
-    // Then toggle individual video
-    onUpdateVideo(video.id, { muted: !effectiveMuted });
   };
   
   // Determine effective mute state: master override takes precedence
   const effectiveMuted = masterMuted || video.muted;
   
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (isImage || !videoRef.current) return;
     videoRef.current.muted = effectiveMuted;
-  }, [effectiveMuted]);
+  }, [effectiveMuted, isImage]);
 
    useEffect(() => {
-     if (!videoRef.current) return;
+     if (isImage || !videoRef.current) return;
      if (video.playing) videoRef.current.play().catch(() => {});
      else videoRef.current.pause();
-   }, [video.playing]);
+   }, [video.playing, isImage]);
 
   useEffect(() => {
+    if (isImage) return;
     const v = videoRef.current;
     if (v) v.playbackRate = globalSpeed;
-  }, [globalSpeed]);
+  }, [globalSpeed, isImage]);
 
+  // RECOVERY MONITOR: Only for video elements
   useEffect(() => {
+    if (isImage) return;
     const v = videoRef.current;
     if (!v) return;
     const monitor = setInterval(() => {
@@ -243,10 +247,66 @@ function VideoCardInternal({
       }
     }, 5000);
     return () => clearInterval(monitor);
-  }, [video.playing, video.url, recovering]);
+  }, [video.playing, video.url, recovering, isImage]);
+
+  // IMAGE FOLDER NAVIGATION: Cycle through folder files for image units
+  const navigateImageFolder = useCallback((dir: number) => {
+    if (!video.folderFiles || video.folderFiles.length <= 1) return;
+    const currentIdx = video.currentIdx || 0;
+    const nextIdx = (currentIdx + dir + video.folderFiles.length) % video.folderFiles.length;
+    const nextFile = video.folderFiles[nextIdx];
+    if (nextFile) {
+      onUpdateVideo(video.id, {
+        currentIdx: nextIdx,
+        url: nextFile.url,
+        realPath: (nextFile as any).path || nextFile.url,
+        title: nextFile.name
+      });
+      onLog(`Image Navigate [${video.title}] → ${nextFile.name}`);
+    }
+  }, [video.id, video.folderFiles, video.currentIdx, video.title, onUpdateVideo, onLog]);
 
   const takeSnapshot = useCallback(async () => {
     try {
+      // For images, snapshot = copy the source file
+      if (isImage) {
+        if (video.realPath) {
+          let dirToUse = snapshotDir;
+          if (!dirToUse || dirToUse.trim() === "") {
+            onLog("SYSTEM: No snapshot directory set. Please select a destination.");
+            const newDir = await invoke<string | null>('select_folder_cmd');
+            if (newDir) {
+              dirToUse = newDir;
+              if (setSnapshotDir) setSnapshotDir(newDir);
+              await invoke('save_persistence', { key: 'cosmo-snap-dir', data: newDir });
+              onLog(`SNAPSHOT DESTINATION SET: ${newDir}`);
+            } else {
+              onLog("ERROR: Snapshot aborted (No directory selected)");
+              return;
+            }
+          }
+          // Use the image element to capture
+          const imgEl = document.querySelector(`[data-id="${video.id}"] img`) as HTMLImageElement;
+          if (imgEl) {
+            const c = document.createElement('canvas');
+            c.width = imgEl.naturalWidth;
+            c.height = imgEl.naturalHeight;
+            const ctx = c.getContext('2d');
+            if (!ctx) return;
+            ctx.drawImage(imgEl, 0, 0, c.width, c.height);
+            const base64 = c.toDataURL('image/png');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const fileName = `Cosmo_${video.title.replace(/[^a-z0-9]/gi, '_')}_${timestamp}.png`;
+            const path = await invoke<string>('save_snapshot', { base64Data: base64, fileName, customDir: dirToUse });
+            onLog(`SUCCESS: Snapshot saved to ${path.split(/[\\/]/).pop()}`);
+            const toastId = Date.now();
+            setSnapshotToast(toastId);
+            setTimeout(() => setSnapshotToast(current => current === toastId ? null : current), SNAPSHOT_TOAST_DURATION);
+          }
+        }
+        return;
+      }
+
       const v = videoRef.current;
       if (!v || v.videoWidth === 0) return;
 
@@ -296,7 +356,7 @@ function VideoCardInternal({
     } catch (err) { 
       onLog(`CRITICAL ERROR: Snapshot failed - ${err}`); 
     }
-  }, [video.title, video.id, snapshotDir, setSnapshotDir, onLog]);
+  }, [video.title, video.id, video.realPath, snapshotDir, setSnapshotDir, onLog, isImage]);
 
   useEffect(() => {
     if (!globalControl) return;
@@ -353,34 +413,41 @@ function VideoCardInternal({
       }}
     >
       {isVisible ? (
-        <video
-          ref={videoRef}
-          src={displayUrl}
-          crossOrigin="anonymous"
-          playsInline
-           loop={true}
-           muted={muted}
-           onEnded={onEnded}
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={() => {
-            setDuration(videoRef.current?.duration || 0);
-            if (lastTime.current > 0 && videoRef.current) {
-              videoRef.current.currentTime = lastTime.current;
-            }
-            setError(null);
-            
-            if (video.playing && videoRef.current) {
-              videoRef.current.play().catch(e => console.warn("Autoplay failed:", e));
-            }
-          }}
-          onError={(e) => {
-            const target = e.target as HTMLVideoElement;
-            const friendlyError = "LOAD ERROR";
-            setError(friendlyError);
-            onLog(`Unit [${video.title}] Error: ${friendlyError}`);
-          }}
-          style={{ width: '100%', height: '100%', objectFit: fitMode, backgroundColor: '#000' }}
-        />
+        isImage ? (
+          <img
+            src={displayUrl}
+            alt={video.title}
+            style={{ width: '100%', height: '100%', objectFit: fitMode, backgroundColor: '#000' }}
+          />
+        ) : (
+          <video
+            ref={videoRef}
+            src={displayUrl}
+            crossOrigin="anonymous"
+            playsInline
+            loop={true}
+            muted={effectiveMuted}
+            onEnded={onEnded}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={() => {
+              setDuration(videoRef.current?.duration || 0);
+              if (lastTime.current > 0 && videoRef.current) {
+                videoRef.current.currentTime = lastTime.current;
+              }
+              setError(null);
+              
+              if (video.playing && videoRef.current) {
+                videoRef.current.play().catch(e => console.warn("Autoplay failed:", e));
+              }
+            }}
+            onError={(e) => {
+              const friendlyError = "LOAD ERROR";
+              setError(friendlyError);
+              onLog(`Unit [${video.title}] Error: ${friendlyError}`);
+            }}
+            style={{ width: '100%', height: '100%', objectFit: fitMode, backgroundColor: '#000' }}
+          />
+        )
       ) : (
         <div className="video-hibernate">
           <div className="hibernate-shimmer" />
@@ -446,7 +513,7 @@ function VideoCardInternal({
         <div className="overlay-center" onClick={() => {
           if (selectionMode && onToggleSelect) {
             onToggleSelect();
-          } else {
+          } else if (!isImage) {
             onUpdateVideo(video.id, { playing: !video.playing });
           }
         }}>
@@ -456,75 +523,127 @@ function VideoCardInternal({
             animate={{ opacity: showControls ? 1 : 0, scale: showControls ? 1 : 0.8 }}
             className="play-indicator-subtle"
           >
-             {!selectionMode && (video.playing ? <Pause size={24} fill="rgba(255,255,255,0.4)" color="transparent" /> : <Play size={24} fill="rgba(255,255,255,0.4)" color="transparent" />)}
+             {!selectionMode && !isImage && (video.playing ? <Pause size={24} fill="rgba(255,255,255,0.4)" color="transparent" /> : <Play size={24} fill="rgba(255,255,255,0.4)" color="transparent" />)}
           </motion.div>
         </div>
 
         {!isFocused && (
           <div className="overlay-footer">
-            <div 
-              className="scrub-container" 
-              onMouseDown={(e) => { isScrubbing.current = true; handleScrub(e); }}
-            >
-              <div className="scrub-bar-bg">
-                <div ref={progressRef} className="scrub-progress" style={{ width: '0%' }} />
+            {/* SCRUB BAR: Video only */}
+            {!isImage && (
+              <div 
+                className="scrub-container" 
+                onMouseDown={(e) => { isScrubbing.current = true; handleScrub(e); }}
+              >
+                <div className="scrub-bar-bg">
+                  <div ref={progressRef} className="scrub-progress" style={{ width: '0%' }} />
+                </div>
+                <div ref={handleRef} className="scrub-handle" style={{ left: '0%' }} />
+                <div ref={textRef} className="progress-text">0%</div>
               </div>
-              <div ref={handleRef} className="scrub-handle" style={{ left: '0%' }} />
-              <div ref={textRef} className="progress-text">0%</div>
-            </div>
+            )}
+
+            {/* IMAGE FOLDER COUNTER */}
+            {isImage && video.folderFiles && video.folderFiles.length > 1 && (
+              <div className="image-counter" style={{ fontSize: '10px', opacity: 0.6, textAlign: 'center', padding: '2px 0', letterSpacing: '1px' }}>
+                {(video.currentIdx || 0) + 1} / {video.folderFiles.length}
+              </div>
+            )}
 
             <div className="mini-controls">
-              <button 
-                className="mini-btn" 
-                onMouseDown={() => startStep(-1)} 
-                onMouseUp={stopStep} 
-                onMouseLeave={stopStep} 
-              >
-                <ChevronLeft size={14} />
-              </button>
-              
-              <button 
-                className="mini-btn highlight" 
-                onClick={() => onUpdateVideo(video.id, { playing: !video.playing })}
-              >
-                {video.playing ? <Pause size={14} fill="white" /> : <Play size={14} fill="white" />}
-              </button>
-              
-              <button 
-                className="mini-btn" 
-                onMouseDown={() => startStep(1)} 
-                onMouseUp={stopStep} 
-                onMouseLeave={stopStep} 
-              >
-                <ChevronRight size={14} />
-              </button>
+              {isImage ? (
+                /* IMAGE CONTROLS */
+                <>
+                  <button 
+                    className="mini-btn" 
+                    onClick={() => navigateImageFolder(-1)}
+                    data-tooltip="Previous Image"
+                    disabled={!video.folderFiles || video.folderFiles.length <= 1}
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  
+                  <button 
+                    className="mini-btn" 
+                    onClick={() => navigateImageFolder(1)}
+                    data-tooltip="Next Image"
+                    disabled={!video.folderFiles || video.folderFiles.length <= 1}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
 
-              <div className="mini-divider" />
+                  <div className="mini-divider" />
 
-              <button className="mini-btn" onClick={takeSnapshot}><Camera size={14} /></button>
-              <button className="mini-btn" onClick={handleMuteToggle}>
-                {effectiveMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-              </button>
-              
-              <button 
-                className={`mini-btn ${unitRepeatMode === 'always' ? 'active-accent' : ''}`}
-                onClick={(e) => { e.stopPropagation(); onUpdateVideo(video.id, { repeatMode: unitRepeatMode === 'always' ? 'none' : 'always' }); }}
-              >
-                <Repeat1 size={14} />
-              </button>
-              
-              <button className="mini-btn" onClick={() => onToggleFocus(video.id)}><Maximize2 size={14} /></button>
-              
-              <div className="mini-divider" />
-              
-              <button 
-                className="mini-btn danger-hover" 
-                onClick={(e) => { e.stopPropagation(); onAnnihilate(video.id); }}
-                title="Move to Recycle Bin"
-                data-tooltip="Recycle Bin"
-              >
-                <Trash2 size={14} />
-              </button>
+                  <button className="mini-btn" onClick={takeSnapshot} data-tooltip="Save Copy"><Camera size={14} /></button>
+                  <button className="mini-btn" onClick={onDeepFocus} data-tooltip="Solo Mode"><Maximize2 size={14} /></button>
+                  
+                  <div className="mini-divider" />
+                  
+                  <button 
+                    className="mini-btn danger-hover" 
+                    onClick={(e) => { e.stopPropagation(); onAnnihilate(video.id); }}
+                    title="Move to Recycle Bin"
+                    data-tooltip="Recycle Bin"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              ) : (
+                /* VIDEO CONTROLS */
+                <>
+                  <button 
+                    className="mini-btn" 
+                    onMouseDown={() => startStep(-1)} 
+                    onMouseUp={stopStep} 
+                    onMouseLeave={stopStep} 
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  
+                  <button 
+                    className="mini-btn highlight" 
+                    onClick={() => onUpdateVideo(video.id, { playing: !video.playing })}
+                  >
+                    {video.playing ? <Pause size={14} fill="white" /> : <Play size={14} fill="white" />}
+                  </button>
+                  
+                  <button 
+                    className="mini-btn" 
+                    onMouseDown={() => startStep(1)} 
+                    onMouseUp={stopStep} 
+                    onMouseLeave={stopStep} 
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+
+                  <div className="mini-divider" />
+
+                  <button className="mini-btn" onClick={takeSnapshot}><Camera size={14} /></button>
+                  <button className="mini-btn" onClick={handleMuteToggle}>
+                    {effectiveMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                  </button>
+                  
+                  <button 
+                    className={`mini-btn ${unitRepeatMode === 'always' ? 'active-accent' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); onUpdateVideo(video.id, { repeatMode: unitRepeatMode === 'always' ? 'none' : 'always' }); }}
+                  >
+                    <Repeat1 size={14} />
+                  </button>
+                  
+                  <button className="mini-btn" onClick={onDeepFocus}><Maximize2 size={14} /></button>
+                  
+                  <div className="mini-divider" />
+                  
+                  <button 
+                    className="mini-btn danger-hover" 
+                    onClick={(e) => { e.stopPropagation(); onAnnihilate(video.id); }}
+                    title="Move to Recycle Bin"
+                    data-tooltip="Recycle Bin"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
