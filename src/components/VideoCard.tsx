@@ -5,7 +5,7 @@ import { SWIPE_THRESHOLD, SNAPSHOT_TOAST_DURATION, FPS, STEP_INTERVAL, STEP_DELA
 import { convertToVideoUrl } from '../utils/videoUtils';
 import {
   Play, Pause, Square, RefreshCw, Camera, Repeat, Repeat1,
-  Volume2, VolumeX, GripVertical, Maximize2, Minimize2, FolderOpen, X, AlertCircle, ChevronLeft, ChevronRight, Maximize
+  Volume2, VolumeX, GripVertical, Maximize2, Minimize2, FolderOpen, X, AlertCircle, ChevronLeft, ChevronRight, Maximize, CheckCircle2, Trash2
 } from 'lucide-react';
 import type { VideoItem, RepeatMode } from '../types';
 
@@ -36,6 +36,9 @@ interface VideoCardProps {
   onDeepFocus: () => void;
   isVisible: boolean;
   setSnapshotDir?: (dir: string) => void;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+  selectionMode?: boolean;
 }
 
 function VideoCardInternal({
@@ -43,7 +46,7 @@ function VideoCardInternal({
   onUpdateVideo, onRemove, onLog, onFocus, isFocused, onCloseFocus,
   snapshotDir, setSnapshotDir, globalControl, dragListeners, dragAttributes,
   masterPlaying, masterMuted, globalVolume, masterShowUI, toggleMasterMute, toggleMasterPlay, onEnded, onContextMenu, onDeepFocus,
-  quality = 'high', isVisible
+  quality = 'high', isVisible, isSelected, onToggleSelect, selectionMode
 }: VideoCardProps & { quality?: 'low' | 'high' }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastTime = useRef<number>(0);
@@ -342,6 +345,10 @@ function VideoCardInternal({
       onTouchEnd={handleTouchEnd}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e.clientX, e.clientY); }}
       data-id={video.id}
+      style={{
+        border: (selectionMode && isSelected) ? '2px solid var(--accent)' : undefined,
+        boxShadow: (selectionMode && isSelected) ? '0 0 20px rgba(0,255,136,0.3)' : undefined
+      }}
     >
       {isVisible ? (
         <video
@@ -417,8 +424,20 @@ function VideoCardInternal({
         )}
 
 
-        {/* Centre: click to toggle play */}
-        <div className="overlay-center" onClick={() => onUpdateVideo(video.id, { playing: !video.playing })} />
+        {/* Centre: click to toggle play or select */}
+        <div className="overlay-center" onClick={() => {
+          if (selectionMode && onToggleSelect) {
+            onToggleSelect();
+          } else {
+            onUpdateVideo(video.id, { playing: !video.playing });
+          }
+        }}>
+          {selectionMode && (
+            <div className={`selection-indicator ${isSelected ? 'selected' : ''}`}>
+              {isSelected ? <CheckCircle2 size={32} fill="var(--accent)" color="black" /> : <div className="indicator-empty" />}
+            </div>
+          )}
+        </div>
 
         {!isFocused && (
           <div className="overlay-footer">
@@ -453,6 +472,7 @@ function VideoCardInternal({
               <ChevronRight size={14} />
             </button>
             <button className="mini-btn" onClick={takeSnapshot} data-tooltip="Snapshot"><Camera size={14} /></button>
+            <button className="mini-btn" onClick={onRemove} data-tooltip="Decommission"><Trash2 size={14} /></button>
              <button className="mini-btn" onClick={handleMuteToggle}>
                {effectiveMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
              </button>

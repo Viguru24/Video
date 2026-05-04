@@ -14,7 +14,7 @@ export function TelemetryPanel({ videosCount, telemetry }: TelemetryPanelProps) 
       <div className="tel-item"><span className="tel-label">MEM:</span> {telemetry.mem}</div>
       <div className="tel-item"><span className="tel-label">GPU:</span> {telemetry.gpu}</div>
       <div className="tel-item" style={{ color: 'var(--accent)', fontWeight: 700, marginLeft: 'auto', paddingRight: '20px' }}>
-        SYMPHONY v3.2.0
+        SYMPHONY v3.2.5
       </div>
       <ClockDisplay />
     </div>

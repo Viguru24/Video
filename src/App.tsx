@@ -11,7 +11,7 @@ import { TelemetryPanel } from './components/TelemetryPanel';
 import { ClockDisplay } from './components/ClockDisplay';
 import { ControlBar } from './components/ControlBar';
 import { ContextMenu } from './components/ContextMenu';
-import { PromoExporter } from './components/PromoExporter';
+import { ShareModal } from './components/ShareModal';
 import { SymphonyWorkshop } from './components/SymphonyWorkshop';
 import {
   DndContext,
@@ -33,6 +33,7 @@ import { useWorkspaceControls } from './hooks/useWorkspaceControls';
 import { TELEMETRY_INTERVAL, ROW_THRESHOLD_PX, ROW_MATCH_THRESHOLD, LAYOUT_CALC_DELAY, MIN_ZOOM, MAX_ZOOM, SWIPE_THRESHOLD, DRAG_ACTIVATION_DISTANCE, PERSISTENCE_DEBOUNCE, FPS, STEP_INTERVAL, STEP_DELAY, SNAPSHOT_TOAST_DURATION, SNAPSHOT_THUMBNAIL_DURATION, IMMERSIVE_HIDE_DELAY } from './constants';
 import { convertToVideoUrl, isValidVideoExtension, getFileNameFromPath } from './utils/videoUtils';
 import { handleError, isAbortError } from './utils/errorHandler';
+
 function ClockDisplayWrapper() {
   return <ClockDisplay />;
 }
@@ -41,10 +42,6 @@ function ClockDisplayWrapper() {
 function TelemetrySystem({ videosCount }: { videosCount: number }) {
   const [telemetry, setTelemetry] = useState<TelemetryData>({ cpu: '0%', mem: '0/0GB', gpu: 'RTX 5080' });
   
-  /**
-   * Polls telemetry data from the Rust backend every TELEMETRY_INTERVAL
-   * Uses AbortController to cancel in-flight requests on unmount
-   */
   useEffect(() => {
     let mounted = true;
     const abortController = new AbortController();
@@ -117,8 +114,8 @@ export default function App() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
-  const [showPromo, setShowPromo] = useState(false);
-  const [showSymphonyWorkshop, setShowSymphonyWorkshop] = useState(() => localStorage.getItem('show_workshop') === 'true');
+  const [showShare, setShowShare] = useState(false);
+  const [showSymphonyWorkshop, setShowSymphonyWorkshop] = useState(false);
   
   useEffect(() => {
     localStorage.setItem('show_workshop', showSymphonyWorkshop.toString());
@@ -131,6 +128,9 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [fatalError, setFatalError] = useState<Error | null>(null);
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+
   const masterPlayingRef = useRef(masterPlaying);
   const masterMutedRef = useRef(masterMuted);
 
@@ -142,10 +142,12 @@ export default function App() {
     masterMutedRef.current = masterMuted;
   }, [masterMuted]);
 
+  const [menu, setMenu] = useState<{ x: number, y: number, id: string } | null>(null);
+  const [menuMetadata, setMenuMetadata] = useState<any>(null);
+  const [sharingVideo, setSharingVideo] = useState<VideoItem | null>(null);
   const [logs, setLogs] = useState<{ t: string, m: string }[]>([]);
   const addLog = useCallback((m: string) => {
     setLogs(p => [{ t: new Date().toLocaleTimeString(), m }, ...p].slice(0, 50));
-    invoke('cosmo_log', { msg: m }).catch(console.error);
     if (m.toLowerCase().includes("snapshot")) {
       setToast(m);
       setTimeout(() => setToast(null), SNAPSHOT_THUMBNAIL_DURATION);
@@ -159,10 +161,10 @@ export default function App() {
     snapshotDir, setSnapshotDir,
     theme, setTheme,
     globalRepeat, setGlobalRepeat,
+    confirmDeletion, setConfirmDeletion,
     isInitialized, setIsInitialized
   } = useWorkspacePersistence(addLog, isPopout, masterMuted, masterPlaying);
 
-  // THEME ENGINE ACTIVATION
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
@@ -173,7 +175,7 @@ export default function App() {
     focusedId, setFocusedId,
     immersive, setImmersive,
     rotating, setRotating,
-    menu, setMenu,
+    menu: workspaceMenu, setMenu: setWorkspaceMenu,
     idToRow, setIdToRow,
     rowOffsets, setRowOffsets,
     rotIdx, setRotIdx,
@@ -183,7 +185,6 @@ export default function App() {
 
   const [nextSetVideos, setNextSetVideos] = useState<VideoItem[]>([]);
 
-  // PRE-HEAT CACHING LOGIC (v2)
   useEffect(() => {
     if (!rotating || Object.keys(collections).length <= 1) return;
     
@@ -192,8 +193,8 @@ export default function App() {
       const nextIdx = (rotIdx + 1) % keys.length;
       const nextSet = collections[keys[nextIdx]];
       if (nextSet) {
-        setNextSetVideos(nextSet);
-        addLog(`Pre-Heating Set: ${keys[nextIdx]}...`);
+        setNextSetVideos(nextSet.slice(0, 4));
+        addLog(`Pre-Heating Set (Partial): ${keys[nextIdx]}...`);
       }
     }
   }, [timeLeft, rotating, collections, rotIdx, addLog]);
@@ -219,10 +220,13 @@ export default function App() {
     setVideos(p => p.map(v => ({ ...v, playing: newState })));
   };
 
-  // STABLE CALLBACKS
   const handleRemove = useCallback((id: string) => {
+    if (confirmDeletion) {
+      if (!window.confirm("ARE YOU SURE?\nThis will remove the unit from the workstation.")) return;
+    }
     setVideos(p => p.filter(x => x.id !== id));
-  }, [setVideos]);
+    addLog("Unit Decommissioned");
+  }, [setVideos, addLog, confirmDeletion]);
 
   const handleFocus = useCallback((id: string) => {
     setFocusedId(id);
@@ -245,13 +249,33 @@ export default function App() {
     }
   }, [focusedId, immersive, setFocusedId, setImmersive, setIsFS, rotating, setRotating, addLog]);
 
-  const handleContext = useCallback((id: string, x: number, y: number) => {
+  const handleContext = useCallback(async (id: string, x: number, y: number) => {
+    const video = videos.find(v => v.id === id);
     setMenu({ x, y, id });
-  }, [setMenu]);
+    setMenuMetadata(null);
+
+    if (video?.realPath) {
+      try {
+        const data = await invoke('get_video_metadata', { path: video.realPath });
+        setMenuMetadata(data);
+      } catch (e) {
+        console.error("Failed to fetch metadata", e);
+      }
+    }
+  }, [videos]);
 
   const handleUpdate = useCallback((id: string, updates: Partial<VideoItem>) => {
     setVideos(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
   }, [setVideos]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const onUpdateVideo = handleUpdate;
   const onRemoveVideo = handleRemove;
@@ -286,7 +310,6 @@ export default function App() {
     }
   };
 
-  // Derived state
   const filtered = useMemo(() => {
     if (!Array.isArray(videos)) return [];
     return videos.filter(v => {
@@ -300,7 +323,6 @@ export default function App() {
     setVideos(prev => prev.map(v => {
       if (v.id !== id) return v;
       
-      // Global 'none' (OFF) should always override local settings for consistent control
       const currentMode = globalRepeat === 'none' ? 'none' : (v.repeatMode !== 'none' ? v.repeatMode : globalRepeat);
       
       if (currentMode === 'folder' && v.folderFiles && v.folderFiles.length > 0) {
@@ -311,7 +333,7 @@ export default function App() {
           ...v, 
           currentIdx: nextIdx, 
           url: nextFile.url, 
-          realPath: undefined,  // Clear so convertToVideoUrl uses the updated url
+          realPath: undefined, 
           title: nextFile.name 
         };
       }
@@ -345,7 +367,6 @@ export default function App() {
     setDragId(null);
   }, [setVideos]);
 
-  // SESSION TIMER LOGIC
   useEffect(() => {
     if (sessionDuration <= 0) {
       setSessionTimeLeft(0);
@@ -370,7 +391,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [sessionDuration, addLog, setRotating]);
 
-  // AUTO-ROTATION HARDENED LOGIC
   useEffect(() => {
     if (isPopout) return;
     if (!rotating) {
@@ -397,7 +417,6 @@ export default function App() {
     }
   }, [rotating, rotationInterval]);
 
-  // DYNAMIC ROW CALCULATION
   useEffect(() => {
     if (isPopout) return;
     
@@ -448,7 +467,6 @@ export default function App() {
     };
   }, [videos.length, zoom, immersive, filtered.length, isPopout, setIdToRow, setRowOffsets]);
 
-  // MOUSE WHEEL: CTRL+WHEEL = DENSITY
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       const target = e.target as HTMLElement;
@@ -476,7 +494,7 @@ export default function App() {
     return () => window.removeEventListener('wheel', handleWheel);
   }, [addLog, setZoom]);
 
-   // GLOBAL KEYBOARD MASTERY
+   // GLOBAL KEYBOARD MASTERY - MODAL PERSISTENCE (v3.2.5)
    useEffect(() => {
      const handleKeys = (e: KeyboardEvent) => {
        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -506,28 +524,10 @@ export default function App() {
          case 'f':
            if (filtered.length > 0) onToggleFocus(focusedId ? null : filtered[0].id);
            break;
-         case 'm': toggleMasterMute(); break; case 'l': setGlobalRepeat(prev => { const modes = ['none', 'once', 'always', 'folder']; const next = modes[(modes.indexOf(prev) + 1) % modes.length]; addLog('Global Repeat: ' + next.toUpperCase()); return next; }); break; case 'p': setShowPromo(prev => !prev); break; case 'escape':
-            e.preventDefault();
-            e.stopPropagation();
-            if (menu) { setMenu(null); return; }
-            if (showSettings) { setShowSettings(false); return; }
-            if (showCollections) { setShowCollections(false); return; }
-            if (showLogs) { setShowLogs(false); return; }
-            if (showSymphonyWorkshop) { setShowSymphonyWorkshop(false); return; }
-            if (focusedId) { onToggleFocus(null); return; }
-            if (immersive) { setImmersive(false); return; }
-            break;
-       }
-     };
-     window.addEventListener('keydown', handleKeys, true);
-     return () => window.removeEventListener('keydown', handleKeys, true);
-   }, [focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, addLog, showSettings, showCollections, showLogs, showSymphonyWorkshop, menu, setZoom, setGlobalControl, setMenu, setShowCollections, setShowLogs, setShowSettings, setShowSymphonyWorkshop, toggleMasterMute, setGlobalRepeat, setShowPromo, immersive]);
 
-  // NATIVE DRAG-DROP HARDENING (v3.2.2)
   useEffect(() => {
     if (isPopout) return;
 
-    // Prevent default browser drop behavior
     const stopDefaults = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -553,69 +553,66 @@ export default function App() {
            const newVids: VideoItem[] = [];
            for (const path of paths) {
              try {
-               // Try Folder Ingestion first
-               const folderVids = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path });
-               if (folderVids && folderVids.length > 0) {
-                 addLog(`Ingesting Set: ${path} (${folderVids.length} units)`);
-                 const folderWithUrls = folderVids.map(v => ({ ...v, url: convertFileSrc(v.url) }));
-                 newVids.push({ 
-                   id: crypto.randomUUID(), 
-                   url: folderWithUrls[0].url, 
-                   realPath: path, 
-                   title: getFileNameFromPath(path) || 'Set', 
-                   repeatMode: 'folder', 
-                   repeatCount: 0, 
-                   cols: 1, 
-                   folderFiles: folderWithUrls, 
-                   currentIdx: 0, 
-                   playing: masterPlayingRef.current, 
-                   muted: masterMutedRef.current 
-                 });
-                 continue;
-               }
-               
-               // Try Single Video Ingestion with Sibling Folder Support
-                if (isValidVideoExtension(path)) {
-                  // Get Parent Path for sibling support (v3.2.3)
-                  const lastSep = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
-                  const parentPath = lastSep !== -1 ? path.substring(0, lastSep) : '.';
-                  let folderFiles: { name: string, url: string }[] = [];
-                  
-                  try {
-                    const siblings = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path: parentPath });
-                    if (siblings && siblings.length > 1) {
-                       folderFiles = siblings.map(v => ({ ...v, url: convertFileSrc(v.url) }));
-                    }
-                  } catch (e) {
-                    console.warn("Could not fetch siblings:", e);
-                  }
-
-                  const filename = getFileNameFromPath(path);
-                  const currentIdx = folderFiles.findIndex(f => f.name === filename);
-
+                const folderVids = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path });
+                if (folderVids && folderVids.length > 0) {
+                  addLog(`Ingesting Set: ${path} (${folderVids.length} units)`);
+                  const folderWithUrls = folderVids.map(v => ({ ...v, url: convertFileSrc(v.url) }));
                   newVids.push({ 
                     id: crypto.randomUUID(), 
-                    url: convertFileSrc(path), 
+                    url: folderWithUrls[0].url, 
                     realPath: path, 
-                    title: filename, 
-                    repeatMode: folderFiles.length > 0 ? 'folder' : 'none', 
+                    title: getFileNameFromPath(path) || 'Set', 
+                    repeatMode: 'folder', 
                     repeatCount: 0, 
                     cols: 1, 
-                    folderFiles: folderFiles.length > 0 ? folderFiles : undefined,
-                    currentIdx: currentIdx !== -1 ? currentIdx : 0,
+                    folderFiles: folderWithUrls, 
+                    currentIdx: 0, 
                     playing: masterPlayingRef.current, 
                     muted: masterMutedRef.current 
                   });
+                  continue;
                 }
-            } catch (err) { 
-              console.error("Ingestion Error:", err); 
-            }
-          }
+                
+                 if (isValidVideoExtension(path)) {
+                   const lastSep = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
+                   const parentPath = lastSep !== -1 ? path.substring(0, lastSep) : '.';
+                   let folderFiles: { name: string, url: string }[] = [];
+                   
+                   try {
+                     const siblings = await invoke<{ name: string, url: string }[]>('get_folder_videos', { path: parentPath });
+                     if (siblings && siblings.length > 1) {
+                        folderFiles = siblings.map(v => ({ ...v, url: convertFileSrc(v.url) }));
+                     }
+                   } catch (e) {
+                     console.warn("Could not fetch siblings:", e);
+                   }
+
+                   const filename = getFileNameFromPath(path);
+                   const currentIdx = folderFiles.findIndex(f => f.name === filename);
+
+                   newVids.push({ 
+                     id: crypto.randomUUID(), 
+                     url: convertFileSrc(path), 
+                     realPath: path, 
+                     title: filename, 
+                     repeatMode: folderFiles.length > 0 ? 'folder' : 'none', 
+                     repeatCount: 0, 
+                     cols: 1, 
+                     folderFiles: folderFiles.length > 0 ? folderFiles : undefined,
+                     currentIdx: currentIdx !== -1 ? currentIdx : 0,
+                     playing: masterPlayingRef.current, 
+                     muted: masterMutedRef.current 
+                   });
+                 }
+             } catch (err) { 
+               console.error("Ingestion Error:", err); 
+             }
+           }
           
-          if (newVids.length > 0) {
-            setVideos(prev => [...prev, ...newVids]);
-            addLog(`System: Successfully ingested ${newVids.length} units.`);
-          }
+           if (newVids.length > 0) {
+             setVideos(prev => [...prev, ...newVids]);
+             addLog(`System: Successfully ingested ${newVids.length} units.`);
+           }
         });
 
         unlistenEnter = await win.listen('tauri://drag-enter', () => setDragFile(true));
@@ -748,8 +745,6 @@ export default function App() {
           collections={collections}
           setVideos={setVideos}
           setCollections={setCollections}
-          theme={theme}
-          setTheme={setTheme}
           rotationInterval={rotationInterval}
           setRotationInterval={setRotationInterval}
           snapshotDir={snapshotDir}
@@ -760,6 +755,8 @@ export default function App() {
           setZoom={setZoom}
           speed={speed}
           setSpeed={setSpeed}
+          theme={theme}
+          setTheme={setTheme}
           alwaysOnTop={alwaysOnTop}
           setAlwaysOnTop={setAlwaysOnTop}
           masterPlaying={masterPlaying}
@@ -787,7 +784,6 @@ export default function App() {
           onToggleFocus={onToggleFocus}
           onLog={addLog}
           filtered={filtered}
-
           focusedId={focusedId}
           showSettings={showSettings}
           setShowSettings={setShowSettings}
@@ -798,87 +794,126 @@ export default function App() {
           newCollectionName={newCollectionName}
           setNewCollectionName={setNewCollectionName}
           logs={logs}
-          setMenu={setMenu}
-          menu={menu}
           isFS={isFS}
+          confirmDeletion={confirmDeletion}
+          setConfirmDeletion={setConfirmDeletion}
           setIsFS={setIsFS}
           isPopout={isPopout}
           showHelp={showHelp}
           setShowHelp={setShowHelp}
-          showPromo={showPromo}
-          setShowPromo={setShowPromo}
+          showShare={showShare}
+          setShowShare={setShowShare}
           showSymphonyWorkshop={showSymphonyWorkshop}
           setShowSymphonyWorkshop={setShowSymphonyWorkshop}
           toggleMasterMute={toggleMasterMute}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          selectionMode={selectionMode}
+          setSelectionMode={setSelectionMode}
         />
       )}
 
        <VideoGrid
-         videos={videos}
-         filtered={filtered}
-         zoom={zoom}
-         immersive={immersive}
-         focusedId={focusedId}
-         dragId={dragId}
-         globalRepeat={globalRepeat}
-         globalSpeed={speed}
-         fitMode={fitMode}
-         masterPlaying={masterPlaying}
-         masterMuted={masterMuted}
-         globalVolume={globalVolume}
-         showImmersiveUI={showImmersiveUI}
-         snapshotDir={snapshotDir}
-         setSnapshotDir={setSnapshotDir}
-         globalControl={globalControl}
-         rowOffsets={rowOffsets}
-         rotIdx={rotIdx}
-         rotating={rotating}
-         scrollRef={scrollRef}
-         idToRow={idToRow}
-         onDragStart={handleDragStart}
-         onDragEnd={handleDragEnd}
-         onUpdateVideo={handleUpdate}
-         onRemoveVideo={handleRemove}
-         onLog={addLog}
-         onFocus={handleFocus}
-         onCloseFocus={() => setFocusedId(null)}
-         onEnded={handleVideoEnded}
-         toggleMasterMute={toggleMasterMute}
-         toggleMasterPlay={toggleMasterPlay}
-         onContextMenu={handleContext}
-         onDeepFocus={handleDeepFocus}
-         onReorder={onReorder}
-         onToggleFocus={onToggleFocus}
-         jumpToUnit={jumpToUnit}
-       />
+          videos={videos}
+          filtered={filtered}
+          zoom={zoom}
+          immersive={immersive}
+          focusedId={focusedId}
+          dragId={dragId}
+          globalRepeat={globalRepeat}
+          globalSpeed={speed}
+          fitMode={fitMode}
+          masterPlaying={masterPlaying}
+          masterMuted={masterMuted}
+          globalVolume={globalVolume}
+          showImmersiveUI={showImmersiveUI}
+          snapshotDir={snapshotDir}
+          setSnapshotDir={setSnapshotDir}
+          globalControl={globalControl}
+          rowOffsets={rowOffsets}
+          rotIdx={rotIdx}
+          rotating={rotating}
+          scrollRef={scrollRef}
+          idToRow={idToRow}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onUpdateVideo={handleUpdate}
+          onRemoveVideo={handleRemove}
+          onLog={addLog}
+          onFocus={handleFocus}
+          onCloseFocus={() => setFocusedId(null)}
+          onEnded={handleVideoEnded}
+          toggleMasterMute={toggleMasterMute}
+          toggleMasterPlay={toggleMasterPlay}
+          onContextMenu={handleContext}
+          onDeepFocus={handleDeepFocus}
+          onReorder={onReorder}
+          onToggleFocus={onToggleFocus}
+          jumpToUnit={jumpToUnit}
+          selectedIds={selectedIds}
+          onToggleSelect={toggleSelect}
+          selectionMode={selectionMode}
+        />
 
-      {!immersive && (
-        <footer className="app-footer">
-          <TelemetrySystem videosCount={videos.length} />
-        </footer>
+       {!immersive && (
+         <footer className="app-footer">
+           <TelemetrySystem videosCount={videos.length} />
+         </footer>
+       )}
+
+      {menu && (
+        <ContextMenu 
+          x={menu.x} 
+          y={menu.y} 
+          onClose={() => { setMenu(null); setMenuMetadata(null); }}
+          video={videos.find(x => x.id === menu.id)!}
+          metadata={menuMetadata}
+          selectedCount={selectedIds.size}
+          onAction={(action) => {
+            const v = videos.find(x => x.id === menu.id);
+            if (!v) return;
+            
+            switch(action) {
+              case 'play': onUpdateVideo(v.id, { playing: !v.playing }); break;
+              case 'mute': onUpdateVideo(v.id, { muted: !v.muted }); break;
+              case 'stop': onUpdateVideo(v.id, { playing: false }); break;
+              case 'remove': onRemoveVideo(v.id); break;
+              case 'focus': onToggleFocus(v.id); break;
+              case 'snapshot': invoke('save_snapshot', { id: v.id, path: v.realPath }); break;
+              case 'folder': invoke('open_folder', { path: v.realPath }); break;
+              case 'popout': invoke('pop_out', { id: v.id, url: v.url, title: v.title }); break;
+              case 'share': setSharingVideo(v); break;
+              case 'rename_selected':
+                setGlobalControl(`batch-rename-selected-${Date.now()}`);
+                break;
+              case 'rename':
+                if (v.realPath) {
+                  const currentName = v.title.replace(/\.[^/.]+$/, "");
+                  const newName = window.prompt("RENAME UNIT\nEnter new name (extension preserved):", currentName);
+                  if (newName && newName !== currentName) {
+                    invoke<string>('rename_video', { oldPath: v.realPath, newName })
+                      .then((newPath) => {
+                        const extension = v.title.substring(v.title.lastIndexOf('.'));
+                        onUpdateVideo(v.id, { 
+                          realPath: newPath, 
+                          url: convertFileSrc(newPath),
+                          title: `${newName}${extension}` 
+                        });
+                        addLog(`Unit renamed: ${newName}${extension}`);
+                      })
+                      .catch(err => {
+                        console.error("Rename failed:", err);
+                        alert(`Rename failed: ${err}`);
+                      });
+                  }
+                }
+                break;
+            }
+            setMenu(null);
+            setMenuMetadata(null);
+          }}
+        />
       )}
-
-      {menu && <ContextMenu 
-        x={menu.x} 
-        y={menu.y} 
-        onClose={() => setMenu(null)} 
-        playing={videos.find(x => x.id === menu.id)?.playing}
-        muted={videos.find(x => x.id === menu.id)?.muted}
-        onAction={(a) => {
-          const v = videos.find(x => x.id === menu.id); if (!v) return;
-          if (a === 'remove') onRemoveVideo(menu.id);
-          if (a === 'folder') invoke('open_folder', { path: v.realPath || v.url });
-          if (a === 'popout') invoke('pop_out', { url: v.url, title: v.title });
-          if (a === 'focus') onToggleFocus(v.id === focusedId ? null : v.id);
-          if (a === 'snapshot') setGlobalControl(`snapshot-${v.id}-${Date.now()}`);
-          if (a === 'play') onUpdateVideo(v.id, { playing: !v.playing });
-          if (a === 'stop') {
-            onUpdateVideo(v.id, { playing: false });
-            setGlobalControl(`stop-${v.id}-${Date.now()}`);
-          }
-          if (a === 'mute') onUpdateVideo(v.id, { muted: !v.muted });
-        }} 
-      />}
 
       <div className="preheat-buffer" style={{ position: 'fixed', bottom: 0, right: 0, width: 0, height: 0, opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         {nextSetVideos.map(v => (
@@ -907,11 +942,12 @@ export default function App() {
           />
         ))}
       </div>
-      
-      <PromoExporter 
-        isOpen={showPromo} 
-        onClose={() => setShowPromo(false)} 
-        videos={videos}
+
+      <ShareModal 
+        isOpen={!!sharingVideo} 
+        onClose={() => setSharingVideo(null)} 
+        title={sharingVideo?.title || 'COSMO SYMPHONY'}
+        description={`Video Source: ${sharingVideo?.realPath || 'Symphony Asset'}`}
       />
       {showSymphonyWorkshop && <SymphonyWorkshop onClose={() => setShowSymphonyWorkshop(false)} addLog={addLog} />}
     </main>

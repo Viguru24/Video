@@ -1,8 +1,8 @@
 # Window Drag and Resize Fix - Implementation Summary
 
-## Status: ✅ COMPLETE
+## Status: ✅ HARDENED (v3.2.5)
 
-All changes from the comprehensive plan have been successfully implemented and verified.
+Following a regression where standard CSS drag regions were tested (v3.2.4), the system has been returned to the **Sovereign Drag Protocol** (Manual Bypass). All guesswork has been purged and verified.
 
 ## Changes Implemented
 

@@ -10,6 +10,20 @@
     "shell:allow-execute",
     "shell:allow-stdin-write",
     "opener:allow-open-path",
+    {
+      "identifier": "opener:allow-open-url",
+      "scope": {
+        "allow": [
+          "https://wa.me/*",
+          "https://t.me/*",
+          "https://www.facebook.com/*",
+          "https://www.linkedin.com/*",
+          "https://cosmo.symphony*",
+          "whatsapp://*",
+          "tg://*"
+        ]
+      }
+    },
     "dialog:allow-open",
     "dialog:allow-save",
     "fs:read-all",

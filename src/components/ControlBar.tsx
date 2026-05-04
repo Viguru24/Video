@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion } from 'framer-motion';
@@ -44,9 +44,15 @@ import {
   HelpCircle,
   Palette,
   Share2,
-  Sparkles,
   Save,
   MousePointer2,
+  Download,
+  ExternalLink,
+  Command,
+  Keyboard,
+  Info,
+  Hash,
+  Type
 } from 'lucide-react';
 
 interface ControlBarProps {
@@ -102,18 +108,24 @@ interface ControlBarProps {
   newCollectionName: string;
   setNewCollectionName: React.Dispatch<React.SetStateAction<string>>;
   logs: { t: string; m: string }[];
-  setMenu: React.Dispatch<React.SetStateAction<{ x: number; y: number; id: string } | null>>;
-  menu: { x: number; y: number; id: string } | null;
   setGlobalControl: React.Dispatch<React.SetStateAction<string | null>>;
+  confirmDeletion: boolean;
+  setConfirmDeletion: React.Dispatch<React.SetStateAction<boolean>>;
   isFS: boolean;
 
   setIsFS: React.Dispatch<React.SetStateAction<boolean>>;
   isPopout: boolean;
   showHelp: boolean;
   setShowHelp: React.Dispatch<React.SetStateAction<boolean>>;
-  showPromo: boolean;
-  setShowPromo: React.Dispatch<React.SetStateAction<boolean>>;
+  showShare: boolean;
+  setShowShare: React.Dispatch<React.SetStateAction<boolean>>;
+  showSymphonyWorkshop: boolean;
+  setShowSymphonyWorkshop: (val: boolean) => void;
   toggleMasterMute: () => void;
+  selectedIds: Set<string>;
+  setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  selectionMode: boolean;
+  setSelectionMode: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export function ControlBar({
@@ -167,30 +179,45 @@ export function ControlBar({
   newCollectionName,
   setNewCollectionName,
   logs,
-  setMenu,
-  menu,
   setGlobalControl,
+  confirmDeletion,
+  setConfirmDeletion,
   isFS,
 
   setIsFS,
   isPopout,
   showHelp,
   setShowHelp,
-  showPromo,
-  setShowPromo,
-  showCreationStudio,
-  setShowCreationStudio,
+  showShare,
+  setShowShare,
+  showSymphonyWorkshop,
+  setShowSymphonyWorkshop,
   theme,
   setTheme,
   toggleMasterMute,
+  selectedIds,
+  setSelectedIds,
+  selectionMode,
+  setSelectionMode,
+  globalControl,
 }: ControlBarProps) {
   const [collectionName, setCollectionName] = useState('');
+  const [showBatchRename, setShowBatchRename] = useState(false);
+  const [batchPrefix, setBatchPrefix] = useState('UNIT');
+  const [isRenaming, setIsRenaming] = useState(false);
 
   const toggleMasterPlay = useCallback(() => {
     const newState = !masterPlaying;
     setMasterPlaying(newState);
     setVideos((p) => p.map((v) => ({ ...v, playing: newState })));
   }, [masterPlaying, setMasterPlaying, setVideos]);
+
+  useEffect(() => {
+    if (globalControl?.startsWith('batch-rename-selected-')) {
+      setShowBatchRename(true);
+      setGlobalControl(null);
+    }
+  }, [globalControl, setGlobalControl]);
 
   const saveCollection = () => {
     if (!collectionName.trim()) return;
@@ -211,15 +238,71 @@ export function ControlBar({
       return n;
     });
   };
+  
+  const executeBatchRename = async () => {
+    // Filter by selection if active
+    const targets = selectedIds.size > 0 
+      ? videos.filter(v => selectedIds.has(v.id))
+      : videos;
+    
+    if (targets.length === 0) {
+      addLog("ERROR: NO UNITS TARGETED FOR ORCHESTRATION.");
+      return;
+    }
+    
+    if (!confirm(`CAUTION: This will rename ${targets.length} files on disk. Proceed?`)) return;
+    
+    setIsRenaming(true);
+    addLog(`INITIALIZING BATCH RENAME: ${batchPrefix}_###`);
+    
+    // Sort by current title or ID for consistent indexing
+    const sorted = [...targets].sort((a, b) => a.title.localeCompare(b.title));
+    const newVideos = [...videos];
+    
+    for (let i = 0; i < sorted.length; i++) {
+      const v = sorted[i];
+      // Rust backend handles extension preservation and path construction
+      const newNameOnly = `${batchPrefix}_${String(i + 1).padStart(3, '0')}`;
+      
+      try {
+        const resultPath = await invoke<string>('rename_video', { 
+          oldPath: v.realPath, 
+          newName: newNameOnly 
+        });
+        
+        const idx = newVideos.findIndex(nv => nv.id === v.id);
+        if (idx !== -1) {
+          const finalName = resultPath.split(/[\\/]/).pop() || resultPath;
+          newVideos[idx] = { ...newVideos[idx], title: finalName, realPath: resultPath };
+        }
+        addLog(`RENAMED: ${v.title} -> ${newNameOnly}`);
+      } catch (err) {
+        addLog(`CRITICAL RENAME ERROR [${v.title}]: ${err}`);
+      }
+    }
+    
+    setVideos(newVideos);
+    setIsRenaming(false);
+    setShowBatchRename(false);
+    setSelectedIds(new Set()); // Clear selection after batch
+    setSelectionMode(false);
+    addLog("BATCH ORCHESTRATION COMPLETE.");
+  };
 
   return (
     <>
         <header className="app-header">
+          <div 
+            className="header-drag-handle" 
+            onMouseDown={(e) => {
+              if (e.button === 0) getCurrentWindow().startDragging();
+            }}
+          />
           <div className="header-row brand-row">
             <div className="header-left">
               <img src="/logo.png" className="app-logo-img" alt="Logo" />
               <div className="logo-text">
-                <h1 className="brand-main">COSMO <span className="brand-sub">WHISPER</span></h1>
+                <h1 className="brand-main">COSMO <span className="brand-sub">SYMPHONY</span></h1>
               </div>
               
               <div className="search-container">
@@ -232,6 +315,14 @@ export function ControlBar({
                   onMouseDown={e => e.stopPropagation()}
                   className="hdr-search-input"
                 />
+                <button 
+                  className="search-clear-btn" 
+                  onClick={() => setSearch('')}
+                  title="Clear search"
+                  data-tooltip="Clear Search"
+                >
+                  🧹
+                </button>
               </div>
             </div>
             
@@ -299,18 +390,27 @@ export function ControlBar({
                   <option value={60}>1m</option>
                 </select>
               </div>
+              <button
+                onClick={() => {
+                  setSelectionMode(!selectionMode);
+                  if (!selectionMode) setSelectedIds(new Set());
+                }}
+                className={`hdr-btn select-mode-btn ${selectionMode ? 'active-accent' : ''}`}
+                data-tooltip={selectionMode ? "Exit Selection" : "Multi-Select"}
+              >
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                   <MousePointer2 size={14} />
+                </div>
+              </button>
             </div>
 
-            {/* STUDIO SUITE */}
-            <div className="ctrl-group studio-group">
-              <button onClick={() => setShowCreationStudio(true)} className={`hdr-btn creation-btn ${showCreationStudio ? 'active-accent' : ''}`} data-tooltip="Studio">
-                <Sparkles size={14} /> <span>STUDIO</span>
-              </button>
-              <button onClick={() => setShowPromo(true)} className={`hdr-btn promo-btn ${showPromo ? 'active-accent' : ''}`} data-tooltip="Promo">
-                <Share2 size={14} />
-              </button>
+            {/* SYMPHONY WORKSHOP */}
+            <div className="ctrl-group symphony-group">
               <button onClick={() => setShowCollections(!showCollections)} className={`hdr-btn ${showCollections ? 'active-accent' : ''}`} data-tooltip="Sets">
                 <Bookmark size={14} />
+              </button>
+              <button onClick={() => setShowBatchRename(!showBatchRename)} className={`hdr-btn ${showBatchRename ? 'active-accent' : ''}`} data-tooltip="Batch Rename">
+                <Type size={14} />
               </button>
             </div>
 
@@ -412,13 +512,14 @@ export function ControlBar({
                   setTheme(themes[(themes.indexOf(theme) + 1) % themes.length]);
                 }}
                 className="hdr-btn"
-                data-tooltip="Theme"
+                data-tooltip={`Theme: ${theme.charAt(0).toUpperCase() + theme.slice(1)}`}
               >
                 <Palette size={14} />
               </button>
               <button onClick={() => setShowLogs(!showLogs)} className={`hdr-btn ${showLogs ? 'active-accent' : ''}`} data-tooltip="Logs"><Layers size={14} /></button>
-              <button onClick={() => setShowHelp(true)} className={`hdr-btn ${showHelp ? 'active-accent' : ''}`} data-tooltip="Guide"><HelpCircle size={14} /></button>
-              <button onClick={() => setShowSettings(!showSettings)} className={`hdr-btn ${showSettings ? 'active-accent' : ''}`} data-tooltip="Settings"><Settings size={14} /></button>
+              <div className="merged-system-btns">
+                <button onClick={() => setShowSettings(!showSettings)} className={`hdr-btn ${showSettings ? 'active-accent' : ''}`} data-tooltip="Settings & Guide"><Settings size={14} /></button>
+              </div>
             </div>
 
             </div>
@@ -426,12 +527,12 @@ export function ControlBar({
         </header>
 
       {showSettings && (
-        <div className="settings-overlay" onClick={() => setShowSettings(false)}>
+        <div className="settings-overlay">
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-header">
               <h2>System Configuration</h2>
-              <button onClick={() => setShowSettings(false)}>
-                <X size={20} />
+              <button onClick={() => setShowSettings(false)} className="premium-close-btn">
+                <X size={18} />
               </button>
             </div>
             <div className="settings-body">
@@ -463,6 +564,17 @@ export function ControlBar({
                     </button>
                   </div>
                 </div>
+
+                <div className="setting-item">
+                  <label>Deletion Safeguard</label>
+                  <button 
+                    className={	oggle-btn }
+                    onClick={() => setConfirmDeletion(!confirmDeletion)}
+                  >
+                    <div className="toggle-handle" />
+                    <span>{confirmDeletion ? 'ON' : 'OFF'}</span>
+                  </button>
+                </div>
               </div>
 
               <div className="settings-section">
@@ -470,21 +582,64 @@ export function ControlBar({
                 <div className="shortcut-list">
                   <div className="shortcut-item">
                     <kbd>SPACE</kbd>
-                    <span>COSMO SYMPHONY — v3.2.1 (BETA-ACTIVE)</span>
+                    <span>Master Play / Pause Toggle</span>
                   </div>
                   <div className="shortcut-item">
                     <kbd>S</kbd>
-                    <span>Snapshot (Focused Unit Only)</span>
+                    <span>Quick Snapshot (Focused Unit)</span>
                   </div>
                   <div className="shortcut-item">
                     <kbd>ESC</kbd>
                     <span>Exit Focus / Solo Mode</span>
                   </div>
                   <div className="shortcut-item">
-                    <kbd>DOUBLE CLICK</kbd>
-                    <span>Enter Deep Focus Mode</span>
+                    <kbd>F</kbd>
+                    <span>Toggle Solo Mode (Focused Unit)</span>
+                  </div>
+                  <div className="shortcut-item">
+                    <kbd>DELETE</kbd>
+                    <span>Decommission Unit (Focused Unit)</span>
                   </div>
                 </div>
+              </div>
+
+              {/* MERGED GUIDE CONTENT */}
+              <div className="settings-section guide-section">
+                <div className="section-header">
+                  <Monitor size={16} />
+                  <h3>SYMPHONY PLAYBACK</h3>
+                </div>
+                <div className="format-grid" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px', marginTop: '10px' }}>
+                  <div className="format-box" style={{ background: 'rgba(0,255,136,0.05)', padding: '10px', borderRadius: '4px', border: '1px solid rgba(0,255,136,0.2)' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--success-color)', fontWeight: 'bold' }}>NATIVE CORE</span>
+                    <p style={{ margin: '5px 0', fontSize: '12px' }}>MP4, WebM, MOV, M4V</p>
+                  </div>
+                </div>
+
+                <div className="interaction-list" style={{ marginTop: '20px' }}>
+                  <div className="interaction-item" style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                    <MousePointer2 size={16} className="text-accent" />
+                    <div className="i-content">
+                      <strong style={{ fontSize: '13px', display: 'block' }}>Double Click</strong>
+                      <span style={{ fontSize: '11px', opacity: 0.7 }}>Enter "Deep Focus" mode for immersive solo viewing.</span>
+                    </div>
+                  </div>
+                  <div className="interaction-item" style={{ display: 'flex', gap: '10px' }}>
+                    <Zap size={16} className="text-accent" />
+                    <div className="i-content">
+                      <strong style={{ fontSize: '13px', display: 'block' }}>Drag & Drop</strong>
+                      <span style={{ fontSize: '11px', opacity: 0.7 }}>Reorder units or drop folders to bulk-add videos.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-footer" style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.6, fontSize: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <Info size={12} />
+                  <span>COSMO SYMPHONY v3.2.5</span>
+                </div>
+                <span>SYSTEM STABLE</span>
               </div>
             </div>
           </div>
@@ -492,12 +647,12 @@ export function ControlBar({
       )}
 
       {showCollections && (
-        <div className="modal-overlay" onClick={() => setShowCollections(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ width: '400px' }}>
             <div className="modal-header">
               <h2>Workspace Collections</h2>
-              <button onClick={() => setShowCollections(false)} className="close-logs">
-                <X size={20} />
+              <button onClick={() => setShowCollections(false)} className="premium-close-btn">
+                <X size={18} />
               </button>
             </div>
             <div className="modal-body">
@@ -537,12 +692,12 @@ export function ControlBar({
       )}
 
       {showLogs && (
-        <div className="logs-overlay" onClick={() => setShowLogs(false)}>
+        <div className="logs-overlay">
           <div className="logs-modal" onClick={(e) => e.stopPropagation()}>
             <div className="logs-header">
-              <h2>NPU Logs</h2>
-              <button onClick={() => setShowLogs(false)} className="close-logs">
-                <X size={20} />
+              <h2>COSMO SYMPHONY LOGS</h2>
+              <button onClick={() => setShowLogs(false)} className="premium-close-btn">
+                <X size={18} />
               </button>
             </div>
             <div className="logs-body">
@@ -558,72 +713,59 @@ export function ControlBar({
         </div>
       )}
 
-      {showHelp && (
-        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+
+      {showBatchRename && (
+        <div className="modal-overlay">
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ width: '380px' }}>
             <div className="modal-header">
-              <h2>COSMO SYMPHONY GUIDE</h2>
-              <button onClick={() => setShowHelp(false)} className="close-logs">
-                <X size={20} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Hash size={18} className="text-accent" />
+                <h2>BATCH ORCHESTRATION</h2>
+              </div>
+              {!isRenaming && (
+                <button onClick={() => setShowBatchRename(false)} className="premium-close-btn">
+                  <X size={18} />
+                </button>
+              )}
             </div>
             <div className="modal-body">
-               <div className="settings-section">
-                <h3>Workspace Interaction</h3>
-                <div className="interaction-list">
-                   <div className="interaction-item">
-                    <div className="i-icon"><MousePointer2 size={16}/></div>
-                    <div className="i-content">
-                      <strong>Drag & Drop</strong>
-                      <span>Drop video files or folders anywhere to ingest.</span>
-                    </div>
-                  </div>
-                   <div className="interaction-item">
-                    <div className="i-icon"><Maximize2 size={16}/></div>
-                    <div className="i-content">
-                      <strong>Deep Focus</strong>
-                      <span>Double click any unit to solo. ESC to return to wall.</span>
-                    </div>
-                  </div>
+              <div className="settings-section">
+                <h3>SEQUENTIAL RE-INDEXING</h3>
+                <div className="setting-item">
+                  <label>Base Prefix</label>
+                  <input 
+                    type="text" 
+                    value={batchPrefix}
+                    onChange={(e) => setBatchPrefix(e.target.value.toUpperCase())}
+                    placeholder="e.g. SHOT, UNIT, SCENE"
+                    disabled={isRenaming}
+                    style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', padding: '10px', borderRadius: '6px', color: 'white' }}
+                  />
                 </div>
-              </div>
-              <div className="settings-section" style={{ marginTop: '20px' }}>
-                <h3>Autonomous Production</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                  The <strong>Studio</strong> button opens the generative creation pipeline. Describe the video you want, 
-                  and the system will orchestrate local assets and AI generation to produce it.
-                </p>
+                <div className="preview-box" style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '11px', color: 'var(--text-muted)' }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                     <span>PREVIEW:</span>
+                     <span className="text-accent">{(selectedIds.size > 0 ? selectedIds.size : videos.length)} UNITS</span>
+                   </div>
+                   <div style={{ opacity: 0.8 }}>
+                     <div>{batchPrefix || '...'}_001.mp4</div>
+                     <div>{batchPrefix || '...'}_002.mp4</div>
+                     <div style={{ fontStyle: 'italic' }}>...and so on.</div>
+                   </div>
+                </div>
+                
+                <button 
+                  onClick={executeBatchRename} 
+                  disabled={isRenaming || !batchPrefix.trim() || (selectedIds.size === 0 && videos.length === 0)}
+                  className="save-btn"
+                  style={{ width: '100%', justifyContent: 'center', marginTop: '10px', padding: '12px' }}
+                >
+                  {isRenaming ? 'ORCHESTRATING...' : 'EXECUTE SEQUENCE'}
+                </button>
               </div>
             </div>
           </div>
         </div>
-      )}
-
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          playing={videos.find((x) => x.id === menu.id)?.playing}
-          muted={videos.find((x) => x.id === menu.id)?.muted}
-          onAction={(a) => {
-            const v = videos.find((x) => x.id === menu.id);
-            if (!v) return;
-            if (a === 'remove') onRemoveVideo(menu.id);
-            if (a === 'folder') invoke('open_folder', { path: v.realPath || v.url });
-            if (a === 'popout') invoke('pop_out', { url: v.url, title: v.title });
-            if (a === 'focus') onToggleFocus(v.id === focusedId ? null : v.id);
-             if (a === 'snapshot') {
-               setGlobalControl(`snapshot-${v.id}-${Date.now()}`);
-             }
-             if (a === 'play') onUpdateVideo(v.id, { playing: !v.playing });
-             if (a === 'stop') {
-               onUpdateVideo(v.id, { playing: false });
-               setGlobalControl(`stop-${v.id}-${Date.now()}`);
-             }
-            if (a === 'mute') onUpdateVideo(v.id, { muted: !v.muted });
-          }}
-        />
       )}
     </>
   );

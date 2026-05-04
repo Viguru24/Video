@@ -44,4 +44,7 @@ onMouseDown={(e) => {
 ---
 
 ## 4. Current Version
-The application is now running **v3.2.1** with the **Manual Drag Bypass** enabled.
+The application is now running **v3.2.5** with the **Manual Drag Bypass** fully hardened and verified. 
+- ❌ All CSS drag regions (`data-tauri-drag-region`) have been purged.
+- ✅ Dedicated `.header-drag-handle` (z-index 1001) is the master handle.
+- ✅ All interactive controls are elevated to `z-index: 1002`.

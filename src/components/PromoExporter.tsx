@@ -31,14 +31,14 @@ export function PromoExporter({ isOpen, onClose, videos }: PromoExporterProps) {
         <div className="settings-header">
           <div className="header-title-group">
             <Share2 size={18} className="accent-text" />
-            <h2>Social Promo Studio</h2>
+            <h2>Social Promo Workshop</h2>
           </div>
           <button onClick={onClose} className="close-modal-btn">
             <X size={20} />
           </button>
         </div>
 
-        <div className="promo-studio-body">
+        <div className="promo-workshop-body">
           {/* Left Panel: Configuration */}
           <div className="promo-config-panel">
             <div className="promo-section">

@@ -347,12 +347,24 @@ fn main() {
             // We use a separate thread for the blocking read to keep the protocol pool reactive
             let (_file, buffer) = std::thread::spawn(move || {
                 use std::io::{Read, Seek, SeekFrom};
-                let mut f = std::fs::File::open(&path).expect("Failed to open");
-                let mut buf = vec![0; chunk_size];
-                let _ = f.seek(SeekFrom::Start(start));
-                let _ = f.read_exact(&mut buf);
-                (f, buf)
+                match std::fs::File::open(&path) {
+                    Ok(mut f) => {
+                        let mut buf = vec![0; chunk_size];
+                        let _ = f.seek(SeekFrom::Start(start));
+                        let _ = f.read_exact(&mut buf);
+                        (Some(f), buf)
+                    },
+                    Err(_) => (None, Vec::new())
+                }
             }).join().unwrap();
+
+            if _file.is_none() {
+                return tauri::http::Response::builder()
+                    .status(404)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(Vec::new())
+                    .unwrap();
+            }
 
             tauri::http::Response::builder()
                 .status(if start > 0 { 206 } else { 200 })
