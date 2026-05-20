@@ -8,6 +8,13 @@ export default defineConfig({
   server: {
     port: 55173,
     strictPort: true,
+    allowedHosts: true,
+    // Fix HMR WebSocket inside Tauri's webview — the embedded browser intercepts
+    // WebSocket upgrades and returns 400 unless we explicitly configure the endpoint.
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+      port: 55173,
+    },
   },
 })
-

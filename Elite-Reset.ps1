@@ -3,7 +3,7 @@
 
 $TARGET_PORT = 59473
 $VITE_PORT = 55173
-$APP_NAME = "cosmovideo"
+$APP_NAME = "CosmoSymphony"
 
 Write-Host "--- COSMO ELITE: RESETTING ENVIRONMENT ---" -ForegroundColor Magenta
 

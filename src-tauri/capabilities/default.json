@@ -2,7 +2,7 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "*"
   ],
   "permissions": [
     "core:default",
@@ -24,10 +24,10 @@
         ]
       }
     },
-    "dialog:allow-open",
-    "dialog:allow-save",
+    "dialog:default",
     "fs:read-all",
     "fs:write-all",
+    "fs:allow-exists",
     "core:window:allow-set-fullscreen",
     "core:window:allow-set-always-on-top",
     "core:window:allow-minimize",
@@ -36,6 +36,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "core:window:allow-start-resize-dragging"
+    "core:window:allow-start-resize-dragging",
+    "drag:default"
   ]
 }
