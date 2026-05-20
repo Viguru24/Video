@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, Volume2, VolumeX, ExternalLink, Share2, Info, Edit2 } from 'lucide-react';
+import { 
+  Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, Volume2, VolumeX, 
+  ExternalLink, Share2, Info, Edit2, ChevronLeft, ChevronRight, RotateCcw, RotateCw, 
+  Minimize2, Repeat, Repeat1, Crop, Eraser, Sparkles, Save
+} from 'lucide-react';
 import type { VideoItem } from '../types';
 import { isValidPictureExtension, isTauri } from '../utils/videoUtils';
 
@@ -11,9 +15,10 @@ interface ContextMenuProps {
   video: VideoItem;
   metadata?: any;
   selectedCount?: number;
+  isFocused?: boolean;
 }
 
-export function ContextMenu({ x, y, onClose, onAction, video, metadata, selectedCount = 0 }: ContextMenuProps) {
+export function ContextMenu({ x, y, onClose, onAction, video, metadata, selectedCount = 0, isFocused = false }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const isImage = video ? isValidPictureExtension(video.realPath || video.url) : false;
   const [coords, setCoords] = useState<{ top: number; left: number; measured: boolean }>({
@@ -58,6 +63,8 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
     visibility: coords.measured ? 'visible' : 'hidden',
   };
 
+  const isVideoLooping = video.repeatMode === 'always';
+
   return (
     <div className="context-menu" ref={menuRef} style={style}>
       {metadata && (
@@ -75,7 +82,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
         </div>
       )}
 
-      {selectedCount > 1 && (
+      {selectedCount > 1 && !isFocused && (
         <>
           <div className="context-menu-item accent-text" onClick={() => onAction('rename_selected')}>
             <Edit2 size={14} />
@@ -85,52 +92,166 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
         </>
       )}
 
-      {isImage && (
+      {isFocused ? (
+        /* MAXIMISED WINDOW / SOLO MODE CONTEXT MENU */
         <>
-          <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>✨ Upscale Yourself</span>
+          {!isImage && (
+            <>
+              <div className="context-menu-section-header">Playback & Frame</div>
+              <div className="context-menu-item" onClick={() => onAction('play')}>
+                {video.playing ? <Pause size={14} /> : <Play size={14} />}
+                <span>{video.playing ? 'Pause Video' : 'Play Video'}</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('mute')}>
+                {video.muted ? <Volume2 size={14} /> : <VolumeX size={14} />}
+                <span>{video.muted ? 'Unmute' : 'Mute'}</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('loop')}>
+                <Repeat size={14} className={isVideoLooping ? 'active-accent-text' : ''} />
+                <span>Loop Mode: {isVideoLooping ? 'ON' : 'OFF'}</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('step-back')}>
+                <ChevronLeft size={14} />
+                <span>Step Back (1 Frame)</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('step-forward')}>
+                <ChevronRight size={14} />
+                <span>Step Forward (1 Frame)</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('snapshot')}>
+                <Camera size={14} />
+                <span>Save Snapshot</span>
+              </div>
+              <div className="context-menu-separator"></div>
+            </>
+          )}
+
+          {isImage && (
+            <>
+              <div className="context-menu-section-header">Image Editing</div>
+              <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
+                <Sparkles size={14} />
+                <span>✨ AI Upscale</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('watermark')}>
+                <Eraser size={14} />
+                <span>Erase Watermark</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('crop')}>
+                <Crop size={14} />
+                <span>Crop Image</span>
+              </div>
+              <div className="context-menu-separator"></div>
+            </>
+          )}
+
+          <div className="context-menu-section-header">View & File</div>
+          {video.folderFiles && video.folderFiles.length > 1 && (
+            <>
+              <div className="context-menu-item" onClick={() => onAction('prev-file')}>
+                <ChevronLeft size={14} />
+                <span>Previous File</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('next-file')}>
+                <ChevronRight size={14} />
+                <span>Next File</span>
+              </div>
+            </>
+          )}
+
+          <div className="context-menu-item" onClick={() => onAction('rotate-ccw')}>
+            <RotateCcw size={14} />
+            <span>Rotate Left (-90°)</span>
+          </div>
+          <div className="context-menu-item" onClick={() => onAction('rotate-cw')}>
+            <RotateCw size={14} />
+            <span>Rotate Right (+90°)</span>
+          </div>
+          <div className="context-menu-item" onClick={() => onAction('save_rotation')}>
+            <Save size={14} />
+            <span>Save Rotation to Disk</span>
+          </div>
+
+          {isTauri() && (
+            <div className="context-menu-item" onClick={() => onAction('folder')}>
+              <FolderOpen size={14} />
+              <span>Open Folder</span>
+            </div>
+          )}
+          <div className="context-menu-item" onClick={() => onAction('rename')}>
+            <Edit2 size={14} />
+            <span>Rename File</span>
+          </div>
+
+          <div className="context-menu-separator"></div>
+          <div className="context-menu-item" onClick={() => onAction('decommission')}>
+            <Trash2 size={14} />
+            <span>Remove from Grid</span>
+          </div>
+          {isTauri() && (
+            <div className="context-menu-item danger" onClick={() => onAction('annihilate')}>
+              <Trash2 size={14} />
+              <span style={{ fontWeight: 800 }}>Recycle Bin</span>
+            </div>
+          )}
+          <div className="context-menu-separator"></div>
+          <div className="context-menu-item" onClick={() => onAction('exit-focus')} style={{ fontWeight: 'bold' }}>
+            <Minimize2 size={14} />
+            <span>Exit Focus Mode</span>
+          </div>
+        </>
+      ) : (
+        /* STANDARD SMALL WINDOW / GRID CARD CONTEXT MENU */
+        <>
+          {isImage && (
+            <>
+              <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
+                <Sparkles size={14} />
+                <span>✨ AI Upscale</span>
+              </div>
+              <div className="context-menu-separator"></div>
+            </>
+          )}
+
+          <div className="context-menu-item" onClick={() => onAction('focus')}>
+            <Maximize2 size={14} />
+            <span>Focus Mode</span>
+          </div>
+          {!isImage && (
+            <div className="context-menu-item" onClick={() => onAction('snapshot')}>
+              <Camera size={14} />
+              <span>Snapshot</span>
+            </div>
+          )}
+          <div className="context-menu-separator"></div>
+          {isTauri() && (
+            <>
+              <div className="context-menu-item" onClick={() => onAction('folder')}>
+                <FolderOpen size={14} />
+                <span>Open Folder</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('popout')}>
+                <ExternalLink size={14} />
+                <span>Pop Out</span>
+              </div>
+            </>
+          )}
+          <div className="context-menu-item" onClick={() => onAction('rename')}>
+            <Edit2 size={14} />
+            <span>Rename {isImage ? 'Image' : 'Video'}</span>
           </div>
           <div className="context-menu-separator"></div>
-        </>
-      )}
-
-      <div className="context-menu-item" onClick={() => onAction('focus')}>
-        <Maximize2 size={14} />
-        <span>Focus Mode</span>
-      </div>
-      {!isImage && (
-        <div className="context-menu-item" onClick={() => onAction('snapshot')}>
-          <Camera size={14} />
-          <span>Snapshot</span>
-        </div>
-      )}
-      <div className="context-menu-separator"></div>
-      {isTauri() && (
-        <>
-          <div className="context-menu-item" onClick={() => onAction('folder')}>
-            <FolderOpen size={14} />
-            <span>Open Folder</span>
+          <div className="context-menu-item" onClick={() => onAction('decommission')}>
+            <Trash2 size={14} />
+            <span>Remove from Grid</span>
           </div>
-          <div className="context-menu-item" onClick={() => onAction('popout')}>
-            <ExternalLink size={14} />
-            <span>Pop Out</span>
-          </div>
+          {isTauri() && (
+            <div className="context-menu-item danger" onClick={() => onAction('annihilate')}>
+              <Trash2 size={14} />
+              <span style={{ fontWeight: 800 }}>Recycle Bin</span>
+            </div>
+          )}
         </>
-      )}
-      <div className="context-menu-item" onClick={() => onAction('rename')}>
-        <Edit2 size={14} />
-        <span>Rename {isImage ? 'Image' : 'Video'}</span>
-      </div>
-      <div className="context-menu-separator"></div>
-      <div className="context-menu-item" onClick={() => onAction('decommission')}>
-        <Trash2 size={14} />
-        <span>Remove {isImage ? 'Image' : 'Video'} from Set</span>
-      </div>
-      {isTauri() && (
-        <div className="context-menu-item danger" onClick={() => onAction('annihilate')}>
-          <Trash2 size={14} />
-          <span style={{ fontWeight: 800 }}>Recycle Bin</span>
-        </div>
       )}
     </div>
   );

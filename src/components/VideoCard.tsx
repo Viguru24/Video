@@ -712,7 +712,6 @@ function VideoCardInternal({
     const firstDash = globalControl.indexOf('-');
     if (firstDash === -1) return;
     const type = globalControl.slice(0, firstDash);
-    const id = globalControl.slice(firstDash + 1, globalControl.lastIndexOf('-')); // extract ID assuming ID contains dashes but date is appended after last dash
     
     // Safer check: if it doesn't include the video ID at all, ignore
     if (!globalControl.includes(video.id)) return;
@@ -724,7 +723,24 @@ function VideoCardInternal({
         videoRef.current.currentTime = 0;
       }
     }
-  }, [globalControl, video.id, takeSnapshot]);
+    if (type === 'stepback') {
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - (1 / FPS));
+        onUpdateVideo(video.id, { playing: false });
+      }
+    }
+    if (type === 'stepforward') {
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.currentTime = Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + (1 / FPS));
+        onUpdateVideo(video.id, { playing: false });
+      }
+    }
+    if (type === 'watermark') {
+      setIsEditingWatermark(true);
+    }
+  }, [globalControl, video.id, takeSnapshot, onUpdateVideo]);
 
   const touchStart = useRef<{ x: number; y: number; time: number } | null>(null);
   const lastTap = useRef<number>(0);
@@ -1530,7 +1546,11 @@ function VideoCardInternal({
         <div className="watermark-editor-toolbar premium-glass" onMouseDown={(e) => e.stopPropagation()}>
           <div className="toolbar-header">
             <span className="toolbar-title">✨ WATERMARK AUTO-ERASER</span>
-            {isErasingLoading && <span className="toolbar-status pulse">PROCESSING...</span>}
+            {isErasingLoading ? (
+              <span className="toolbar-status pulse">PROCESSING...</span>
+            ) : (!boxStart ? (
+              <span className="toolbar-status hint" style={{ color: 'var(--accent)', fontSize: '10px', fontWeight: 'bold' }}>DRAG A BOX OVER WATERMARK</span>
+            ) : null)}
           </div>
           <div className="toolbar-actions">
             {!inpaintedPreview ? (

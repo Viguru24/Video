@@ -2030,6 +2030,19 @@ input[type="range"]:active::-webkit-slider-thumb {
   margin: 4px 6px;
 }
 
+.context-menu-section-header {
+  font-size: 9px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 6px 12px 2px 12px;
+  user-select: none;
+}
+.active-accent-text {
+  color: var(--accent) !important;
+}
+
 /* Unit Summary Styles */
 .context-summary {
   padding: 10px 12px;
