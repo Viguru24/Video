@@ -60,7 +60,9 @@ import {
   Type,
   Image as ImageIcon,
   Film,
-  ChevronDown
+  ChevronDown,
+  Cpu,
+  Sparkles
 } from 'lucide-react';
 
 interface ControlBarProps {
@@ -167,7 +169,8 @@ export function ControlBar({
     masterShowUI, setMasterShowUI,
     selectedIds, setSelectedIds,
     selectionMode, setSelectionMode,
-    renameHistory
+    renameHistory,
+    aiHardwareStatus
   } = useStore();
   const [showBatchRename, setShowBatchRename] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -676,6 +679,38 @@ export function ControlBar({
                   </div>
                 </div>
               </div>
+
+              {/* AI STATUS BADGE */}
+              <div 
+                className={`ai-status-badge ${
+                  aiHardwareStatus.includes('GPU') 
+                    ? 'status-gpu' 
+                    : aiHardwareStatus === 'Detecting...' 
+                    ? 'status-detecting' 
+                    : 'status-cpu'
+                }`}
+                data-tooltip={
+                  aiHardwareStatus.includes('GPU')
+                    ? "Nvidia RTX CUDA GPU Upscaler and GFPGAN Face Restore are active & ready."
+                    : aiHardwareStatus === 'Detecting...'
+                    ? "Detecting AI processing hardware status..."
+                    : "Running with Bilateral Filter CPU fallback. Install Nvidia PyTorch/CUDA for 4x Real-ESRGAN/GFPGAN AI Upscale."
+                }
+              >
+                {aiHardwareStatus.includes('GPU') ? (
+                  <Sparkles size={11} className="ai-status-icon pulse-gold" />
+                ) : (
+                  <Cpu size={11} className={`ai-status-icon ${aiHardwareStatus === 'Detecting...' ? 'spin-slow' : ''}`} />
+                )}
+                <span className="ai-status-lbl">
+                  {aiHardwareStatus.includes('GPU') 
+                    ? 'AI: GPU' 
+                    : aiHardwareStatus === 'Detecting...' 
+                    ? 'AI: Checking...' 
+                    : 'AI: CPU'}
+                </span>
+              </div>
+
               <button onClick={() => setShowSettings(!showSettings)} className={`hdr-btn ${showSettings ? 'active-accent' : ''}`} data-tooltip="Settings & Guide"><Settings size={14} /></button>
             </div>
 

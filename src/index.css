@@ -4191,3 +4191,86 @@ input[type="range"]:active::-webkit-slider-thumb {
 .watermark-editor-toolbar .toolbar-btn .spin {
   animation: spin 1s linear infinite;
 }
+
+/* === AI HARDWARE STATUS BADGE === */
+.ai-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: help;
+  user-select: none;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
+  pointer-events: auto;
+}
+
+.ai-status-badge .ai-status-lbl {
+  font-family: var(--font, system-ui);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.ai-status-badge .ai-status-icon {
+  flex-shrink: 0;
+  transition: transform 0.3s ease;
+}
+
+/* GPU Accelerated State */
+.ai-status-badge.status-gpu {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.2);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.05), inset 0 0 4px rgba(16, 185, 129, 0.05);
+}
+
+.ai-status-badge.status-gpu:hover {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.15), inset 0 0 6px rgba(16, 185, 129, 0.1);
+  transform: translateY(-0.5px);
+}
+
+/* CPU Fallback State */
+.ai-status-badge.status-cpu {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.04);
+  border-color: rgba(245, 158, 11, 0.15);
+}
+
+.ai-status-badge.status-cpu:hover {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.3);
+  transform: translateY(-0.5px);
+}
+
+/* Detecting / Checking State */
+.ai-status-badge.status-detecting {
+  color: var(--text-secondary, #a8a29e);
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Animations */
+@keyframes spin-slow {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.spin-slow {
+  animation: spin-slow 4s linear infinite;
+}
+
+@keyframes pulse-gold {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.18); }
+}
+
+.pulse-gold {
+  animation: pulse-gold 2s ease-in-out infinite;
+}
+

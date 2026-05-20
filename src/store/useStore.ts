@@ -56,6 +56,9 @@ interface GlobalState {
   renameHistory: string[];
   setRenameHistory: (history: string[]) => void;
   addToRenameHistory: (name: string) => void;
+
+  aiHardwareStatus: string;
+  setAiHardwareStatus: (status: string) => void;
 }
 
 export const useStore = create<GlobalState>((set) => ({
@@ -114,4 +117,7 @@ export const useStore = create<GlobalState>((set) => ({
     invoke('save_persistence', { key: 'rename_history', data: JSON.stringify(next) }).catch(() => {});
     return { renameHistory: next };
   }),
+  
+  aiHardwareStatus: 'Detecting...',
+  setAiHardwareStatus: (status) => set({ aiHardwareStatus: status }),
 }));
