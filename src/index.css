@@ -2326,7 +2326,13 @@ input[type="range"]:active::-webkit-slider-thumb {
   background: var(--danger);
   border-color: var(--danger);
   box-shadow: 0 0 20px var(--danger);
-  transform: rotate(90deg) scale(1.1);
+  transform: scale(1.1);
+}
+.premium-close-btn svg {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.premium-close-btn:hover svg {
+  transform: rotate(90deg);
 }
 
 .play-indicator-overlay {
