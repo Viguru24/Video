@@ -12,6 +12,8 @@ export interface VideoItem {
   currentIdx?: number;
   playing: boolean;
   muted: boolean;
+  rotation?: number;
+  currentTime?: number;
 }
 
 export interface TelemetryData {

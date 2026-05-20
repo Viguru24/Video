@@ -29,10 +29,14 @@ interface SortableVideoCardProps {
   onEnded: () => void;
   onEndedProp?: () => void;
   onContextMenu: (x: number, y: number) => void;
-  onDeepFocus: () => void;
+  onDeepFocus: (time?: number) => void;
+  onUpscale?: (video: VideoItem) => void;
   isSelected?: boolean;
   onToggleSelect?: () => void;
   selectionMode?: boolean;
+  onNavigateSibling?: (direction: 1 | -1) => void;
+  isAiEnhancing?: boolean;
+  onSelectAll?: () => void;
 }
 
 function SortableVideoCardInternal(props: SortableVideoCardProps) {
@@ -50,6 +54,8 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
+    const scrollContainer = containerRef.current?.closest('.video-scroll') || document.querySelector('.video-scroll');
+
     observerRef.current = new IntersectionObserver(([entry]) => {
       // SMART CULLING: Only active decoders for visible units
       // FORCE VISIBLE if focused to avoid hibernation during expansion
@@ -59,8 +65,9 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
         setIsVisible(entry.isIntersecting);
       }
     }, { 
+      root: scrollContainer as HTMLElement | null,
       threshold: 0.01,
-      rootMargin: '300px' // Increased margin for smoother transitions
+      rootMargin: '1000px' // Large pre-render buffer (2-3 rows above/below screen) to prevent flash of HIBERNATING state
     });
 
     if (containerRef.current) observerRef.current.observe(containerRef.current);
@@ -92,14 +99,14 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
     <div 
       ref={handleRef} 
       style={style} 
-      className={`grid-item-wrap ${props.isFocused ? 'focused' : ''} ${isDragging ? 'dragging' : ''} ${props.focusedId && props.focusedId !== props.video.id ? 'dimmed' : ''}`}
+      className={`grid-item-wrap ${props.isFocused ? 'focused' : ''} ${isDragging ? 'dragging' : ''} ${props.focusedId && props.focusedId !== props.video.id ? 'dimmed' : ''} ${props.isSelected ? 'selected-card' : ''}`}
       data-id={props.video.id}
     >
       <VideoCard 
         {...props} 
         isVisible={isVisible}
-        dragListeners={listeners} 
-        dragAttributes={attributes} 
+        dragListeners={listeners}
+        dragAttributes={attributes}
       />
     </div>
   );

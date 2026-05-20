@@ -1,12 +1,14 @@
+import React, { useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 type ResizeDirection = 'East' | 'North' | 'NorthEast' | 'NorthWest' | 'South' | 'SouthEast' | 'SouthWest' | 'West';
 
-export function ResizeHandles() {
-  console.log('ResizeHandles component mounted');
+export const ResizeHandles = React.memo(() => {
+  useEffect(() => {
+    console.log('ResizeHandles component truly mounted');
+  }, []);
   
   const handleResize = (e: React.MouseEvent, direction: ResizeDirection) => {
-    console.log(`Resize handle mousedown: direction=${direction}, button=${e.button}, clientX=${e.clientX}, clientY=${e.clientY}`);
     e.preventDefault();
     e.stopPropagation();
     
@@ -14,10 +16,7 @@ export function ResizeHandles() {
     
     try {
       const window = getCurrentWindow();
-      console.log('Calling startResizeDragging with direction:', direction);
-      window.startResizeDragging(direction).then(() => {
-        console.log(`Start resize dragging successful for ${direction}`);
-      }).catch((error) => {
+      window.startResizeDragging(direction).catch((error) => {
         console.error('Start resize dragging failed:', error);
       });
     } catch (err) {
@@ -37,4 +36,6 @@ export function ResizeHandles() {
       <div className="resize-handle handle-br" onMouseDown={(e) => handleResize(e, 'SouthEast')} />
     </>
   );
-}
+});
+
+ResizeHandles.displayName = 'ResizeHandles';

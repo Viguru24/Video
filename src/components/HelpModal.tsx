@@ -80,28 +80,52 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                 </div>
                 <div className="shortcut-grid">
                   <div className="help-shortcut-item">
-                    <div className="keys"><kbd>1</kbd> — <kbd>8</kbd></div>
-                    <div className="desc">Set Grid Density (2 to 16 Units)</div>
+                    <div className="keys"><kbd>i</kbd></div>
+                    <div className="desc">Toggle System Configuration & Guide</div>
                   </div>
                   <div className="help-shortcut-item">
                     <div className="keys"><kbd>SPACE</kbd></div>
-                    <div className="desc">Master Play / Pause Toggle</div>
+                    <div className="desc">Master Play / Pause (or Toggle Focused Unit)</div>
+                  </div>
+                  <div className="help-shortcut-item">
+                    <div className="keys"><kbd>M</kbd></div>
+                    <div className="desc">Toggle Master Mute / Unmute</div>
+                  </div>
+                  <div className="help-shortcut-item">
+                    <div className="keys"><kbd>L</kbd></div>
+                    <div className="desc">Cycle Loop Mode (None ➔ Once ➔ Always ➔ Folder)</div>
                   </div>
                   <div className="help-shortcut-item">
                     <div className="keys"><kbd>F</kbd></div>
-                    <div className="desc">Toggle Solo Mode (Focused Unit)</div>
-                  </div>
-                  <div className="help-shortcut-item">
-                    <div className="keys"><kbd>S</kbd></div>
-                    <div className="desc">Quick Snapshot (Focused Unit)</div>
+                    <div className="desc">Toggle Enlarge / Immersive Mode (Focused Unit)</div>
                   </div>
                   <div className="help-shortcut-item">
                     <div className="keys"><kbd>ESC</kbd></div>
-                    <div className="desc">Exit Solo / Close Modals / Exit App</div>
+                    <div className="desc">Close Active Overlay / Exit Enlarge Mode</div>
                   </div>
                   <div className="help-shortcut-item">
-                    <div className="keys"><kbd>CTRL</kbd> + <kbd>Scroll</kbd></div>
-                    <div className="desc">Precision Density Control</div>
+                    <div className="keys"><kbd>▲</kbd> / <kbd>▼</kbd></div>
+                    <div className="desc">Navigate Previous / Next Unit (Enlarge/Immersive)</div>
+                  </div>
+                  <div className="help-shortcut-item">
+                    <div className="keys"><kbd>◀</kbd> / <kbd>▶</kbd></div>
+                    <div className="desc">Rotate Focused Video (-90° / +90°)</div>
+                  </div>
+                  <div className="help-shortcut-item">
+                    <div className="keys"><kbd>1</kbd> — <kbd>8</kbd></div>
+                    <div className="desc">Instant Grid Density presets (2 to 16 Units)</div>
+                  </div>
+                  <div className="help-shortcut-item">
+                    <div className="keys"><kbd>CTRL + Scroll</kbd></div>
+                    <div className="desc">Dynamic / Precision Zoom grid scaling</div>
+                  </div>
+                  <div className="help-shortcut-item">
+                    <div className="keys"><kbd>DELETE</kbd></div>
+                    <div className="desc">Decommission Unit (Keeps file on disk)</div>
+                  </div>
+                  <div className="help-shortcut-item">
+                    <div className="keys"><kbd>SHIFT + DEL</kbd></div>
+                    <div className="desc">Annihilate Unit (Moves physical file to Recycle Bin)</div>
                   </div>
                 </div>
               </div>
@@ -110,28 +134,42 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <div className="settings-section">
                 <div className="section-header">
                   <MousePointer2 size={16} />
-                  <h3>DEEP INTERACTION</h3>
+                  <h3>PREMIUM MOUSE GESTURES</h3>
                 </div>
                 <div className="interaction-list">
                   <div className="interaction-item">
                     <div className="i-icon"><Maximize size={16} /></div>
                     <div className="i-content">
                       <strong>Double Click</strong>
-                      <span>Enter "Deep Focus" mode for immersive solo viewing.</span>
+                      <span>Double click any media card to instantly enter "Deep Focus" enlarged fullscreen mode.</span>
                     </div>
                   </div>
                   <div className="interaction-item">
-                    <div className="i-icon"><Command size={16} /></div>
+                    <div className="i-icon"><Monitor size={16} /></div>
                     <div className="i-content">
-                      <strong>Right Click</strong>
-                      <span>Activate the Context Menu for unit controls.</span>
+                      <strong>ALT + Scroll & Alt + Click/Drag (Precision Picture Zoom)</strong>
+                      <span>In focus mode, hold Alt and scroll to zoom. Click & Drag to pan. Clicking on the image keeps the zoom state intact (no auto-reset).</span>
+                    </div>
+                  </div>
+                  <div className="interaction-item">
+                    <div className="i-icon"><Play size={16} /></div>
+                    <div className="i-content">
+                      <strong>Hover + Scroll Slideshow Timer</strong>
+                      <span>Hover over the slideshow button and scroll with your mouse wheel to dynamically adjust the timer from 2s to 30s.</span>
                     </div>
                   </div>
                   <div className="interaction-item">
                     <div className="i-icon"><Zap size={16} /></div>
                     <div className="i-content">
-                      <strong>Drag & Drop</strong>
-                      <span>Reorder your workspace or drop folders to bulk-add videos.</span>
+                      <strong>Drag & Drop Workspace Ordering</strong>
+                      <span>Left click and drag cards to reorder your workspace. Drop folders or multiple files anywhere on the app to bulk-add.</span>
+                    </div>
+                  </div>
+                  <div className="interaction-item">
+                    <div className="i-icon"><Command size={16} /></div>
+                    <div className="i-content">
+                      <strong>Stable Hand-Grab Custom Scrollbar</strong>
+                      <span>A beautiful light gray custom scrollbar with a grab cursor enables easy, jump-free scrolling.</span>
                     </div>
                   </div>
                 </div>
@@ -140,7 +178,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <div className="help-footer">
                 <div className="footer-info">
                   <Info size={14} />
-                  <span>COSMO SYMPHONY — v3.2.1 (BETA-ACTIVE)</span>
+                  <span>COSMO SYMPHONY — v3.3.1 (BETA-ACTIVE)</span>
                 </div>
                 <div className="footer-status">SYMPHONY SYSTEM STABLE</div>
               </div>
