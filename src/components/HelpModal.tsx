@@ -121,11 +121,11 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                   </div>
                   <div className="help-shortcut-item">
                     <div className="keys"><kbd>DELETE</kbd></div>
-                    <div className="desc">Decommission Unit (Keeps file on disk)</div>
+                    <div className="desc">Remove from Grid (Keeps file on disk)</div>
                   </div>
                   <div className="help-shortcut-item">
                     <div className="keys"><kbd>SHIFT + DEL</kbd></div>
-                    <div className="desc">Annihilate Unit (Moves physical file to Recycle Bin)</div>
+                    <div className="desc">Move to Recycle Bin (Deletes file from disk)</div>
                   </div>
                 </div>
               </div>
