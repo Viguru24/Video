@@ -1544,176 +1544,6 @@ export default function App() {
               />
             )}
           </div>
-
-          {/* Floating Glassmorphic Solo Control Bar */}
-          {focusedVideo && !isCropping && (
-            <div 
-              className="solo-control-bar" 
-              style={{
-                position: 'absolute',
-                bottom: '40px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 100000,
-                background: 'rgba(10, 10, 12, 0.75)',
-                backdropFilter: 'blur(16px) saturate(180%)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: '30px',
-                padding: '6px 18px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '16px',
-                boxShadow: '0 12px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                pointerEvents: showImmersiveUI ? 'auto' : 'none',
-                opacity: showImmersiveUI ? 1 : 0,
-                transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                userSelect: 'none'
-              }}
-            >
-              {/* Previous Sibling Button */}
-              <button 
-                onClick={() => handleNavigateSibling(-1)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#fff',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '4px',
-                  borderRadius: '50%',
-                  transition: 'background 0.2s'
-                }}
-                onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                onMouseOut={e => e.currentTarget.style.background = 'none'}
-                title="Previous Picture"
-              >
-                <ChevronLeft size={20} />
-              </button>
-
-              {isFocusedImage ? (
-                /* Picture Specific Controls - High Fidelity Crop Highlight */
-                <button
-                  onClick={() => {
-                    setIsCropping(true);
-                    setCropBox({ x: 15, y: 15, w: 70, h: 70 });
-                    setAspectRatio('free');
-                  }}
-                  style={{
-                    background: 'rgba(0, 255, 136, 0.15)',
-                    border: '1px solid rgba(0, 255, 136, 0.4)',
-                    color: 'var(--accent)',
-                    padding: '6px 14px',
-                    borderRadius: '20px',
-                    fontSize: '12px',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    transition: 'all 0.2s',
-                    boxShadow: '0 0 10px rgba(0, 255, 136, 0.2)'
-                  }}
-                  onMouseOver={e => {
-                    e.currentTarget.style.background = 'rgba(0, 255, 136, 0.25)';
-                    e.currentTarget.style.boxShadow = '0 0 15px rgba(0, 255, 136, 0.4)';
-                  }}
-                  onMouseOut={e => {
-                    e.currentTarget.style.background = 'rgba(0, 255, 136, 0.15)';
-                    e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.2)';
-                  }}
-                >
-                  <Camera size={14} />
-                  CROP
-                </button>
-              ) : (
-                /* Video Slideshow Controls */
-                <div 
-                  className="slideshow-wheel-adjuster"
-                  onWheel={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setSlideshowInterval(prev => {
-                      const direction = e.deltaY < 0 ? 1 : -1;
-                      const next = Math.max(1, Math.min(60, prev + direction));
-                      addLog(`Slideshow interval: ${next}s`);
-                      return next;
-                    });
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '2px 6px',
-                    borderRadius: '20px',
-                    cursor: 'ns-resize'
-                  }}
-                  title="Scroll Wheel to change timer speed (1s - 60s)"
-                >
-                  <button 
-                    onClick={() => {
-                      setIsSlideshowActive(!isSlideshowActive);
-                      addLog(`Slideshow ${!isSlideshowActive ? 'Running' : 'Stopped'}`);
-                    }}
-                    style={{
-                      background: isSlideshowActive ? 'var(--accent)' : 'rgba(255, 255, 255, 0.08)',
-                      border: 'none',
-                      color: isSlideshowActive ? '#000' : '#fff',
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s',
-                      cursor: 'pointer'
-                    }}
-                    onMouseOver={e => {
-                      if (!isSlideshowActive) e.currentTarget.style.background = 'rgba(255,255,255,0.15)';
-                    }}
-                    onMouseOut={e => {
-                      if (!isSlideshowActive) e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
-                    }}
-                  >
-                    {isSlideshowActive ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
-                  </button>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: '55px', lineHeight: 1.1 }}>
-                    <span style={{ fontSize: '8px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Slideshow</span>
-                    <span style={{ fontSize: '12px', fontWeight: 'bold', color: isSlideshowActive ? 'var(--accent)' : '#fff' }}>
-                      {slideshowInterval}s
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Divider */}
-              <div style={{ width: '1px', height: '16px', background: 'rgba(255, 255, 255, 0.12)' }} />
-
-              {/* Next Sibling Button */}
-              <button 
-                onClick={() => handleNavigateSibling(1)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#fff',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '4px',
-                  borderRadius: '50%',
-                  transition: 'background 0.2s'
-                }}
-                onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                onMouseOut={e => e.currentTarget.style.background = 'none'}
-                title="Next Picture"
-              >
-                <ChevronRight size={20} />
-              </button>
-            </div>
-          )}
         </div>
       )}
 
@@ -1831,6 +1661,7 @@ export default function App() {
           video={videos.find(x => x.id === menu.id)!}
           metadata={menuMetadata}
           selectedCount={selectedIds.size}
+          isFocused={focusedId === menu.id}
           onAction={async (action) => {
             const v = videos.find(x => x.id === menu.id);
             if (!v) return;
@@ -1844,6 +1675,20 @@ export default function App() {
               case 'play': onUpdateVideo(v.id, { playing: !v.playing }); break;
               case 'mute': onUpdateVideo(v.id, { muted: !v.muted }); break;
               case 'stop': onUpdateVideo(v.id, { playing: false }); break;
+              case 'loop': onUpdateVideo(v.id, { repeatMode: v.repeatMode === 'always' ? 'none' : 'always' }); break;
+              case 'step-back': setGlobalControl(`stepback-${v.id}-${Date.now()}`); break;
+              case 'step-forward': setGlobalControl(`stepforward-${v.id}-${Date.now()}`); break;
+              case 'watermark': setGlobalControl(`watermark-${v.id}-${Date.now()}`); break;
+              case 'crop':
+                setIsCropping(true);
+                setCropBox({ x: 15, y: 15, w: 70, h: 70 });
+                setAspectRatio('free');
+                break;
+              case 'prev-file': handleNavigateSibling(-1); break;
+              case 'next-file': handleNavigateSibling(1); break;
+              case 'rotate-ccw': onUpdateVideo(v.id, { rotation: (v.rotation || 0) - 90 }); break;
+              case 'rotate-cw': onUpdateVideo(v.id, { rotation: (v.rotation || 0) + 90 }); break;
+              case 'exit-focus': setFocusedId(null); break;
               case 'decommission': await handleDecommission(v.id); break;
               case 'annihilate': {
                 if (!effectivePath) { addLog('Annihilation Error: Native path missing'); break; }
