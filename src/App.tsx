@@ -529,7 +529,29 @@ function PopoutPlayer({ url }: { url: string }) {
 }
 
 export default function App() {
-  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory } = useStore();
+  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus } = useStore();
+  
+  useEffect(() => {
+    let active = true;
+    const checkStatus = async () => {
+      try {
+        const res = await invoke<string>('get_ai_hardware_status');
+        if (active) {
+          setAiHardwareStatus(res);
+          if (res === 'Detecting...') {
+            setTimeout(checkStatus, 1000);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to query hardware status:", e);
+      }
+    };
+    checkStatus();
+    return () => {
+      active = false;
+    };
+  }, [setAiHardwareStatus]);
+
   const urlParams = new URLSearchParams(window.location.search);
   const isPopout = urlParams.get('popout') === 'true';
   const popoutUrl = urlParams.get('url');

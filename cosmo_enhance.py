@@ -273,6 +273,17 @@ class EnhanceHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
 if __name__ == '__main__':
+    if '--check-cuda' in sys.argv:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                print("cuda")
+            else:
+                print("cpu")
+        except Exception:
+            print("cpu")
+        sys.exit(0)
+
     if len(sys.argv) > 2:
         # CLI Mode
         input_path = sys.argv[1]

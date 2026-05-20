@@ -956,8 +956,44 @@ async fn save_inpainted_image(path: String, base64_data: String) -> Result<(), S
     Ok(())
 }
 
+static AI_HARDWARE_MODE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+#[tauri::command]
+fn get_ai_hardware_status() -> String {
+    AI_HARDWARE_MODE.get().cloned().unwrap_or_else(|| "Detecting...".to_string())
+}
 
 fn main() {
+    // Spawn background task to detect AI GPU vs CPU capability
+    std::thread::spawn(|| {
+        let mut has_cuda = false;
+        if let Ok((runner, args)) = resolve_enhancer_command() {
+            let mut check_args = args;
+            check_args.push("--check-cuda".to_string());
+            
+            let mut cmd = std::process::Command::new(&runner);
+            cmd.args(&check_args);
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            
+            if let Ok(output) = cmd.output() {
+                let out_str = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+                if out_str.contains("cuda") {
+                    has_cuda = true;
+                }
+            }
+        }
+        
+        let mode_str = if has_cuda {
+            "GPU (Nvidia CUDA)".to_string()
+        } else {
+            "CPU (Bilateral Filter Fallback)".to_string()
+        };
+        let _ = AI_HARDWARE_MODE.set(mode_str);
+    });
     // Self-healing: Clean up .window-state.json to prevent dynamic popout windows from loading in a loop
     if let Some(mut config_dir) = dirs::config_dir() {
         config_dir.push("com.cosmo.symphony");
@@ -1205,6 +1241,7 @@ fn main() {
             enhance_image_crop,
             auto_erase_watermark,
             save_inpainted_image,
+            get_ai_hardware_status,
             exit_app
         ])
         .setup(|app| {
