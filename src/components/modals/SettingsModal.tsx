@@ -127,12 +127,12 @@ export function SettingsModal({
             </div>
             <div className="protocol-content">
               <div className="protocol-row" style={{ color: confirmDeletion ? '#fff' : 'rgba(255, 255, 255, 0.85)' }}>
-                <strong style={{ color: confirmDeletion ? 'inherit' : '#ef4444' }}>DECOMMISSION:</strong>
-                <span>Removes from list only. File stays on disk. {confirmDeletion ? '(Confirm prompt active)' : '((INSTANT - No Prompt!))'}</span>
+                <strong style={{ color: confirmDeletion ? 'inherit' : '#ef4444' }}>REMOVE FROM GRID:</strong>
+                <span>Removes from grid view only. File stays on disk. {confirmDeletion ? '(Confirm prompt active)' : '((INSTANT - No Prompt!))'}</span>
               </div>
               <div className="protocol-row" style={{ color: confirmDeletion ? '#fff' : 'rgba(255, 255, 255, 0.85)' }}>
-                <strong style={{ color: confirmDeletion ? 'inherit' : '#ef4444' }}>ANNIHILATE:</strong>
-                <span>Moves physical file to Windows Recycle Bin. {confirmDeletion ? '(Confirm prompt active)' : '((INSTANT - No Prompt!))'}</span>
+                <strong style={{ color: confirmDeletion ? 'inherit' : '#ef4444' }}>RECYCLE BIN:</strong>
+                <span>Deletes the physical file by moving it to the Recycle Bin. {confirmDeletion ? '(Confirm prompt active)' : '((INSTANT - No Prompt!))'}</span>
               </div>
             </div>
           </div>
@@ -202,11 +202,11 @@ export function SettingsModal({
               </div>
               <div className="shortcut-item">
                 <kbd>DELETE</kbd>
-                <span>Decommission Unit (Keeps local file, removes from list)</span>
+                <span>Remove from Grid (Keeps local file, removes from grid view)</span>
               </div>
               <div className="shortcut-item">
                 <kbd>SHIFT + DELETE</kbd>
-                <span>Annihilate Unit (Moves physical file to Windows Recycle Bin)</span>
+                <span>Move to Recycle Bin (Moves physical file to Windows Recycle Bin)</span>
               </div>
 
             </div>

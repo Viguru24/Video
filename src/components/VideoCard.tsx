@@ -923,9 +923,9 @@ function VideoCardInternal({
           onUpdateVideo(video.id, { rotation: (video.rotation || 0) + 90 });
           onLog(`Rotated Right via Swipe: ${video.title}`);
         } else if (info.offset.x < -120) {
-          // Swipe Left -> Decommission
+          // Swipe Left -> Remove from Grid
           onRemove(video.id);
-          onLog(`Decommissioned via Swipe: ${video.title}`);
+          onLog(`Removed via Swipe: ${video.title}`);
         }
       }
     };
@@ -1236,7 +1236,7 @@ function VideoCardInternal({
             <button 
               onClick={(e) => { e.stopPropagation(); onRemove(video.id); }} 
               className="premium-close-btn"
-              data-tooltip="DECOMMISSION UNIT"
+              data-tooltip="Remove from Grid"
               style={{ 
                 background: 'rgba(0,0,0,0.5)', 
                 border: '1px solid rgba(255,255,255,0.1)', 

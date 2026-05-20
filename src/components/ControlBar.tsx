@@ -512,12 +512,12 @@ export function ControlBar({
                 <div className="mini-divider" style={{ background: 'rgba(255,255,255,0.1)', height: '20px' }} />
                 <button 
                   onClick={() => {
-                    if (window.confirm(`Are you sure you want to decommission ${selectedIds.size} units?`)) {
+                    if (window.confirm(`Are you sure you want to remove the ${selectedIds.size} selected items from the grid?`)) {
                       onBatchRemove();
                     }
                   }} 
                   className="hdr-btn danger" 
-                  data-tooltip="DECOMMISSION SELECTION"
+                  data-tooltip="Remove Selection from Grid"
                 >
                   <Trash2 size={16} color="#ff4444" />
                 </button>

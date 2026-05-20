@@ -687,7 +687,7 @@ export default function App() {
   const handleDecommission = useCallback(async (id: string) => {
     if (confirmDeletion) {
       const { confirm } = await import('@tauri-apps/plugin-dialog');
-      const yes = await confirm("PROTOCOL: DECOMMISSION UNIT\n\nThis will remove the unit from the workstation list.\nThe physical file on your disk will NOT be affected.\n\nProceed?", { title: 'Decommission', kind: 'warning' });
+      const yes = await confirm("Remove this item from your grid?\n\nThis removes the view shortcut, but the physical file on your hard drive will NOT be affected.\n\nProceed?", { title: 'Remove from Grid', kind: 'warning' });
       if (!yes) return;
     }
     
@@ -714,7 +714,7 @@ export default function App() {
     }
 
     setVideos(p => p.filter(x => x.id !== id));
-    addLog("Unit Decommissioned (List Only)");
+    addLog("Removed item from grid");
   }, [setVideos, addLog, confirmDeletion, focusedId, filtered, setFocusedId, setImmersive, setIsFS]);
 
   const handleAnnihilate = useCallback(async (id: string) => {
@@ -766,11 +766,11 @@ export default function App() {
     if (selectedIds.size === 0) return;
     if (confirmDeletion) {
       const { confirm } = await import('@tauri-apps/plugin-dialog');
-      const yes = await confirm(`PROTOCOL: BATCH DECOMMISSION\n\nThis will remove ${selectedIds.size} units from the workstation.\nFiles will remain physically on disk.\n\nProceed?`, { title: 'Batch Decommission', kind: 'warning' });
+      const yes = await confirm(`Remove ${selectedIds.size} items from your grid?\n\nThis removes the view shortcuts, but the physical files on your hard drive will NOT be affected.\n\nProceed?`, { title: 'Remove Selection', kind: 'warning' });
       if (!yes) return;
     }
     setVideos(p => p.filter(x => !selectedIds.has(x.id)));
-    addLog(`${selectedIds.size} Units Decommissioned`);
+    addLog(`Removed ${selectedIds.size} items from grid`);
     setSelectedIds(new Set());
     setSelectionMode(false);
   }, [selectedIds, confirmDeletion, setVideos, addLog, setSelectedIds, setSelectionMode]);
