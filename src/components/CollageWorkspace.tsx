@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { 
   X, Play, Pause, Volume2, VolumeX,
   Layers, ChevronLeft, ChevronRight, Plus, 
-  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer
+  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer, Folder
 } from 'lucide-react';
 import type { VideoItem, CollageItem, CollageConfig } from '../types';
 import { isValidPictureExtension } from '../utils/videoUtils';
@@ -16,6 +16,8 @@ interface CollageWorkspaceProps {
   setCollageConfig: (cfg: CollageConfig) => void;
   onDeepFocus: (id: string) => void;
   addLog: (msg: string) => void;
+  snapshotDir: string;
+  setSnapshotDir: React.Dispatch<React.SetStateAction<string>>;
 }
 
 const BACKGROUND_PRESETS = [
@@ -40,7 +42,9 @@ export function CollageWorkspace({
   collageConfig,
   setCollageConfig,
   onDeepFocus,
-  addLog
+  addLog,
+  snapshotDir,
+  setSnapshotDir
 }: CollageWorkspaceProps) {
   const [showShelf, setShowShelf] = useState(true);
   const [isBgDropdownOpen, setIsBgDropdownOpen] = useState(false);
@@ -255,7 +259,7 @@ export function CollageWorkspace({
       const savedPath = await invoke<string>('save_snapshot', {
         base64Data: dataUrl,
         fileName,
-        customDir: null
+        customDir: snapshotDir
       });
       addLog(`COLLAGE EXPORT: Saved → ${savedPath}`);
     } catch (e) {
@@ -548,6 +552,51 @@ export function CollageWorkspace({
                 </div>
               )}
             </div>
+
+            {/* Save Location Selector */}
+            <button
+              onClick={async () => {
+                try {
+                  const res = await invoke<string | null>('select_folder_cmd');
+                  if (res) {
+                    setSnapshotDir(res);
+                    addLog(`COLLAGE: Save destination updated → ${res}`);
+                  }
+                } catch (e) {
+                  addLog(`COLLAGE ERROR: Failed to select save location: ${e}`);
+                }
+              }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '15px',
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: 'rgba(255,255,255,0.75)',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                maxWidth: '220px',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                e.currentTarget.style.color = '#fff';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                e.currentTarget.style.color = 'rgba(255,255,255,0.75)';
+              }}
+              title={`Change save location. Current: ${snapshotDir || 'Default (Pictures/Cosmo_Snapshots)'}`}
+            >
+              <Folder size={12} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}>
+                {snapshotDir ? snapshotDir.split(/[\\/]/).pop() || 'Folder' : 'DEFAULT DIR'}
+              </span>
+            </button>
 
             {/* Export PNG */}
             <button
