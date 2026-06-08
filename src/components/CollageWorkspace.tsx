@@ -3,8 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { 
   X, Play, Pause, Volume2, VolumeX,
   Layers, ChevronLeft, ChevronRight, Plus, 
-  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer,
-  RotateCw, RotateCcw
+  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer
 } from 'lucide-react';
 import type { VideoItem, CollageItem, CollageConfig } from '../types';
 import { isValidPictureExtension } from '../utils/videoUtils';
@@ -587,11 +586,10 @@ export function CollageWorkspace({
                   className="collage-item-header"
                   style={{
                     position: 'absolute',
-                    top: '-32px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    height: '26px',
-                    borderRadius: '13px',
+                    top: '8px',
+                    right: '8px',
+                    height: '24px',
+                    borderRadius: '12px',
                     background: 'rgba(12, 12, 16, 0.9)',
                     backdropFilter: 'blur(8px)',
                     border: '1px solid rgba(255,255,255,0.08)',
@@ -624,28 +622,6 @@ export function CollageWorkspace({
 
                   <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.15)' }} />
 
-                  {/* Rotate 90 degrees controls */}
-                  <button
-                    onClick={() => {
-                      setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, rotation: (x.rotation - 90 + 360) % 360 } : x));
-                    }}
-                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                    title="Rotate 90° Left"
-                  >
-                    <RotateCcw size={10} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, rotation: (x.rotation + 90) % 360 } : x));
-                    }}
-                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                    title="Rotate 90° Right"
-                  >
-                    <RotateCw size={10} />
-                  </button>
-
-                  <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.15)' }} />
-
                   {/* Open Solo focused view */}
                   <button
                     onClick={() => onDeepFocus(item.mediaId)}
@@ -673,37 +649,59 @@ export function CollageWorkspace({
                   }
                 `}</style>
 
-                {/* Rotation Handle (At the top center) */}
-                <div
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    setActiveAction({
-                      itemId: item.id,
-                      type: 'rotate',
-                      startX: e.clientX,
-                      startY: e.clientY,
-                      startLeft: item.x,
-                      startTop: item.y,
-                      startWidth: item.width,
-                      startHeight: item.height,
-                      startRotation: item.rotation
-                    });
-                  }}
-                  style={{
-                    position: 'absolute',
-                    top: '-16px',
-                    left: 'calc(50% - 6px)',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: 'var(--accent, #00ff88)',
-                    border: '1px solid rgba(255,255,255,0.4)',
-                    boxShadow: '0 0 6px rgba(0, 255, 136, 0.8)',
-                    cursor: 'grab',
-                    zIndex: 9
-                  }}
-                  title="Drag to Rotate (Hold Shift to snap)"
-                />
+                {/* Rotation Handle Line and Ball (At the top center) */}
+                 <div
+                   style={{
+                     position: 'absolute',
+                     top: '-30px',
+                     left: '50%',
+                     transform: 'translateX(-50%)',
+                     display: 'flex',
+                     flexDirection: 'column',
+                     alignItems: 'center',
+                     zIndex: 99
+                   }}
+                 >
+                   {/* Draggable Ball */}
+                   <div
+                     onPointerDown={(e) => {
+                       e.stopPropagation();
+                       setActiveAction({
+                         itemId: item.id,
+                         type: 'rotate',
+                         startX: e.clientX,
+                         startY: e.clientY,
+                         startLeft: item.x,
+                         startTop: item.y,
+                         startWidth: item.width,
+                         startHeight: item.height,
+                         startRotation: item.rotation
+                       });
+                     }}
+                     style={{
+                       width: '14px',
+                       height: '14px',
+                       borderRadius: '50%',
+                       background: 'var(--accent, #00ff88)',
+                       border: '2px solid #fff',
+                       boxShadow: '0 2px 8px rgba(0,0,0,0.6)',
+                       cursor: 'grab',
+                       transition: 'transform 0.1s'
+                     }}
+                     onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.25)'}
+                     onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                     title="Drag to Rotate (Hold Shift to snap to 15°)"
+                   />
+                   {/* Connecting Line */}
+                   <div 
+                     style={{
+                       width: '2px',
+                       height: '16px',
+                       background: 'var(--accent, #00ff88)',
+                       boxShadow: '0 1px 4px rgba(0,0,0,0.4)'
+                     }}
+                   />
+                 </div>
 
                 {/* Drag Handle Container (The Card Content Area) */}
                 <div
