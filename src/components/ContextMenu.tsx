@@ -39,12 +39,10 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
         onClose();
       }
     };
-    
     setTimeout(() => {
       window.addEventListener('click', handleClickOutside);
       window.addEventListener('contextmenu', handleClickOutside);
     }, 10);
-    
     return () => {
       window.removeEventListener('click', handleClickOutside);
       window.removeEventListener('contextmenu', handleClickOutside);
@@ -52,12 +50,18 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
   }, [onClose]);
 
   useEffect(() => {
-    if (menuRef.current) {
-      const rect = menuRef.current.getBoundingClientRect();
-      const top = Math.max(10, Math.min(y, window.innerHeight - rect.height - 10));
-      const left = Math.max(10, Math.min(x, window.innerWidth - rect.width - 10));
-      setCoords({ top, left, measured: true });
-    }
+    if (!menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const PAD = 8;
+    // Clamp left: prefer right of cursor, flip left if not enough space
+    let left = x + PAD < vw - rect.width - PAD ? x : x - rect.width;
+    left = Math.max(PAD, Math.min(left, vw - rect.width - PAD));
+    // Clamp top: prefer below cursor, flip up if not enough space
+    let top = y + PAD < vh - rect.height - PAD ? y : y - rect.height;
+    top = Math.max(PAD, Math.min(top, vh - rect.height - PAD));
+    setCoords({ top, left, measured: true });
   }, [x, y, metadata, selectedCount]);
 
   const style: React.CSSProperties = {
@@ -74,31 +78,31 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
   return (
     <div className="context-menu" ref={menuRef} style={style}>
       {metadata && (
-        <div className="context-summary">
-          <div className="summary-header">
-            <Info size={12} />
-            <span>UNIT SUMMARY</span>
+        <div style={{ padding: '4px 8px 3px', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '2px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+            <Info size={9} style={{ color: 'var(--accent, #00ff88)', flexShrink: 0 }} />
+            <span style={{ fontSize: '8px', fontWeight: 800, color: 'var(--accent, #00ff88)', letterSpacing: '1px', textTransform: 'uppercase' }}>Unit Summary</span>
           </div>
-          <div className="summary-details">
-            <div className="summary-row">
-              <span>Name:</span> 
-              <strong style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                {metadata.name || 'Unknown'}
-              </strong>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+              <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Name</span>
+              <strong style={{ fontSize: '9px', maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right', color: '#fff' }}>{metadata.name || 'Unknown'}</strong>
             </div>
-            <div className="summary-row"><span>Format:</span> <strong>{metadata.format}</strong></div>
-            <div className="summary-row"><span>Size:</span> <strong>{metadata.size}</strong></div>
-            <div className="summary-row"><span>Location:</span> <strong className="path-text">{metadata.path}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+              <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Format</span>
+              <strong style={{ fontSize: '9px', color: '#fff' }}>{metadata.format}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+              <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Size</span>
+              <strong style={{ fontSize: '9px', color: '#fff' }}>{metadata.size}</strong>
+            </div>
             {metadata.upscaled_by && (
-              <div className="summary-row">
-                <span>Upscaled By:</span> 
-                <strong style={{ color: metadata.upscaled_by.includes("GPU") ? '#e9d5ff' : '#94a3b8', fontSize: '10px', textAlign: 'right' }}>
-                  {metadata.upscaled_by}
-                </strong>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Upscaled</span>
+                <strong style={{ fontSize: '9px', color: metadata.upscaled_by.includes('GPU') ? '#e9d5ff' : '#94a3b8' }}>{metadata.upscaled_by}</strong>
               </div>
             )}
           </div>
-          <div className="context-menu-separator"></div>
         </div>
       )}
 
