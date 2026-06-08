@@ -77,7 +77,7 @@ interface ControlBarProps {
   search: string;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
   addLog: (msg: string) => void;
-  onUpdateVideo: (id: string, updates: Partial<VideoItem>) => void;
+  onUpdateVideo: (id: any, updates: any) => void;
   onRemoveVideo: (id: string) => void;
   onToggleFocus: (id: string | null) => void;
   onLog: (msg: string) => void;
@@ -108,6 +108,10 @@ interface ControlBarProps {
   globalControl: string | null;
   rotating: boolean;
   setRotating: (val: boolean) => void;
+  isSlideshowActive: boolean;
+  setIsSlideshowActive: (val: boolean) => void;
+  slideshowInterval: number;
+  setSlideshowInterval: React.Dispatch<React.SetStateAction<number>>;
 }
 
 export function ControlBar({
@@ -152,6 +156,10 @@ export function ControlBar({
   globalControl,
   rotating,
   setRotating,
+  isSlideshowActive,
+  setIsSlideshowActive,
+  slideshowInterval,
+  setSlideshowInterval,
 }: ControlBarProps) {
   const {
     mediaMode, setMediaMode,
@@ -168,93 +176,30 @@ export function ControlBar({
     immersive, setImmersive,
     masterShowUI, setMasterShowUI,
     selectedIds, setSelectedIds,
-    selectionMode, setSelectionMode,
     renameHistory,
     aiHardwareStatus
   } = useStore();
   const [showBatchRename, setShowBatchRename] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const [isSpanned, setIsSpanned] = useState(false);
+  const [showMaxMenu, setShowMaxMenu] = useState(false);
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!isTauri()) return;
+    const checkMax = async () => {
+      const max = await getCurrentWindow().isMaximized();
+      setIsWindowMaximized(max);
+    };
+    checkMax();
+    const interval = setInterval(checkMax, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
 
-    const fileList = Array.from(files).filter(file => {
-      const type = file.type;
-      const isVideo = type.startsWith('video/');
-      const isImg = type.startsWith('image/');
-      if (mediaMode === 'video') return isVideo;
-      if (mediaMode === 'image') return isImg;
-      return isVideo || isImg;
-    });
 
-    if (fileList.length === 0) {
-      addLog("No matching media files found in selected folder.");
-      return;
-    }
 
-    const folderWithUrls = fileList.map((file) => {
-      const objectUrl = URL.createObjectURL(file);
-      return {
-        name: file.name,
-        url: objectUrl,
-        path: objectUrl,
-      };
-    });
 
-    const folderName = fileList[0].webkitRelativePath
-      ? fileList[0].webkitRelativePath.split('/')[0]
-      : "Uploaded Folder";
-
-    setVideos((p) => [
-      ...p,
-      {
-        id: crypto.randomUUID(),
-        url: folderWithUrls[0].url,
-        realPath: folderWithUrls[0].url,
-        title: folderName,
-        repeatMode: 'folder',
-        repeatCount: 0,
-        cols: 1,
-        folderFiles: folderWithUrls,
-        currentIdx: 0,
-        playing: masterPlaying,
-        muted: masterMuted,
-      },
-    ]);
-    addLog(`Uploaded Folder: ${folderName} (${folderWithUrls.length} items)`);
-    e.target.value = '';
-  };
-
-  const handleFilesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const fileList = Array.from(files);
-    
-    fileList.forEach(file => {
-      const objectUrl = URL.createObjectURL(file);
-      setVideos((p) => [
-        ...p,
-        {
-          id: crypto.randomUUID(),
-          url: objectUrl,
-          realPath: objectUrl,
-          title: file.name,
-          repeatMode: 'none',
-          repeatCount: 0,
-          cols: 1,
-          playing: masterPlaying,
-          muted: masterMuted,
-        },
-      ]);
-      addLog(`Added file: ${file.name}`);
-    });
-    e.target.value = '';
-  };
 
   const filteredHistory = useMemo(() => {
     if (!renameHistory) return [];
@@ -282,22 +227,11 @@ export function ControlBar({
     <>
         <header 
           className="app-header"
-          onMouseDown={(e) => {
-            const target = e.target as HTMLElement;
-            const isInteractive = target.closest('button, input, select, [role="button"], .mini-btn, .win-dot');
-            if (e.button === 0 && !isInteractive) {
-              getCurrentWindow().startDragging();
-            }
-          }}
+          data-tauri-drag-region
         >
-          <div className="header-row brand-row">
-            <div className="header-left">
-              <img src="/logo.png" className="app-logo-img" alt="Logo" />
-              <div className="logo-text">
-                <h1 className="brand-main">COSMO <span className="brand-sub">SYMPHONY <span className="version-tag">v3.4.0</span></span></h1>
-              </div>
-              
-              <div className="search-box">
+          <div className="header-row brand-row" data-tauri-drag-region>
+            <div className="header-left" data-tauri-drag-region>
+              <div className="search-box" data-no-drag>
                 <Search size={14} className="search-icon-mini" />
                 <input 
                   type="text" 
@@ -343,7 +277,7 @@ export function ControlBar({
                 )}
               </div>
 
-              <div className="mode-switch-group">
+              <div className="mode-switch-group" data-no-drag>
                 <button 
                   className={`mode-btn ${mediaMode === 'video' ? 'active' : ''}`}
                   onClick={() => setMediaMode('video')}
@@ -370,159 +304,117 @@ export function ControlBar({
             {isTauri() && (
               <div 
                 className="window-controls" 
-                style={{ display: 'flex', gap: '8px', marginLeft: 'auto', paddingRight: '4px', zIndex: 1001, pointerEvents: 'auto' }}
+                style={{ display: 'flex', gap: '8px', marginLeft: 'auto', paddingRight: '4px', zIndex: 1001, pointerEvents: 'auto', position: 'relative' }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onMouseUp={(e) => e.stopPropagation()}
               >
                 <button className="win-dot min" onClick={() => getCurrentWindow().minimize()} title="Minimize" />
-                <button className="win-dot max" onClick={() => getCurrentWindow().toggleMaximize()} title="Maximize" />
+                <button className="win-dot max" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMaxMenu(prev => !prev); }} title="Maximize Options" />
                 <button className="win-dot close" onClick={() => getCurrentWindow().close()} title="Close" />
+                
+                {showMaxMenu && (
+                  <div className="max-options-dropdown" style={{
+                    position: 'absolute',
+                    top: '25px',
+                    right: '15px',
+                    background: 'rgba(15, 15, 20, 0.95)',
+                    backdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '6px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                    zIndex: 100002
+                  }}>
+                    <button 
+                      onClick={() => {
+                        getCurrentWindow().maximize();
+                        setShowMaxMenu(false);
+                        setIsSpanned(false);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#fff',
+                        fontSize: '11px',
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        borderRadius: '4px',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 'bold'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      Maximize Single Screen
+                    </button>
+                    <button 
+                      onClick={() => {
+                        invoke('span_all_monitors').catch(console.error);
+                        setShowMaxMenu(false);
+                        setIsSpanned(true);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--accent, #00ff88)',
+                        fontSize: '11px',
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        borderRadius: '4px',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 'bold'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      Span Dual/All Screens
+                    </button>
+                    {(isSpanned || isWindowMaximized) && (
+                      <button 
+                        onClick={async () => {
+                          if (isSpanned) {
+                            invoke('unspan_monitors').catch(console.error);
+                            setIsSpanned(false);
+                          } else {
+                            const win = getCurrentWindow();
+                            if (await win.isMaximized()) {
+                              win.unmaximize();
+                            }
+                          }
+                          setShowMaxMenu(false);
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff4d4d',
+                          fontSize: '11px',
+                          padding: '6px 12px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          borderRadius: '4px',
+                          whiteSpace: 'nowrap',
+                          fontWeight: 'bold'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        Restore Window
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
           
-          <div className="header-row controls-row">
-            <div className="header-menu-container">
-            {/* INGESTION & AUTO */}
-            <div className="ctrl-group ingestion-group">
-               <input
-                 type="file"
-                 ref={folderInputRef}
-                 style={{ display: 'none' }}
-                 {...{
-                   webkitdirectory: "",
-                   directory: ""
-                 } as any}
-                 multiple
-                 onChange={handleFolderUpload}
-               />
-               <input
-                 type="file"
-                 ref={fileInputRef}
-                 style={{ display: 'none' }}
-                 multiple
-                 accept={mediaMode === 'video' ? 'video/*' : mediaMode === 'image' ? 'image/*' : 'video/*,image/*'}
-                 onChange={handleFilesUpload}
-               />
-               <button
-                onClick={async () => {
-                  if (isTauri()) {
-                    const path = await invoke<string | null>('select_folder_cmd');
-                    if (path) {
-                      const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path, mode: mediaMode });
-                      if (folderVids && folderVids.length > 0) {
-                        const toAssetUrl = (filePath: string) => toCosmoUrl(filePath);
-                        const folderWithUrls = folderVids.map((v) => ({ 
-                          ...v, 
-                          url: toCosmoUrl(v.url),
-                          path: v.url // Store raw path for physical operations
-                        }));
-                        setVideos((p) => [
-                          ...p,
-                          {
-                            id: crypto.randomUUID(),
-                            url: toAssetUrl(folderVids[0].url),
-                            realPath: folderVids[0].url,
-                            title: folderVids[0].name,
-                            repeatMode: 'folder',
-                            repeatCount: 0,
-                            cols: 1,
-                            folderFiles: folderWithUrls,
-                            currentIdx: 0,
-                            playing: masterPlaying,
-                            muted: masterMuted,
-                          },
-                        ]);
-                        addLog(`Added folder: ${path}`);
-                      }
-                    }
-                  } else {
-                    folderInputRef.current?.click();
-                  }
-                }}
-                className="hdr-btn"
-                data-tooltip={isTauri() ? "Add Folder" : "Upload Folder"}
-              >
-                <Plus size={14} />
-              </button>
-              {!isTauri() && (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="hdr-btn"
-                  data-tooltip="Upload Files"
-                >
-                  <FilePlus size={14} />
-                </button>
-              )}
-              <div className="cycle-group" style={{ display: 'flex', alignItems: 'center' }}>
-                <button
-                  onClick={() => setRotating(!rotating)}
-                  className={`hdr-btn ${rotating ? 'active-accent' : ''}`}
-                  data-tooltip="Auto-Cycle"
-                >
-                  <ListRestart size={14} />
-                </button>
-                <select
-                  value={rotationInterval}
-                  onChange={(e) => setRotationInterval(parseInt(e.target.value))}
-                  className="interval-select"
-                  onMouseDown={e => e.stopPropagation()}
-                >
-                  <option value={5}>5s</option>
-                  <option value={10}>10s</option>
-                  <option value={30}>30s</option>
-                  <option value={60}>1m</option>
-                </select>
-              </div>
-              <button
-                onClick={() => {
-                  setSelectionMode(!selectionMode);
-                  if (!selectionMode) setSelectedIds(new Set());
-                }}
-                className={`hdr-btn select-mode-btn ${selectionMode ? 'active-accent' : ''}`}
-                data-tooltip={selectionMode ? "Exit Selection" : "Multi-Select"}
-              >
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                   <MousePointer2 size={14} />
-                </div>
-              </button>
-            </div>
+          <div className="header-row controls-row" data-no-drag>
+            <div className="header-menu-container" data-no-drag>
 
-            {selectedIds.size > 0 && (
-              <div className="ctrl-group selection-group" style={{ 
-                background: 'rgba(0, 0, 0, 0.85)', 
-                border: '1px solid var(--accent)',
-                boxShadow: '0 0 20px rgba(var(--accent-rgb), 0.2)',
-                padding: '0 12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                borderRadius: '8px',
-                height: '34px',
-                backdropFilter: 'blur(10px)'
-              }}>
-                <span style={{ fontSize: '10px', fontWeight: 900, padding: '0 8px', color: 'var(--accent)', letterSpacing: '0.1em' }}>
-                  {selectedIds.size} UNITS CAPTURED
-                </span>
-                <div className="mini-divider" style={{ background: 'rgba(255,255,255,0.1)', height: '20px' }} />
-                <button onClick={() => onBatchPlay(true)} className="hdr-btn" data-tooltip="Batch Sync: Play"><Play size={16} color="var(--accent)" /></button>
-                <button onClick={() => onBatchPlay(false)} className="hdr-btn" data-tooltip="Batch Sync: Stop"><Square size={16} color="var(--accent)" /></button>
-                <button onClick={() => onBatchMute(false)} className="hdr-btn" data-tooltip="Batch Sync: Unmute"><Volume2 size={16} color="var(--accent)" /></button>
-                <button onClick={() => onBatchMute(true)} className="hdr-btn" data-tooltip="Batch Sync: Mute"><VolumeX size={16} color="var(--accent)" /></button>
-                <div className="mini-divider" style={{ background: 'rgba(255,255,255,0.1)', height: '20px' }} />
-                <button 
-                  onClick={() => {
-                    if (window.confirm(`Are you sure you want to remove the ${selectedIds.size} selected items from the grid?`)) {
-                      onBatchRemove();
-                    }
-                  }} 
-                  className="hdr-btn danger" 
-                  data-tooltip="Remove Selection from Grid"
-                >
-                  <Trash2 size={16} color="#ff4444" />
-                </button>
-              </div>
-            )}
 
             {/* SYMPHONY WORKSHOP */}
             <div className="ctrl-group symphony-group">
@@ -535,62 +427,70 @@ export function ControlBar({
             </div>
 
             {/* PLAYBACK ENGINE */}
-            <div className="ctrl-group playback-group">
-              {/* HORIZONTAL SPEED */}
-              <div className="slider-h-box" data-tooltip={`Speed: ${speed}x`}>
-                <Gauge size={12} className="slider-h-icon" />
-                <input
-                  type="range"
-                  min="0.25"
-                  max="4"
-                  step="0.25"
-                  value={speed}
-                  onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="h-range speed-range"
-                />
-              </div>
-              
-              {/* HORIZONTAL VOLUME */}
-              <div className="slider-h-box" data-tooltip={`Vol: ${Math.round(globalVolume*100)}%`}>
-                <Volume2 
-                  size={12} 
-                  className="slider-h-icon" 
-                  style={{ cursor: 'pointer' }}
-                  onClick={toggleMasterMute}
-                />
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={globalVolume}
-                  onChange={(e) => {
-                    setGlobalVolume(parseFloat(e.target.value));
-                    if (parseFloat(e.target.value) > 0 && masterMuted) toggleMasterMute();
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="h-range volume-range"
-                />
-              </div>
+            {mediaMode === 'video' && (
+              <div className="ctrl-group playback-group">
+                {/* HORIZONTAL SPEED */}
+                <div className="slider-h-box" data-tooltip={`Speed: ${speed}x`}>
+                  <Gauge size={12} className="slider-h-icon" />
+                  <input
+                    type="range"
+                    min="0.25"
+                    max="4"
+                    step="0.25"
+                    value={speed}
+                    onChange={(e) => setSpeed(parseFloat(e.target.value))}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="h-range speed-range"
+                    style={{
+                      background: `linear-gradient(to right, var(--accent, #00ff88) 0%, var(--accent, #00ff88) ${((speed - 0.25) / 3.75) * 100}%, rgba(255, 255, 255, 0.12) ${((speed - 0.25) / 3.75) * 100}%, rgba(255, 255, 255, 0.12) 100%)`
+                    }}
+                  />
+                </div>
+                
+                {/* HORIZONTAL VOLUME */}
+                <div className="slider-h-box" data-tooltip={`Vol: ${Math.round(globalVolume*100)}%`}>
+                  <Volume2 
+                    size={12} 
+                    className="slider-h-icon" 
+                    style={{ cursor: 'pointer' }}
+                    onClick={toggleMasterMute}
+                  />
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={globalVolume}
+                    onChange={(e) => {
+                      setGlobalVolume(parseFloat(e.target.value));
+                      if (parseFloat(e.target.value) > 0 && masterMuted) toggleMasterMute();
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="h-range volume-range"
+                    style={{
+                      background: `linear-gradient(to right, var(--accent, #00ff88) 0%, var(--accent, #00ff88) ${(masterMuted ? 0 : globalVolume) * 100}%, rgba(255, 255, 255, 0.12) ${(masterMuted ? 0 : globalVolume) * 100}%, rgba(255, 255, 255, 0.12) 100%)`
+                    }}
+                  />
+                </div>
 
-              <button
-                onClick={() => {
-                  const modes: RepeatMode[] = ['none', 'always', 'folder'];
-                  setGlobalRepeat(modes[(modes.indexOf(globalRepeat) + 1) % modes.length]);
-                }}
-                className={`hdr-btn ${globalRepeat !== 'none' ? 'active-accent' : ''}`}
-                data-tooltip={`Repeat: ${globalRepeat.toUpperCase()}`}
-              >
-                {globalRepeat === 'always' ? <Repeat1 size={14} /> : <Repeat size={14} />}
-              </button>
-              <button onClick={toggleMasterPlay} className={`hdr-btn main-play ${masterPlaying ? 'active-accent' : ''}`} data-tooltip="Play/Pause">
-                {masterPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
-              </button>
-              <button onClick={toggleMasterMute} className={`hdr-btn ${masterMuted ? 'active-accent' : ''}`} data-tooltip="Mute">
-                {masterMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-              </button>
-            </div>
+                <button
+                  onClick={() => {
+                    const modes: RepeatMode[] = ['none', 'always', 'folder'];
+                    setGlobalRepeat(modes[(modes.indexOf(globalRepeat) + 1) % modes.length]);
+                  }}
+                  className={`hdr-btn ${globalRepeat !== 'none' ? 'active-accent' : ''}`}
+                  data-tooltip={`Repeat: ${globalRepeat.toUpperCase()}`}
+                >
+                  {globalRepeat === 'always' ? <Repeat1 size={14} /> : <Repeat size={14} />}
+                </button>
+                <button onClick={toggleMasterPlay} className={`hdr-btn main-play ${masterPlaying ? 'active-accent' : ''}`} data-tooltip="Play/Pause">
+                  {masterPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+                </button>
+                <button onClick={toggleMasterMute} className={`hdr-btn ${masterMuted ? 'active-accent' : ''}`} data-tooltip="Mute">
+                  {masterMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                </button>
+              </div>
+            )}
 
             {/* DENSITY & UI */}
             <div className="ctrl-group density-group">
@@ -610,6 +510,9 @@ export function ControlBar({
                   onChange={(e) => setZoom((MAX_ZOOM + MIN_ZOOM) - parseInt(e.target.value))}
                   onMouseDown={(e) => e.stopPropagation()}
                   className="h-range density-range"
+                  style={{
+                    background: `linear-gradient(to right, var(--accent, #00ff88) 0%, var(--accent, #00ff88) ${((( (MAX_ZOOM + MIN_ZOOM) - zoom ) - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100}%, rgba(255, 255, 255, 0.12) ${((( (MAX_ZOOM + MIN_ZOOM) - zoom ) - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100}%, rgba(255, 255, 255, 0.12) 100%)`
+                  }}
                 />
               </div>
               <button
@@ -709,6 +612,79 @@ export function ControlBar({
                     ? 'AI: Checking...' 
                     : 'AI: CPU'}
                 </span>
+              </div>
+
+              {/* VERSION BADGE */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '6px',
+                height: '28px',
+                padding: '0 8px',
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontSize: '10px',
+                fontFamily: 'monospace',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 'bold',
+                letterSpacing: '0.5px',
+                userSelect: 'none',
+                marginLeft: '4px'
+              }}>
+                v4.0.0
+              </div>
+ 
+              {/* SLIDESHOW TIMER WIDGET */}
+              <div 
+                className="slideshow-interval-badge"
+                data-tooltip={`${isSlideshowActive ? "Pause Slideshow" : "Play All Fullscreen (Slideshow)"} - Interval: ${slideshowInterval}s (Scroll wheel to adjust)`}
+                onClick={() => setIsSlideshowActive(!isSlideshowActive)}
+                onWheel={(e) => {
+                  e.stopPropagation();
+                  const direction = e.deltaY < 0 ? 1 : -1;
+                  setSlideshowInterval((prev) => {
+                    const next = prev + direction;
+                    return Math.max(2, Math.min(30, next));
+                  });
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: isSlideshowActive ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))' : 'rgba(255, 255, 255, 0.05)',
+                  border: isSlideshowActive ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '6px',
+                  height: '28px',
+                  padding: '0 8px',
+                  color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'var(--text, #fff)',
+                  fontSize: '11px',
+                  fontFamily: 'monospace',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  transition: 'all 0.2s',
+                  marginLeft: '4px',
+                  marginRight: '4px',
+                  pointerEvents: 'auto',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isSlideshowActive 
+                    ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.25), rgba(0, 150, 255, 0.25))'
+                    : 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
+                  e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.2)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isSlideshowActive
+                    ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))'
+                    : 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = isSlideshowActive ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                {isSlideshowActive ? <Pause size={11} /> : <Play size={11} />}
+                <RefreshCw size={11} className={isSlideshowActive ? "spin-slow" : ""} style={{ color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.7)' }} />
+                <span>{slideshowInterval}s</span>
               </div>
 
               <button onClick={() => setShowSettings(!showSettings)} className={`hdr-btn ${showSettings ? 'active-accent' : ''}`} data-tooltip="Settings & Guide"><Settings size={14} /></button>

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, ErrorInfo } from 'react';
+import React from 'react';
+import type { ErrorInfo } from 'react';
 import type { VideoItem } from '../types';
 
 interface AppErrorBoundaryProps {

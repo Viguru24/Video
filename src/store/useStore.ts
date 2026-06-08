@@ -59,6 +59,9 @@ interface GlobalState {
 
   aiHardwareStatus: string;
   setAiHardwareStatus: (status: string) => void;
+
+  smartCulling: boolean;
+  setSmartCulling: (val: boolean) => void;
 }
 
 export const useStore = create<GlobalState>((set) => ({
@@ -68,8 +71,11 @@ export const useStore = create<GlobalState>((set) => ({
     set({ mediaMode: mode });
   },
   
-  theme: 'symphony',
-  setTheme: (theme) => set({ theme }),
+  theme: localStorage.getItem('cosmo-theme') || 'cobalt',
+  setTheme: (theme) => {
+    localStorage.setItem('cosmo-theme', theme);
+    set({ theme });
+  },
   
   alwaysOnTop: false,
   setAlwaysOnTop: (val) => set({ alwaysOnTop: val }),
@@ -119,5 +125,11 @@ export const useStore = create<GlobalState>((set) => ({
   }),
   
   aiHardwareStatus: 'Detecting...',
-  setAiHardwareStatus: (status) => set({ aiHardwareStatus: status }),
+  setAiHardwareStatus: (status: string) => set({ aiHardwareStatus: status }),
+
+  smartCulling: localStorage.getItem('cosmo-smart-culling') !== 'false',
+  setSmartCulling: (val) => {
+    localStorage.setItem('cosmo-smart-culling', String(val));
+    set({ smartCulling: val });
+  },
 }));

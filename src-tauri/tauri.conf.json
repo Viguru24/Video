@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Cosmo Symphony",
-  "version": "3.3.1",
+  "version": "4.0.0",
   "identifier": "com.cosmo.symphony",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:55173",
+    "devUrl": "http://localhost:55174",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -21,7 +21,8 @@
           "decorations": false,
           "transparent": true,
           "shadow": false,
-          "devtools": true
+          "devtools": true,
+          "additionalBrowserArgs": "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --enable-features=SharedArrayBuffer"
         }
       ],
       "security": {
@@ -35,12 +36,22 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "cosmo_enhance.py"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["mp4", "webm", "mov", "mkv", "avi", "png", "jpg", "jpeg", "webp"],
+        "name": "Cosmo Symphony Media",
+        "description": "Media file playable in Cosmo Symphony Workspace"
+      }
     ],
     "windows": {
       "wix": {

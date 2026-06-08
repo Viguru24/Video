@@ -10,6 +10,11 @@ Write-Host "=============================================" -ForegroundColor Cyan
 
 # 1. Clean and run the standard build
 Write-Host "`n[1/3] Compiling Tauri Application and creating package..." -ForegroundColor Yellow
+$msixDir = "src-tauri\target\msix"
+if (Test-Path $msixDir) {
+    Write-Host "Cleaning old packages in $msixDir..." -ForegroundColor Gray
+    Remove-Item -Path "$msixDir\*" -Include "*.msix", "*.msixbundle" -Force -ErrorAction SilentlyContinue
+}
 npm run tauri:windows:build
 
 # 2. Locate signtool.exe dynamically

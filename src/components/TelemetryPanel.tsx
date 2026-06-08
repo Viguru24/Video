@@ -60,7 +60,7 @@ export function TelemetryPanel({ videosCount, telemetry }: TelemetryPanelProps) 
 
       <div className="tel-brand">
         <div className="status-indicator online" />
-        <span>SOVEREIGN v3.2.5</span>
+        <span>SOVEREIGN v4.0.0</span>
       </div>
       
       <ClockDisplay />

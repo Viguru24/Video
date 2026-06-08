@@ -1,15 +1,13 @@
 {
     "name": "video",
     "private": true,
-    "version": "3.3.1",
+    "version": "4.0.0",
     "author": "Cosmo Video Symphony",
     "description": "Cosmo Video Multi-Video Workspace",
     "type": "module",
     "scripts": {
         "dev": "vite",
         "clean": "powershell -ExecutionPolicy Bypass -File ./Elite-Reset.ps1",
-        "predev": "npm run clean",
-        "pretauri:dev": "npm run clean",
         "build": "vite build",
         "lint": "eslint .",
         "preview": "vite preview",

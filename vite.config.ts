@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   server: {
-    port: 55173,
+    port: 55174,
     strictPort: true,
     allowedHosts: true,
     // Fix HMR WebSocket inside Tauri's webview — the embedded browser intercepts
@@ -14,7 +14,7 @@ export default defineConfig({
     hmr: {
       protocol: 'ws',
       host: 'localhost',
-      port: 55173,
+      port: 55174,
     },
   },
 })
