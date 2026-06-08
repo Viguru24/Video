@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Share2, Type, Layout, Palette, Play, Download, Camera } from 'lucide-react';
 import type { VideoItem } from '../types';
+import { convertToVideoUrl } from '../utils/videoUtils';
+
 
 interface PromoExporterProps {
   isOpen: boolean;
@@ -118,7 +120,7 @@ export function PromoExporter({ isOpen, onClose, videos }: PromoExporterProps) {
                 {selectedVideo ? (
                   <>
                     <video 
-                      src={selectedVideo.url} 
+                      src={convertToVideoUrl(selectedVideo)} 
                       autoPlay 
                       loop 
                       muted 
@@ -212,7 +214,7 @@ export function PromoExporter({ isOpen, onClose, videos }: PromoExporterProps) {
 
                   // 4. Download
                   const link = document.createElement('a');
-                  link.download = `promo_${selectedVideo.title.replace(/\s+/g, '_')}.jpg`;
+                  link.download = `promo_${selectedVideo ? selectedVideo.title.replace(/\s+/g, '_') : 'video'}.jpg`;
                   link.href = canvas.toDataURL('image/jpeg', 0.9);
                   link.click();
                 }}

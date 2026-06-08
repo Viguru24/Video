@@ -25,7 +25,9 @@ export function SettingsModal({
     alwaysOnTop,
     setAlwaysOnTop,
     fitMode,
-    setFitMode
+    setFitMode,
+    smartCulling,
+    setSmartCulling
   } = useStore();
 
   const addLog = (msg: string) => {
@@ -72,6 +74,26 @@ export function SettingsModal({
                 </button>
                 <button className={fitMode === 'contain' ? 'active' : ''} onClick={() => setFitMode('contain')}>
                   NATIVE
+                </button>
+              </div>
+            </div>
+
+            <div className="setting-item">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>SMART CULLING (HIBERNATION)</label>
+                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                    {smartCulling ? 'Unloads off-screen elements to save memory' : 'Keeps all media active at all times (best for high-spec PCs)'}
+                  </span>
+                </div>
+                <button 
+                  className={`premium-switch ${smartCulling ? 'active' : ''}`}
+                  onClick={() => setSmartCulling(!smartCulling)}
+                  data-label={smartCulling ? 'ACTIVE' : 'OFF'}
+                >
+                  <div className="switch-rail">
+                    <div className="switch-thumb" />
+                  </div>
                 </button>
               </div>
             </div>

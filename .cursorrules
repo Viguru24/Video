@@ -1,0 +1,6 @@
+# Cosmo Symphony Project Rules
+
+- **Workflow:**
+  - **Local-First:** Work locally (localhost) first by default.
+  - **Git Pushing:** Push to GitHub/remote is AUTHORIZED and permitted for keeping backups and version synchronization.
+  - **Safety:** Always backup databases before risky migrations.

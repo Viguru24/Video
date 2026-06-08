@@ -23,12 +23,12 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
   const [logs, setLogs] = useState<string[]>([]);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showProductionForm, setShowProductionForm] = useState(false);
-  const [productionMetadata, setProductionMetadata] = useState({
+  const [productionMetadata, setProductionMetadata] = useState(() => ({
     name: '',
     version: '1.0',
     notes: '',
     seed: Math.floor(Math.random() * 1000000).toString()
-  });
+  }));
   const [projectName, setProjectName] = useState('New Project');
   const [musicPrompt, setMusicPrompt] = useState(() => localStorage.getItem('symphony_music_prompt') || '');
   const [lastGeneratedFile, setLastGeneratedFile] = useState<string | null>(null);
@@ -38,6 +38,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
   const [projects, setProjects] = useState<any[]>([]);
   const [renders, setRenders] = useState<any[]>([]);
   const [renderMode, setRenderMode] = useState<'remotion' | 'hyperframes'>('remotion');
+  const [isServerOnline, setIsServerOnline] = useState(true);
 
   const internalLog = (msg: string) => {
     const timestamp = new Date().toLocaleTimeString([], { hour12: false });
@@ -64,8 +65,10 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
       const res = await fetch(`${API_BASE}/api/list_projects`);
       const data = await res.json();
       setProjects(data.projects || []);
+      setIsServerOnline(true);
     } catch (e) {
       console.error("Failed to load projects", e);
+      setIsServerOnline(false);
     }
   };
 
@@ -74,8 +77,10 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
       const res = await fetch(`${API_BASE}/api/list_renders`);
       const data = await res.json();
       setRenders(data.renders || []);
+      setIsServerOnline(true);
     } catch (e) {
       console.error("Failed to load renders", e);
+      setIsServerOnline(false);
     }
   };
 
@@ -315,9 +320,10 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
 
   return (
     <div className="promo-overlay" style={{ 
-      position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', 
-      alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px'
+      position: 'fixed', inset: 0, zIndex: 30000, display: 'flex', 
+      justifyContent: 'center',
+      background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: isFullscreen ? '0' : '20px',
+      overflowY: 'auto'
     }}>
       <motion.div 
         className="promo-modal"
@@ -326,14 +332,16 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         onClick={e => e.stopPropagation()}
         style={{ 
-          width: isFullscreen ? '100vw' : '1000px', 
-          height: isFullscreen ? '100vh' : 'auto',
-          maxWidth: '100vw', maxHeight: isFullscreen ? '100vh' : '92vh',
+          width: isFullscreen ? '100%' : '1000px', 
+          height: isFullscreen ? '100%' : '88vh',
+          maxWidth: isFullscreen ? '100%' : 'calc(100vw - 40px)', 
+          maxHeight: isFullscreen ? '100%' : 'calc(100vh - 40px)',
           display: 'flex', flexDirection: 'column',
           border: isFullscreen ? 'none' : '1px solid rgba(var(--accent-rgb), 0.3)', 
           boxShadow: '0 50px 100px rgba(0,0,0,0.9), 0 0 30px rgba(var(--accent-rgb), 0.1)',
           background: 'var(--bg-surface)', overflow: 'hidden',
-          borderRadius: isFullscreen ? '0' : '12px', transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
+          borderRadius: isFullscreen ? '0' : '12px', transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+          margin: 'auto'
         }}
       >
         <div className="promo-header" style={{ 
@@ -354,7 +362,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
                 }}
                 placeholder="PROJECT NAME"
               />
-              <div style={{ fontSize: '9px', opacity: 0.5, letterSpacing: '1px', fontWeight: '700' }}>COSMO SYMPHONY v3.2.5 - SOVEREIGN</div>
+              <div style={{ fontSize: '9px', opacity: 0.5, letterSpacing: '1px', fontWeight: '700' }}>COSMO SYMPHONY v4.0.0 - SOVEREIGN</div>
             </div>
           </div>
           
@@ -384,6 +392,60 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
           </div>
         </div>
 
+        {/* Server Offline Banner */}
+        {!isServerOnline && (
+          <div 
+            className="workshop-offline-banner"
+            style={{
+              background: 'rgba(239, 68, 68, 0.15)',
+              borderBottom: '1px solid rgba(239, 68, 68, 0.3)',
+              padding: '12px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              color: '#fca5a5',
+              fontSize: '12px',
+              fontWeight: 500,
+              backdropFilter: 'blur(8px)',
+              flexShrink: 0
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertTriangle size={16} style={{ color: '#ef4444' }} />
+              <span>
+                <strong>Local Symphony API Server is Offline</strong> (port 8000). Python script generator, scraping, and renders library are unavailable.
+              </span>
+            </div>
+            <button 
+              className="workshop-offline-btn"
+              onClick={async () => {
+                await refreshProjects();
+                await refreshRenders();
+              }}
+              style={{
+                height: '26px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                background: 'rgba(239, 68, 68, 0.2)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                color: '#fff',
+                fontSize: '10px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.3)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'}
+            >
+              <RotateCw size={10} /> Retry Sync
+            </button>
+          </div>
+        )}
+
         <div style={{ 
           padding: '8px 24px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)',
           display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', flexShrink: 0
@@ -403,11 +465,13 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
 
             <button 
               onClick={handleSaveProject}
+              disabled={!isServerOnline}
               style={{ 
                 height: '34px', padding: '0 16px', borderRadius: '8px', 
                 background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
                 color: '#fff', fontSize: '11px', fontWeight: '700', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '8px', transition: '0.2s'
+                display: 'flex', alignItems: 'center', gap: '8px', opacity: isServerOnline ? 1 : 0.4, transition: '0.2s',
+                pointerEvents: isServerOnline ? 'auto' : 'none'
               }}
             >
               <Save size={14} /> SAVE TO LIBRARY ({projects.length})
@@ -415,12 +479,13 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
 
             <button 
               onClick={handleGenerateScript}
-              disabled={productionStep !== 'idle' || !prompt.trim()}
+              disabled={productionStep !== 'idle' || !prompt.trim() || !isServerOnline}
               style={{ 
                 height: '34px', padding: '0 16px', borderRadius: '8px', 
                 background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
                 color: '#fff', fontSize: '11px', fontWeight: '700', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '8px', opacity: prompt.trim() ? 1 : 0.5, transition: '0.2s'
+                display: 'flex', alignItems: 'center', gap: '8px', opacity: (prompt.trim() && isServerOnline) ? 1 : 0.4, transition: '0.2s',
+                pointerEvents: (productionStep === 'idle' && isServerOnline) ? 'auto' : 'none'
               }}
             >
               <Sparkles size={14} /> GENERATE PLAN
@@ -517,7 +582,12 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
                       color: '#fff', fontSize: '12px', outline: 'none'
                     }}
                   />
-                  <button onClick={handleScanWebsite} disabled={isScanning || !websiteUrl} className="hdr-btn" style={{ fontSize: '10px' }}>
+                  <button 
+                    onClick={handleScanWebsite} 
+                    disabled={isScanning || !websiteUrl || !isServerOnline} 
+                    className="hdr-btn" 
+                    style={{ fontSize: '10px', opacity: (isScanning || !websiteUrl || !isServerOnline) ? 0.5 : 1, transition: '0.2s' }}
+                  >
                     {isScanning ? <Loader2 size={12} className="spin" /> : <Sparkles size={12} />} SCAN WEBSITE
                   </button>
                 </div>
@@ -580,7 +650,23 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
                   <input value={productionMetadata.seed} onChange={e => setProductionMetadata({...productionMetadata, seed: e.target.value})} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', color: '#fff', borderRadius: '6px' }} placeholder="Seed" />
                 </div>
                 <textarea value={productionMetadata.notes} onChange={e => setProductionMetadata({...productionMetadata, notes: e.target.value})} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', color: '#fff', borderRadius: '6px', height: '80px' }} placeholder="Director Notes..." />
-                <button onClick={handleProduce} style={{ padding: '14px', borderRadius: '6px', background: 'var(--accent)', color: '#000', fontWeight: '900', border: 'none' }}>CONFIRM & RENDER</button>
+                <button 
+                  onClick={handleProduce} 
+                  disabled={!isServerOnline}
+                  style={{ 
+                    padding: '14px', 
+                    borderRadius: '6px', 
+                    background: isServerOnline ? 'var(--accent)' : 'rgba(255,255,255,0.05)', 
+                    color: isServerOnline ? '#000' : 'rgba(255,255,255,0.3)', 
+                    fontWeight: '900', 
+                    border: isServerOnline ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                    cursor: isServerOnline ? 'pointer' : 'not-allowed',
+                    opacity: isServerOnline ? 1 : 0.5,
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  CONFIRM & RENDER
+                </button>
               </div>
             </motion.div>
           </div>
@@ -589,7 +675,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
 
       <AnimatePresence>
         {showPreview && lastGeneratedFile && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <motion.div className="promo-preview-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ position: 'fixed', inset: 0, zIndex: 31000, background: 'rgba(0,0,0,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ position: 'absolute', top: 20, right: 20 }}>
               <button onClick={() => setShowPreview(false)} className="premium-close-btn"><X size={18} /></button>
             </div>

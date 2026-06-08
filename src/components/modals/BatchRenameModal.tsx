@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { RefreshCw, Zap, X, Hash, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import type { VideoItem } from '../../types';
-import { toCosmoUrl } from '../../utils/videoUtils';
+import { toCosmoUrl, pathsEqual } from '../../utils/videoUtils';
 
 interface BatchRenameModalProps {
   videos: VideoItem[];
@@ -89,7 +89,7 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
       const currentStartNum = folderStartNums[parentDir] || 1;
       folderStartNums[parentDir] = currentStartNum + 1;
 
-      let baseNewName = `${batchPrefix}_${String(currentStartNum).padStart(3, '0')}`;
+      const baseNewName = `${batchPrefix}_${String(currentStartNum).padStart(3, '0')}`;
       let finalNewName = baseNewName;
       let attempt = 0;
       let success = false;
@@ -104,21 +104,21 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
           
           const finalName = resultPath.split(/[\\/]/).pop() || resultPath;
           
-          const overwrittenIdx = newVideos.findIndex(nv => nv.id !== v.id && nv.realPath === resultPath);
+          const overwrittenIdx = newVideos.findIndex(nv => nv.id !== v.id && pathsEqual(nv.realPath, resultPath));
           if (overwrittenIdx !== -1) {
             newVideos.splice(overwrittenIdx, 1);
           }
           
           for (let k = 0; k < newVideos.length; k++) {
             let updated = false;
-            let nv = { ...newVideos[k] };
+            const nv = { ...newVideos[k] };
             
             if (nv.id === v.id) {
               nv.title = finalName;
               nv.realPath = resultPath;
               nv.url = toCosmoUrl(resultPath);
               updated = true;
-            } else if (nv.realPath === v.realPath) {
+            } else if (pathsEqual(nv.realPath, v.realPath)) {
               nv.title = finalName;
               nv.realPath = resultPath;
               nv.url = toCosmoUrl(resultPath);
@@ -127,15 +127,15 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
             
             if (nv.folderFiles) {
               let newFiles = nv.folderFiles;
-              const hasOverwritten = newFiles.some(f => f.path === resultPath);
+              const hasOverwritten = newFiles.some(f => pathsEqual(f.path, resultPath));
               if (hasOverwritten) {
-                newFiles = newFiles.filter(f => f.path !== resultPath);
+                newFiles = newFiles.filter(f => !pathsEqual(f.path, resultPath));
               }
               
-              const hasFile = newFiles.some(f => f.path === v.realPath);
+              const hasFile = newFiles.some(f => pathsEqual(f.path, v.realPath));
               if (hasFile || hasOverwritten) {
                 nv.folderFiles = newFiles.map(f => {
-                  if (f.path === v.realPath) {
+                  if (pathsEqual(f.path, v.realPath)) {
                     return {
                       ...f,
                       name: finalName,

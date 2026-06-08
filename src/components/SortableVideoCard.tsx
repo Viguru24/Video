@@ -9,7 +9,7 @@ interface SortableVideoCardProps {
   globalRepeat: RepeatMode;
   globalSpeed: number;
   fitMode: 'cover' | 'contain';
-  onUpdateVideo: (id: string, updates: Partial<VideoItem>) => void;
+  onUpdateVideo: (id: any, updates: any) => void;
   onRemove: (id: string) => void;
   onAnnihilate: (id: string) => void;
   onLog: (msg: string) => void;
@@ -32,12 +32,20 @@ interface SortableVideoCardProps {
   onDeepFocus: (time?: number) => void;
   onUpscale?: (video: VideoItem) => void;
   isSelected?: boolean;
-  onToggleSelect?: () => void;
+  onToggleSelect?: (shiftKey?: boolean, ctrlKey?: boolean) => void;
   selectionMode?: boolean;
   onNavigateSibling?: (direction: 1 | -1) => void;
   isAiEnhancing?: boolean;
   onSelectAll?: () => void;
+  quality?: 'low' | 'high';
+  isSlideshowActive?: boolean;
+  setIsSlideshowActive?: (active: boolean) => void;
+  onColorAdjust?: (id: string) => void;
+  onStartCrop?: (id: string) => void;
+  onAddVideo?: (newVideo: VideoItem) => void;
 }
+
+import { useStore } from '../store/useStore';
 
 function SortableVideoCardInternal(props: SortableVideoCardProps) {
   const {
@@ -49,12 +57,16 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
     isDragging,
   } = useSortable({ id: props.video.id });
 
+  const smartCulling = useStore(state => state.smartCulling);
   const [isVisible, setIsVisible] = React.useState(true);
   const observerRef = React.useRef<IntersectionObserver | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
-    const scrollContainer = containerRef.current?.closest('.video-scroll') || document.querySelector('.video-scroll');
+    if (!smartCulling) {
+      setIsVisible(true);
+      return;
+    }
 
     observerRef.current = new IntersectionObserver(([entry]) => {
       // SMART CULLING: Only active decoders for visible units
@@ -65,7 +77,7 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
         setIsVisible(entry.isIntersecting);
       }
     }, { 
-      root: scrollContainer as HTMLElement | null,
+      root: null, // Check intersection relative to the viewport (window) for bulletproof reliability
       threshold: 0.01,
       rootMargin: '1000px' // Large pre-render buffer (2-3 rows above/below screen) to prevent flash of HIBERNATING state
     });
@@ -78,7 +90,7 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
     }
 
     return () => observerRef.current?.disconnect();
-  }, [props.isFocused, props.focusedId]);
+  }, [props.isFocused, props.focusedId, smartCulling]);
 
 
   const style = {
@@ -88,6 +100,7 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
     zIndex: isDragging ? 100 : 1,
     opacity: isDragging ? 0.8 : 1,
     willChange: 'transform, opacity',
+    touchAction: 'none',
   };
 
   const handleRef = (node: HTMLDivElement | null) => {

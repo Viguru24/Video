@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
@@ -28,7 +29,7 @@ interface VideoGridProps {
   rowOffsets: number[];
   rotIdx: number;
   rotating: boolean;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   idToRow: Record<string, number>;
   onDragStart: (event: DragStartEvent) => void;
   onDragEnd: (event: DragEndEvent) => void;
@@ -42,17 +43,22 @@ interface VideoGridProps {
   toggleMasterMute: (soloId?: string) => void;
   toggleMasterPlay: () => void;
   onContextMenu: (id: string, x: number, y: number) => void;
-  onDeepFocus: (id: string) => void;
+  onDeepFocus: (id: string, time?: number) => void;
   onReorder: (fromId: string, toId: string) => void;
   onToggleFocus: (id: string | null) => void;
   jumpToUnit: (id: string) => void;
   selectedIds: Set<string>;
-  onToggleSelect: (id: string) => void;
+  onToggleSelect: (id: string, shiftKey?: boolean, ctrlKey?: boolean) => void;
   selectionMode: boolean;
   onNavigateSibling?: (direction: 1 | -1) => void;
   onSelectAll?: () => void;
   onUpscale?: (video: VideoItem) => void;
   enhancingVideoId?: string | null;
+  isSlideshowActive?: boolean;
+  setIsSlideshowActive?: (active: boolean) => void;
+  onColorAdjust?: (id: string) => void;
+  onStartCrop?: (id: string) => void;
+  onAddVideo?: (newVideo: VideoItem) => void;
 }
 
 export function VideoGrid({
@@ -100,9 +106,16 @@ export function VideoGrid({
   onSelectAll,
   onUpscale,
   enhancingVideoId,
+  isSlideshowActive,
+  setIsSlideshowActive,
+  onColorAdjust,
+  onStartCrop,
+  onAddVideo
 }: VideoGridProps) {
   const mediaMode = useStore((state) => state.mediaMode);
   const setZoom = useStore((state) => state.setZoom);
+  const setSelectedIds = useStore((state) => state.setSelectedIds);
+  const setSelectionMode = useStore((state) => state.setSelectionMode);
 
   // Check if touch device
   const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -180,6 +193,22 @@ export function VideoGrid({
     onDragEnd(event);
   };
 
+  const handleBackgroundDoubleClick = (e: React.MouseEvent) => {
+    if (focusedId) return;
+    
+    // Check if the click target is the outer scroll area or the empty grid spaces
+    const target = e.target as HTMLElement;
+    if (
+      target.classList.contains('video-scroll') ||
+      target.classList.contains('video-grid-container') ||
+      target.classList.contains('video-grid')
+    ) {
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      onLog("SELECTION RESET: Cleared all active selections");
+    }
+  };
+
   return (
     <>
       <div
@@ -188,18 +217,15 @@ export function VideoGrid({
         onTouchStart={handleGridTouchStart}
         onTouchMove={handleGridTouchMove}
         onTouchEnd={handleGridTouchEnd}
+        onDoubleClick={handleBackgroundDoubleClick}
       >
         {videos.length === 0 && (
           <div className="empty-grid-state">
-            <div className="icon-large">
-              <img src="/logo.png" style={{ width: '120px', height: '120px', opacity: 1 }} alt="Cosmo" />
+            <Upload size={13} strokeWidth={2.5} style={{ opacity: 0.5, flexShrink: 0 }} />
+            <h2>{mediaMode === 'picture' ? 'Drop pictures here' : 'Drop videos here'}</h2>
+            <div style={{ marginTop: '12px', fontSize: '10px', opacity: 0.6 }}>
+              Check out my other products at <a href="https://cosmowhisper.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent, #00ff88)', textDecoration: 'none', fontWeight: 600 }}>cosmowhisper.com</a>
             </div>
-            <h2>{mediaMode === 'picture' ? 'DROP PICTURES HERE' : 'DROP VIDEOS HERE'}</h2>
-            <p>
-              {mediaMode === 'picture' 
-                ? 'Drag and drop folders or picture files to begin your symphony' 
-                : 'Drag and drop folders or video files to begin your symphony'}
-            </p>
           </div>
         )}
         <DndContext
@@ -253,12 +279,17 @@ export function VideoGrid({
                       onDeepFocus={(time) => onDeepFocus(v.id, time)}
                       onAnnihilate={() => onAnnihilate(v.id)}
                       isSelected={selectedIds.has(v.id)}
-                      onToggleSelect={() => onToggleSelect(v.id)}
+                      onToggleSelect={(shiftKey, ctrlKey) => onToggleSelect(v.id, shiftKey, ctrlKey)}
                       selectionMode={selectionMode}
                       onNavigateSibling={onNavigateSibling}
                       onSelectAll={onSelectAll}
                       onUpscale={onUpscale}
                       isAiEnhancing={enhancingVideoId === v.id}
+                      isSlideshowActive={isSlideshowActive}
+                      setIsSlideshowActive={setIsSlideshowActive}
+                      onColorAdjust={onColorAdjust}
+                      onStartCrop={onStartCrop}
+                      onAddVideo={onAddVideo}
                     />
                   </div>
                 ))}
