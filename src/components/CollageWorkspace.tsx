@@ -19,14 +19,18 @@ interface CollageWorkspaceProps {
 }
 
 const BACKGROUND_PRESETS = [
-  { name: 'Void Black',      swatch: '#09090e',                                                                         value: '#09090e' },
-  { name: 'Neon Cyberpunk',  swatch: 'linear-gradient(135deg, #4a1fa8 0%, #9b06b4 100%)',                               value: 'linear-gradient(135deg, #0d081b 0%, #2a0845 50%, #05020c 100%)' },
-  { name: 'Electric Cobalt', swatch: 'linear-gradient(135deg, #0a3cff 0%, #00c8ff 100%)',                               value: 'linear-gradient(135deg, #04082a 0%, #071840 100%)' },
-  { name: 'Crimson Night',   swatch: 'linear-gradient(135deg, #c0152a 0%, #ff6060 100%)',                               value: 'linear-gradient(135deg, #1f0408 0%, #3b0a10 100%)' },
-  { name: 'Acid Emerald',    swatch: 'linear-gradient(135deg, #00b84a 0%, #00ff99 100%)',                               value: 'linear-gradient(135deg, #031208 0%, #062a12 100%)' },
-  { name: 'Sunset Gold',     swatch: 'linear-gradient(135deg, #ff8800 0%, #ffdd00 100%)',                               value: 'linear-gradient(135deg, #1a0e00 0%, #2e1800 100%)' },
-  { name: 'Arctic White',    swatch: 'linear-gradient(135deg, #e8f0ff 0%, #ffffff 100%)',                               value: 'linear-gradient(135deg, #d0daf0 0%, #eef3ff 100%)' },
-  { name: 'Sleek Charcoal',  swatch: 'linear-gradient(135deg, #2a2a32 0%, #3a3a46 100%)',                               value: '#1e1e26' },
+  { name: 'Polished Wood',   value: 'url(/wood_background.png) center/cover no-repeat',                    type: 'image' },
+  { name: 'Sea Stones',      value: 'url(/sea_stones_background.png) center/cover no-repeat',              type: 'image' },
+  { name: 'Beach Sand',      value: 'url(/sand_background.png) center/cover no-repeat',                    type: 'image' },
+  { name: 'Art Wallpaper',   value: 'url(/wallpaper_background.png) center/cover no-repeat',               type: 'image' },
+  { name: 'Void Black',      value: '#09090e',                                                            type: 'color' },
+  { name: 'Sleek Charcoal',  value: '#1e1e26',                                                            type: 'color' },
+  { name: 'Neon Cyberpunk',  value: 'linear-gradient(135deg, #0d081b 0%, #2a0845 50%, #05020c 100%)',      type: 'gradient' },
+  { name: 'Electric Cobalt', value: 'linear-gradient(135deg, #04082a 0%, #071840 100%)',                      type: 'gradient' },
+  { name: 'Crimson Night',   value: 'linear-gradient(135deg, #1f0408 0%, #3b0a10 100%)',                      type: 'gradient' },
+  { name: 'Acid Emerald',    value: 'linear-gradient(135deg, #031208 0%, #062a12 100%)',                      type: 'gradient' },
+  { name: 'Sunset Gold',     value: 'linear-gradient(135deg, #1a0e00 0%, #2e1800 100%)',                      type: 'gradient' },
+  { name: 'Arctic White',    value: 'linear-gradient(135deg, #d0daf0 0%, #eef3ff 100%)',                      type: 'gradient' },
 ];
 
 export function CollageWorkspace({
@@ -39,6 +43,7 @@ export function CollageWorkspace({
   addLog
 }: CollageWorkspaceProps) {
   const [showShelf, setShowShelf] = useState(true);
+  const [isBgDropdownOpen, setIsBgDropdownOpen] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   
   // Dragging, resizing and rotation state trackers
@@ -443,35 +448,105 @@ export function CollageWorkspace({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {/* Background Presets */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 800 }}>BG:</span>
-              <div style={{ display: 'flex', gap: '5px' }}>
-                {BACKGROUND_PRESETS.map((preset, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setCollageConfig({ backgroundType: 'gradient', backgroundValue: preset.value })}
-                    style={{
-                      width: '22px',
-                      height: '22px',
-                      borderRadius: '50%',
-                      background: preset.swatch,
-                      border: collageConfig.backgroundValue === preset.value
-                        ? '2px solid #fff'
-                        : '1.5px solid rgba(255,255,255,0.25)',
-                      cursor: 'pointer',
-                      boxShadow: collageConfig.backgroundValue === preset.value
-                        ? '0 0 10px rgba(255,255,255,0.5)'
-                        : '0 2px 6px rgba(0,0,0,0.6)',
-                      transition: 'transform 0.12s, box-shadow 0.12s',
-                      flexShrink: 0
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.25)'; e.currentTarget.style.boxShadow = '0 0 12px rgba(255,255,255,0.4)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = collageConfig.backgroundValue === preset.value ? '0 0 10px rgba(255,255,255,0.5)' : '0 2px 6px rgba(0,0,0,0.6)'; }}
-                    title={preset.name}
-                  />
-                ))}
-              </div>
+            {/* Background Selector Dropdown */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setIsBgDropdownOpen(!isBgDropdownOpen)}
+                style={{
+                  height: '30px',
+                  padding: '0 12px',
+                  borderRadius: '15px',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  color: '#fff',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent, #00ff88)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'}
+              >
+                <span style={{ letterSpacing: '0.5px' }}>BG: {BACKGROUND_PRESETS.find(x => x.value === collageConfig.backgroundValue)?.name || 'Custom'}</span>
+                <ChevronRight size={10} style={{ transform: isBgDropdownOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+              </button>
+
+              {isBgDropdownOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '36px',
+                    right: 0,
+                    width: '180px',
+                    maxHeight: '280px',
+                    overflowY: 'auto',
+                    background: 'rgba(15, 15, 20, 0.95)',
+                    backdropFilter: 'blur(16px)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '8px',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                    zIndex: 100,
+                    padding: '6px 0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px'
+                  }}
+                  className="video-scroll"
+                >
+                  {BACKGROUND_PRESETS.map((preset, idx) => {
+                    const isSelected = collageConfig.backgroundValue === preset.value;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setCollageConfig({ backgroundType: preset.type, backgroundValue: preset.value });
+                          setIsBgDropdownOpen(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: 'none',
+                          background: isSelected ? 'rgba(0, 255, 136, 0.08)' : 'none',
+                          color: isSelected ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.7)',
+                          fontSize: '10px',
+                          fontWeight: isSelected ? 'bold' : 'normal',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          transition: 'all 0.15s'
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = isSelected ? 'rgba(0, 255, 136, 0.12)' : 'rgba(255,255,255,0.04)';
+                          e.currentTarget.style.color = '#fff';
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = isSelected ? 'rgba(0, 255, 136, 0.08)' : 'none';
+                          e.currentTarget.style.color = isSelected ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.7)';
+                        }}
+                      >
+                        {/* Preview swatch indicator */}
+                        <div style={{
+                          width: '14px',
+                          height: '14px',
+                          borderRadius: '4px',
+                          background: preset.value.includes('url') ? '#555' : preset.value,
+                          backgroundImage: preset.value.includes('url') ? preset.value : 'none',
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          flexShrink: 0
+                        }} />
+                        <span style={{ flex: 1 }}>{preset.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Export PNG */}
