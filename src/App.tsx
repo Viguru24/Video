@@ -2219,6 +2219,8 @@ export default function App() {
               setCollageConfig={setCollageConfig}
               onDeepFocus={handleDeepFocus}
               addLog={addLog}
+              snapshotDir={snapshotDir}
+              setSnapshotDir={setSnapshotDir}
             />
           ) : (
             <>
