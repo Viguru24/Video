@@ -79,15 +79,10 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
     }, { 
       root: null, // Check intersection relative to the viewport (window) for bulletproof reliability
       threshold: 0.01,
-      rootMargin: '1000px' // Large pre-render buffer (2-3 rows above/below screen) to prevent flash of HIBERNATING state
+      rootMargin: '300px' // Tighter pre-render buffer to aggressively cull off-screen videos and conserve GPU VRAM
     });
 
     if (containerRef.current) observerRef.current.observe(containerRef.current);
-    
-    // WAKE UP PULSE: When focus state changes, ensure units are marked visible to trigger hydration
-    if (!props.focusedId) {
-       setIsVisible(true);
-    }
 
     return () => observerRef.current?.disconnect();
   }, [props.isFocused, props.focusedId, smartCulling]);

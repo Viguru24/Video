@@ -1390,6 +1390,7 @@ function VideoCardInternal({
             key={displayUrl}
             ref={videoRef}
             src={displayUrl}
+            preload="metadata"
             draggable="false"
             crossOrigin="anonymous"
             playsInline
