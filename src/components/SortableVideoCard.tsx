@@ -62,31 +62,37 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
   const observerRef = React.useRef<IntersectionObserver | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
 
-  React.useEffect(() => {
+  const handleRef = React.useCallback((node: HTMLDivElement | null) => {
+    setNodeRef(node);
+    containerRef.current = node;
+
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+
     if (!smartCulling) {
       setIsVisible(true);
       return;
     }
 
-    observerRef.current = new IntersectionObserver(([entry]) => {
-      // SMART CULLING: Only active decoders for visible units
-      // FORCE VISIBLE if focused to avoid hibernation during expansion
-      if (props.isFocused) {
-        setIsVisible(true);
-      } else {
-        setIsVisible(entry.isIntersecting);
-      }
-    }, { 
-      root: null, // Check intersection relative to the viewport (window) for bulletproof reliability
-      threshold: 0.01,
-      rootMargin: '300px' // Tighter pre-render buffer to aggressively cull off-screen videos and conserve GPU VRAM
-    });
-
-    if (containerRef.current) observerRef.current.observe(containerRef.current);
-
-    return () => observerRef.current?.disconnect();
-  }, [props.isFocused, props.focusedId, smartCulling]);
-
+    if (node) {
+      observerRef.current = new IntersectionObserver(([entry]) => {
+        // SMART CULLING: Only active decoders for visible units
+        // FORCE VISIBLE if focused to avoid hibernation during expansion
+        if (props.isFocused) {
+          setIsVisible(true);
+        } else {
+          setIsVisible(entry.isIntersecting);
+        }
+      }, { 
+        root: null, // Check intersection relative to the viewport (window) for bulletproof reliability
+        threshold: 0.01,
+        rootMargin: '300px' // Tighter pre-render buffer to aggressively cull off-screen videos and conserve GPU VRAM
+      });
+      observerRef.current.observe(node);
+    }
+  }, [props.isFocused, smartCulling, setNodeRef]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -96,11 +102,6 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
     opacity: isDragging ? 0.8 : 1,
     willChange: 'transform, opacity',
     touchAction: 'none',
-  };
-
-  const handleRef = (node: HTMLDivElement | null) => {
-    setNodeRef(node);
-    containerRef.current = node;
   };
 
   return (
