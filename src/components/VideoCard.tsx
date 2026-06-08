@@ -455,12 +455,14 @@ function VideoCardInternal({
   const hoverPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasPlayingBeforeHover = useRef<boolean>(false);
   const wasMutedBeforeHover = useRef<boolean>(false);
+  const hasHovered = useRef<boolean>(false);
 
   useEffect(() => {
     // Only apply in grid mode to videos (not images, not when in solo/focus view)
     if (isImage || isFocused || inSoloMode) return;
 
     if (isHovered) {
+      hasHovered.current = true;
       // Small delay so quickly mousing across cards doesn't spam play/pause
       hoverPlayTimerRef.current = setTimeout(() => {
         const vid = videoRef.current;
@@ -476,14 +478,20 @@ function VideoCardInternal({
         clearTimeout(hoverPlayTimerRef.current);
         hoverPlayTimerRef.current = null;
       }
-      const vid = videoRef.current;
-      if (!vid) return;
-      // Only pause if we were the ones who started playback
-      if (!wasPlayingBeforeHover.current) {
-        vid.pause();
+      
+      // Only pause if we actually hovered over it first
+      if (hasHovered.current) {
+        const vid = videoRef.current;
+        if (vid) {
+          // Only pause if we were the ones who started playback
+          if (!wasPlayingBeforeHover.current) {
+            vid.pause();
+          }
+          // Restore original mute state
+          vid.muted = wasMutedBeforeHover.current;
+        }
+        hasHovered.current = false;
       }
-      // Restore original mute state
-      vid.muted = wasMutedBeforeHover.current;
     }
 
     return () => {
