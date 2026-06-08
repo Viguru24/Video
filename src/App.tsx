@@ -886,6 +886,21 @@ export default function App() {
     }
   }, [focusedId]);
 
+  // Exit Solo Mode / go back to grid when slideshow is stopped/paused
+  const prevSlideshowActive = useRef(isSlideshowActive);
+  useEffect(() => {
+    if (prevSlideshowActive.current && !isSlideshowActive && focusedId) {
+      pendingScrollIdRef.current = focusedId;
+      jumpToUnit(focusedId);
+      setImmersive(false);
+      setFocusedId(null);
+      getCurrentWindow().setFullscreen(false);
+      setIsFS(false);
+      addLog(`Slideshow stopped. Exiting Solo Mode.`);
+    }
+    prevSlideshowActive.current = isSlideshowActive;
+  }, [isSlideshowActive, focusedId, jumpToUnit, setImmersive, setFocusedId, setIsFS, addLog]);
+
   // Slideshow Auto-Focus Trigger: Focuses the first item to enter fullscreen if slideshow is started while in normal grid mode
   useEffect(() => {
     if (isSlideshowActive && !focusedId && filtered.length > 0) {
