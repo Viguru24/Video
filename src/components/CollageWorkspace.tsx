@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { 
   X, Play, Pause, Volume2, VolumeX,
   Layers, ChevronLeft, ChevronRight, Plus, 
-  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer
+  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer,
+  RotateCw, RotateCcw
 } from 'lucide-react';
 import type { VideoItem, CollageItem, CollageConfig } from '../types';
 import { isValidPictureExtension } from '../utils/videoUtils';
@@ -619,6 +620,28 @@ export function CollageWorkspace({
                     title="Send to Back"
                   >
                     <Layers size={10} style={{ opacity: 0.6 }} />
+                  </button>
+
+                  <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.15)' }} />
+
+                  {/* Rotate 90 degrees controls */}
+                  <button
+                    onClick={() => {
+                      setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, rotation: (x.rotation - 90 + 360) % 360 } : x));
+                    }}
+                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                    title="Rotate 90° Left"
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, rotation: (x.rotation + 90) % 360 } : x));
+                    }}
+                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                    title="Rotate 90° Right"
+                  >
+                    <RotateCw size={10} />
                   </button>
 
                   <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.15)' }} />
