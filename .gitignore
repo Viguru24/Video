@@ -28,3 +28,15 @@ dist
 release
 src-tauri/target
 src-tauri/gen
+
+# Local Envs & Large Packaging Directories
+.cosmo_cpu_venv/
+.cosmo_venv/
+CosmoSymphony-Package/
+backup/
+pyinstaller_build/
+pyinstaller_build_cpu/
+*.spec
+*.pdf
+__pycache__/
+*.pyc

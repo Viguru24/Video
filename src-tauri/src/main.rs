@@ -2,2493 +2,52 @@
 // Force-compile capability index modification - 2026-05-22
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use base64::{engine::general_purpose, Engine as _};
-use std::fs;
-use std::path::PathBuf;
 use std::sync::Mutex;
-use sysinfo::{CpuRefreshKind, RefreshKind, System};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use sysinfo::System;
 use tauri_plugin_log::{Target, TargetKind};
 
-struct AppState {
-    sys: Mutex<System>,
-    last_refresh: Mutex<std::time::Instant>,
+pub mod commands;
+
+pub struct AppState {
+    pub sys: Mutex<System>,
+    pub last_refresh: Mutex<std::time::Instant>,
 }
 
-struct LaunchArgs(Mutex<Option<String>>);
+pub struct LaunchArgs(pub Mutex<Option<String>>);
 
-#[tauri::command]
-fn get_telemetry(state: tauri::State<AppState>) -> serde_json::Value {
-    let mut sys = match state.sys.lock() {
-        Ok(s) => s,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let mut last_refresh = match state.last_refresh.lock() {
-        Ok(s) => s,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    // Prevent race conditions by enforcing a minimum 1-second refresh interval
-    if last_refresh.elapsed() >= std::time::Duration::from_millis(1000) {
-        sys.refresh_cpu_usage();
-        sys.refresh_memory();
-        *last_refresh = std::time::Instant::now();
-    }
-
-    let cpu_usage = sys.global_cpu_usage();
-    let total_mem = sys.total_memory() / 1024 / 1024 / 1024; // GB
-    let used_mem = sys.used_memory() / 1024 / 1024 / 1024; // GB
-
-    // Helper to spawn hidden process on Windows
-    let run_hidden_cmd = |cmd_name: &str, args: &[&str]| -> Option<String> {
-        let mut cmd = std::process::Command::new(cmd_name);
-        cmd.args(args);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-        cmd.output().ok().and_then(|out| String::from_utf8(out.stdout).ok())
-    };
-
-    let gpu_temp = run_hidden_cmd("nvidia-smi", &["--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"])
-        .and_then(|s| s.trim().parse::<f32>().ok())
-        .unwrap_or(0.0);
-
-    let vram_data = run_hidden_cmd("nvidia-smi", &["--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"])
-        .and_then(|s| {
-            let parts: Vec<&str> = s.split(',').collect();
-            if parts.len() >= 2 {
-                let used = parts[0].trim().parse::<f32>().ok()? / 1024.0;
-                let total = parts[1].trim().parse::<f32>().ok()? / 1024.0;
-                Some(format!("{:.1}/{:.1}GB", used, total))
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| format!("{}/{}GB", used_mem, total_mem));
-
-    serde_json::json!({
-        "cpu": format!("{:.1}%", cpu_usage),
-        "mem": vram_data,
-        "gpu": "RTX 5080",
-        "temp": gpu_temp,
-        "fps": "STABLE"
-    })
-}
-
-#[tauri::command]
-fn get_launch_args(state: tauri::State<LaunchArgs>) -> Option<String> {
-    if let Ok(mut guard) = state.0.lock() {
-        guard.take()
-    } else {
-        None
-    }
-}
-
-#[tauri::command]
-fn cosmo_log(app: AppHandle, msg: String) {
-    if let Ok(mut log_path) = app.path().app_data_dir() {
-        log_path.push("cosmo_activity.log");
-
-        if let Some(parent) = log_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-        let line = format!("[{}] {}\n", timestamp, msg);
-        let _ = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-            .and_then(|mut f| {
-                use std::io::Write;
-                f.write_all(line.as_bytes())
-            });
-    }
-}
-
-#[tauri::command]
-async fn select_folder_cmd(app: AppHandle) -> Result<String, String> {
-    use tauri_plugin_dialog::DialogExt;
-    
-    // Offload the blocking OS dialog to a worker thread to keep the main event loop fluid
-    let folder = app.dialog().file().blocking_pick_folder();
-
-    if let Some(path) = folder {
-        Ok(path.to_string())
-    } else {
-        Err("Cancelled".into())
-    }
-}
-
-#[tauri::command]
-async fn get_folder_videos(path: String, mode: String) -> Result<Vec<serde_json::Value>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut vids = Vec::new();
-        let video_exts = ["mp4", "webm", "mov", "m4v", "3gp", "avi", "mkv", "flv", "wmv"];
-        let image_exts = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff"];
-        
-        let target_exts: Vec<&str> = if mode == "picture" { 
-            image_exts.to_vec() 
-        } else if mode == "video" { 
-            video_exts.to_vec() 
-        } else {
-            video_exts.iter().chain(image_exts.iter()).cloned().collect()
-        };
-
-        fn scan_dir_recursive(dir: &std::path::Path, target_exts: &[&str], vids: &mut Vec<serde_json::Value>) {
-            if let Ok(entries) = fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_dir() {
-                        scan_dir_recursive(&p, target_exts, vids);
-                    } else if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                        if target_exts.contains(&ext.to_lowercase().as_str()) {
-                            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                                vids.push(serde_json::json!({
-                                    "name": name,
-                                    "url": p.to_string_lossy().to_string()
-                                }));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        scan_dir_recursive(std::path::Path::new(&path), &target_exts, &mut vids);
-        Ok(vids)
-    }).await.map_err(|e| e.to_string())?
-}
-
-/// Extracts a single video frame at `timestamp_secs` using FFmpeg and saves it as a PNG.
-/// This is the reliable path for video snapshots — canvas.drawImage() is tainted
-/// when videos are served via the cosmo:// custom protocol in WebView2.
-#[tauri::command]
-async fn snapshot_video_frame(
-    real_path: String,
-    timestamp_secs: f64,
-    file_name: String,
-    custom_dir: Option<String>,
-) -> Result<String, String> {
-    let real_path = real_path.clone();
-    let file_name = file_name.clone();
-    let custom_dir = custom_dir.clone();
-
-    tauri::async_runtime::spawn_blocking(move || {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        let base_path = if let Some(d) = custom_dir {
-            PathBuf::from(d)
-        } else {
-            dirs::picture_dir()
-                .ok_or("No picture dir")?
-                .join("Cosmo_Snapshots")
-        };
-
-        let _ = fs::create_dir_all(&base_path);
-        let out_path = base_path.join(&file_name);
-
-        // Format timestamp as HH:MM:SS.mmm for ffmpeg -ss
-        let total_secs = timestamp_secs as u64;
-        let millis = ((timestamp_secs - total_secs as f64) * 1000.0) as u64;
-        let hh = total_secs / 3600;
-        let mm = (total_secs % 3600) / 60;
-        let ss = total_secs % 60;
-        let ts_str = format!("{:02}:{:02}:{:02}.{:03}", hh, mm, ss, millis);
-
-        let output = Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-ss", &ts_str,
-                "-i", &real_path,
-                "-frames:v", "1",
-                "-q:v", "1",        // highest quality JPEG/PNG
-                "-vf", "scale=iw:ih",  // keep original resolution
-                out_path.to_str().ok_or("Bad output path")?,
-            ])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output()
-            .map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("FFmpeg failed: {}", stderr));
-        }
-
-        if !out_path.exists() {
-            return Err("FFmpeg ran but output frame was not created".to_string());
-        }
-
-        Ok(out_path.to_string_lossy().to_string())
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-fn save_snapshot(
-    base64_data: String,
-    file_name: String,
-    custom_dir: Option<String>,
-) -> Result<String, String> {
-    let data = if base64_data.contains(',') {
-        base64_data.split(',').nth(1).ok_or("Invalid base64")?
-    } else {
-        &base64_data
-    };
-    let bytes = general_purpose::STANDARD
-        .decode(data)
-        .map_err(|e| e.to_string())?;
-
-    let base_path = if let Some(d) = custom_dir {
-        PathBuf::from(d)
-    } else {
-        dirs::picture_dir()
-            .ok_or("No picture dir")?
-            .join("Cosmo_Snapshots")
-    };
-
-    let _ = fs::create_dir_all(&base_path);
-    let full_path = base_path.join(file_name);
-    fs::write(&full_path, bytes).map_err(|e| e.to_string())?;
-    Ok(full_path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-async fn save_persistence(app: AppHandle, key: String, data: String) {
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        if let Ok(mut dir_path) = app.path().app_data_dir() {
-            dir_path.push("persistence");
-            let _ = fs::create_dir_all(&dir_path);
-            
-            let file_path = dir_path.join(format!("{}.json", key));
-            let bak_path = dir_path.join(format!("{}.json.bak", key));
-            let tmp_path = dir_path.join(format!("{}.json.tmp", key));
-
-            let is_json_key = key == "cosmo-v2" || key == "cosmo-video-v2" || key == "cosmo-video" 
-                || key == "cosmo-collections" || key == "cosmo-video-collections";
-            
-            let data_valid = if is_json_key {
-                serde_json::from_str::<serde_json::Value>(&data).is_ok()
-            } else {
-                !data.trim().is_empty()
-            };
-
-            if !data_valid {
-                eprintln!("[Persistence Warning] Attempted to save invalid/empty data for key: {}", key);
-                return;
-            }
-
-            // 1. Create a backup of the existing file if it exists and is valid (not empty and valid JSON if JSON key)
-            if file_path.exists() {
-                if let Ok(existing_content) = fs::read_to_string(&file_path) {
-                    let existing_valid = if is_json_key {
-                        serde_json::from_str::<serde_json::Value>(&existing_content).is_ok()
-                    } else {
-                        !existing_content.trim().is_empty()
-                    };
-                    if existing_valid {
-                        let _ = fs::copy(&file_path, &bak_path);
-                    }
-                }
-            }
-
-            // 2. Write to the temporary file
-            if fs::write(&tmp_path, &data).is_ok() {
-                // 3. Atomically rename/replace the original file with the tmp file
-                let _ = fs::rename(&tmp_path, &file_path);
-            }
-
-            // 4. Mirror collections and main grid (videos) inside user's Documents folder
-            if key == "cosmo-collections" || key == "cosmo-v2" {
-                if let Ok(mut doc_path) = app.path().document_dir() {
-                    doc_path.push("CosmoSymphony");
-                    let _ = fs::create_dir_all(&doc_path);
-                    
-                    let doc_file_path = doc_path.join(format!("{}.json", key));
-                    let doc_tmp_path = doc_path.join(format!("{}.json.tmp", key));
-                    
-                    if fs::write(&doc_tmp_path, &data).is_ok() {
-                        let _ = fs::rename(&doc_tmp_path, &doc_file_path);
-                    }
-                }
-            }
-        }
-    }).await;
-}
-
-#[tauri::command]
-async fn load_persistence(app: AppHandle, key: String) -> Option<String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let is_json_key = key == "cosmo-v2" || key == "cosmo-video-v2" || key == "cosmo-video" 
-            || key == "cosmo-collections" || key == "cosmo-video-collections";
-
-        let is_valid = |content: &str| -> bool {
-            if content.trim().is_empty() {
-                return false;
-            }
-            if is_json_key {
-                serde_json::from_str::<serde_json::Value>(content).is_ok()
-            } else {
-                true
-            }
-        };
-
-        if let Ok(mut dir_path) = app.path().app_data_dir() {
-            dir_path.push("persistence");
-            let file_path = dir_path.join(format!("{}.json", key));
-            let bak_path = dir_path.join(format!("{}.json.bak", key));
-
-            // A. Try reading the primary file
-            if file_path.exists() {
-                if let Ok(content) = fs::read_to_string(&file_path) {
-                    if is_valid(&content) {
-                        return Some(content);
-                    } else {
-                        eprintln!("[Persistence] Primary file for {} is invalid/corrupted.", key);
-                    }
-                }
-            }
-
-            // B. Fallback to the backup file if primary fails
-            if bak_path.exists() {
-                if let Ok(content) = fs::read_to_string(&bak_path) {
-                    if is_valid(&content) {
-                        eprintln!("[Persistence] Recovered {} from AppData backup.", key);
-                        return Some(content);
-                    }
-                }
-            }
-        }
-
-        // C. Fallback to the Documents directory backup
-        if key == "cosmo-collections" || key == "cosmo-v2" {
-            if let Ok(mut doc_path) = app.path().document_dir() {
-                doc_path.push("CosmoSymphony");
-                let doc_file_path = doc_path.join(format!("{}.json", key));
-                if doc_file_path.exists() {
-                    if let Ok(content) = fs::read_to_string(&doc_file_path) {
-                        if is_valid(&content) {
-                            eprintln!("[Persistence] Recovered {} from Documents backup.", key);
-                            return Some(content);
-                        }
-                    }
-                }
-            }
-        }
-
-        None
-    }).await.ok().flatten()
-}
-
-
-#[tauri::command]
-fn open_folder(path: String) {
-    let resolved_path = if path == "default_snapshots" || path.trim().is_empty() {
-        if let Some(pic_dir) = dirs::picture_dir() {
-            let snap_dir = pic_dir.join("Cosmo_Snapshots");
-            let _ = fs::create_dir_all(&snap_dir);
-            snap_dir.to_string_lossy().to_string()
-        } else {
-            path
-        }
-    } else {
-        path
-    };
-
-    // Strip local:// scheme prefix if present (used for cache-busted Tauri asset URLs)
-    let stripped = if resolved_path.starts_with("local://") {
-        resolved_path.trim_start_matches("local://").to_string()
-    } else {
-        resolved_path.clone()
-    };
-
-    // Strip any query string cache-busters like ?t=1747676254321
-    let clean_path = if let Some(idx) = stripped.find('?') {
-        stripped[..idx].to_string()
-    } else {
-        stripped
-    };
-
-    // Normalise slashes to Windows backslashes
-    let normalized_path = clean_path.replace("/", "\\");
-    let p = std::path::Path::new(&normalized_path);
-
-    if !p.exists() {
-        println!("System Error: Path not found -> {}", normalized_path);
-        return;
-    }
-
-    // Call explorer.exe directly — bypasses PowerShell startup lag (~0.5-1s delay)
-    // /select highlights the specific file in its folder; directories open directly
-    if p.is_dir() {
-        let _ = std::process::Command::new("explorer.exe")
-            .arg(&normalized_path)
-            .spawn();
-    } else {
-        let _ = std::process::Command::new("explorer.exe")
-            .arg("/select,")
-            .arg(&normalized_path)
-            .spawn();
-    }
-}
-
-#[tauri::command]
-fn exit_app(app: AppHandle) {
-    app.exit(0);
-}
-
-#[tauri::command]
-async fn recycle_unit(path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        trash::delete(&path).map_err(|e| format!("Failed to recycle: {}", e))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn set_always_on_top(app: AppHandle, flag: bool) {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.set_always_on_top(flag);
-    }
-}
-
-#[tauri::command]
-async fn rename_video(old_path: String, new_name: String) -> Result<String, String> {
-    let old_p = std::path::PathBuf::from(&old_path);
-    if !old_p.exists() {
-        return Err("Source file not found".into());
-    }
-
-    let parent = old_p.parent().ok_or("Invalid parent directory")?;
-    let extension = old_p.extension().and_then(|e| e.to_str()).ok_or("File has no extension")?;
-    
-    // Sanitize new_name to prevent path traversal
-    let sanitized_name = new_name.replace(|c: char| !c.is_alphanumeric() && c != ' ' && c != '_' && c != '-', "");
-    if sanitized_name.is_empty() {
-        return Err("Invalid new name".into());
-    }
-
-    let new_filename = format!("{}.{}", sanitized_name, extension);
-    let new_p = parent.join(new_filename);
-
-    // Canonicalize to compare and ensure we aren't deleting the same file (e.g. case-only change)
-    let canonical_old = std::fs::canonicalize(&old_p).unwrap_or_else(|_| old_p.clone());
-    let canonical_new = std::fs::canonicalize(&new_p).unwrap_or_else(|_| new_p.clone());
-
-    if new_p.exists() && canonical_old != canonical_new {
-        // OVERWRITE PHILOSOPHY: Physically delete the destination file if it already exists
-        let _ = std::fs::remove_file(&new_p);
-    }
-
-    let rename_result = std::fs::rename(&old_p, &new_p);
-    if rename_result.is_err() {
-        // Fallback for cross-filesystem renames, OneDrive, or sync lock errors: Copy and Delete
-        std::fs::copy(&old_p, &new_p).map_err(|e| {
-            format!(
-                "Rename failed and copy fallback failed. Rename error: {:?}. Copy error: {}",
-                rename_result.err(),
-                e
-            )
-        })?;
-        let _ = std::fs::remove_file(&old_p);
-    }
-
-    Ok(new_p.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-async fn pop_out(app: AppHandle, url: String, title: String) {
-    debug_log(&format!("pop_out: Creating window for url={}, title={}", url, title));
-
-    let init_script = format!(
-        "window.__POPOUT_DATA__ = {{ popout: true, url: {} }};",
-        serde_json::to_string(&url).unwrap_or_else(|_| "\"\"".to_string())
-    );
-
-    let label = format!("pop-{}", chrono::Local::now().timestamp_millis());
-
-    // CRITICAL: The main window (tauri.conf.json) sets additionalBrowserArgs.
-    // WebView2 requires ALL windows sharing the same user-data directory to
-    // have identical browser args — otherwise CreateCoreWebView2Controller
-    // returns HRESULT 0x8007139F. Mirror the exact same flags here.
-    let mut builder = WebviewWindowBuilder::new(
-        &app,
-        &label,
-        WebviewUrl::App("index.html".into()),
-    )
-    .initialization_script(&init_script)
-    .title(&title)
-    .inner_size(800.0, 600.0)
-    .resizable(true)
-    .decorations(true)
-    .visible(false)
-    .additional_browser_args("--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --enable-features=SharedArrayBuffer")
-    .devtools(true);
-
-    // Jump to the other monitor if there are multiple monitors
-    if let Ok(monitors) = app.available_monitors() {
-        debug_log(&format!("pop_out: Detected {} available monitors", monitors.len()));
-        if monitors.len() > 1 {
-            if let Some(main_win) = app.get_webview_window("main") {
-                if let Ok(Some(current_monitor)) = main_win.current_monitor() {
-                    if let Some(other_monitor) = monitors.iter().find(|m| m.name() != current_monitor.name()) {
-                        let scale_factor = other_monitor.scale_factor();
-                        let position = other_monitor.position();
-                        let size = other_monitor.size();
-
-                        let monitor_x = position.x as f64 / scale_factor;
-                        let monitor_y = position.y as f64 / scale_factor;
-                        let monitor_w = size.width as f64 / scale_factor;
-                        let monitor_h = size.height as f64 / scale_factor;
-
-                        let x = monitor_x + (monitor_w - 800.0) / 2.0;
-                        let y = monitor_y + (monitor_h - 600.0) / 2.0;
-
-                        debug_log(&format!(
-                            "pop_out: Targeting secondary monitor. x={}, y={}",
-                            x, y
-                        ));
-                        builder = builder.position(x, y);
-                    }
-                }
-            }
-        }
-    }
-
-    match builder.build() {
-        Ok(win) => {
-            debug_log(&format!("pop_out: Window '{}' built OK, showing...", label));
-            // Brief pause to let WebView2 finish internal initialisation
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            let _ = win.show();
-            let _ = win.set_focus();
-            debug_log("pop_out: Window shown successfully");
-        }
-        Err(e) => debug_log(&format!("pop_out: ERROR building window: {:?}", e)),
-    }
-}
-
-#[tauri::command]
-async fn get_video_metadata(app: tauri::AppHandle, path: String) -> Result<serde_json::Value, String> {
-    use tauri::Manager;
-    // Strip local:// scheme prefix if present
-    let stripped = if path.starts_with("local://") {
-        path.trim_start_matches("local://").to_string()
-    } else {
-        path.clone()
-    };
-
-    // Strip any query string cache-busters
-    let clean_path = if let Some(idx) = stripped.find('?') {
-        stripped[..idx].to_string()
-    } else {
-        stripped
-    };
-
-    let p = std::path::PathBuf::from(&clean_path);
-    if !p.exists() {
-        return Err("File not found".into());
-    }
-
-    let metadata = fs::metadata(&p).map_err(|e| e.to_string())?;
-    let bytes = metadata.len() as f64;
-    
-    let size_formatted = if bytes < 1024.0 * 1024.0 {
-        format!("{:.1} KB", bytes / 1024.0)
-    } else {
-        format!("{:.2} MB", bytes / 1024.0 / 1024.0)
-    };
-
-    let extension = p.extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_uppercase();
-
-    // Check upscale history database
-    let mut upscaled_by = None;
-    if let Ok(app_data) = app.path().app_data_dir() {
-        let history_file = app_data.join("upscale_history.json");
-        if let Ok(s) = std::fs::read_to_string(&history_file) {
-            if let Ok(history) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&s) {
-                // Normalize clean_path or clean_path with backslashes
-                let norm_clean = clean_path.replace("/", "\\");
-                if let Some(desc) = history.get(&clean_path).or_else(|| history.get(&norm_clean)) {
-                    upscaled_by = desc.as_str().map(|s| s.to_string());
-                } else if let Ok(abs_path) = std::fs::canonicalize(&p) {
-                    let abs_str = abs_path.to_string_lossy().to_string();
-                    if let Some(desc) = history.get(&abs_str) {
-                        upscaled_by = desc.as_str().map(|s| s.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    // Default fallback check based on filename if not in DB
-    if upscaled_by.is_none() {
-        let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        if file_name.contains("_upscaled") {
-            upscaled_by = Some("Unknown Model (Pre-existing upscale)".to_string());
-        }
-    }
-
-    Ok(serde_json::json!({
-        "size": size_formatted,
-        "format": extension,
-        "path": path,
-        "name": p.file_name().and_then(|s| s.to_str()).unwrap_or("Unknown"),
-        "upscaled_by": upscaled_by
-    }))
-}
-
-fn debug_log(msg: &str) {
-    use std::io::Write;
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("c:\\Users\\louis\\OneDrive\\Documents\\GitHub\\Video\\rotation_debug.log")
-    {
-        let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
-    }
-}
-
-#[tauri::command]
-async fn rotate_media_on_disk(path: String, rotation: i32, is_image: bool) -> Result<String, String> {
-    use std::process::Command;
-    use std::path::Path;
-
-    let log_msg = format!("START rotate_media_on_disk: path={}, rotation={}, is_image={}", path, rotation, is_image);
-    debug_log(&log_msg);
-
-    let path_obj = Path::new(&path);
-    if !path_obj.exists() {
-        let err_msg = format!("File does not exist: {}", path);
-        debug_log(&err_msg);
-        return Err(err_msg);
-    }
-
-    let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
-    let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
-
-    let normalized_rotation = ((rotation % 360) + 360) % 360;
-    debug_log(&format!("normalized_rotation={}", normalized_rotation));
-    if normalized_rotation == 0 {
-        debug_log("Rotation is 0, returning early");
-        return Ok(path);
-    }
-
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    
-    // Create temp file in system temp directory to prevent OneDrive/sync locks
-    let temp_dir = std::env::temp_dir();
-    let temp_file_name = format!("{}_rot_{}.{}", stem, timestamp, ext);
-    let temp_path = temp_dir.join(&temp_file_name);
-    debug_log(&format!("temp_path={:?}", temp_path));
-
-    let mut cmd = Command::new("ffmpeg");
-    cmd.arg("-y");
-
-    if is_image {
-        cmd.arg("-threads").arg("1");
-        // -noautorotate: Prevent ffmpeg from auto-applying EXIF orientation on decode.
-        // This ensures we rotate from the RAW pixel orientation (matching what the app shows
-        // with imageOrientation: none). Without this, ffmpeg would pre-rotate based on EXIF
-        // and our transpose would be applied on top, causing double-rotation.
-        let filter = match normalized_rotation {
-            90 => "transpose=1",
-            180 => "transpose=1,transpose=1",
-            270 => "transpose=2",
-            _ => "transpose=1",
-        };
-        cmd.arg("-noautorotate")
-           .arg("-i")
-           .arg(&path)
-           .arg("-vf")
-           .arg(filter);
-
-        // Strip ALL metadata (including EXIF orientation tag) to prevent
-        // File Explorer from re-applying the old EXIF orientation on top
-        // of our already-rotated pixels.
-        cmd.arg("-map_metadata").arg("-1");
-
-        // Preserve quality for lossy formats
-        if ext == "jpg" || ext == "jpeg" {
-            cmd.arg("-q:v").arg("1");
-        } else if ext == "webp" {
-            cmd.arg("-quality").arg("100");
-        }
-
-        cmd.arg("-update").arg("1");
-
-        cmd.arg(temp_path.to_string_lossy().to_string());
-    } else {
-        // For videos: use stream copy (instant, lossless) with rotation metadata
-        let rotate_val = normalized_rotation.to_string();
-        cmd.arg("-i")
-           .arg(&path)
-           .arg("-c")
-           .arg("copy")
-           .arg("-map_metadata")
-           .arg("0")
-           .arg("-metadata:s:v:0")
-           .arg(format!("rotate={}", rotate_val))
-           .arg(temp_path.to_string_lossy().to_string());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-
-    debug_log(&format!("Running ffmpeg: {:?}", cmd));
-    let output = cmd.output().map_err(|e| {
-        let err_str = format!("Failed to spawn ffmpeg: {}", e);
-        debug_log(&err_str);
-        err_str
-    })?;
-    
-    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
-    debug_log(&format!("ffmpeg exit status: {}", output.status));
-    debug_log(&format!("ffmpeg stdout: {}", stdout_str));
-    debug_log(&format!("ffmpeg stderr: {}", stderr_str));
-
-    if !output.status.success() {
-        if temp_path.exists() {
-            let _ = std::fs::remove_file(&temp_path);
-        }
-        let err_str = format!("FFmpeg failed (exit {}): {}", output.status, stderr_str);
-        debug_log(&err_str);
-        return Err(err_str);
-    }
-
-    if !temp_path.exists() {
-        let err_str = "FFmpeg ran but output file was not created".to_string();
-        debug_log(&err_str);
-        return Err(err_str);
-    }
-
-    // Overwrite the original file by copying from our isolated temp path (avoids rename lock bugs in OneDrive)
-    debug_log(&format!("Copying temp_path {:?} to original path {:?}", temp_path, path));
-    if let Err(e) = std::fs::copy(&temp_path, &path) {
-        let err_str = format!("Failed to overwrite original file: {}", e);
-        debug_log(&err_str);
-        return Err(err_str);
-    }
-    
-    let _ = std::fs::remove_file(&temp_path);
-    debug_log("SUCCESS — file rotated and saved successfully!");
-    Ok(path)
-}
-
-#[tauri::command]
-async fn mirror_media_on_disk(path: String, is_image: bool) -> Result<String, String> {
-    use std::process::Command;
-    use std::path::Path;
-
-    debug_log(&format!("START mirror_media_on_disk: path={}, is_image={}", path, is_image));
-    tauri::async_runtime::spawn_blocking(move || {
-        let path_obj = Path::new(&path);
-        if !path_obj.exists() {
-            return Err("File does not exist".to_string());
-        }
-
-        let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
-        let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
-        let parent = path_obj.parent().ok_or("No parent dir")?;
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        
-        let temp_dir = std::env::temp_dir();
-        let temp_file_name = format!("{}_mir_{}.{}", stem, timestamp, ext);
-        let temp_path = temp_dir.join(&temp_file_name);
-
-        let mut cmd = Command::new("ffmpeg");
-        cmd.arg("-y");
-
-        if is_image {
-            cmd.arg("-threads").arg("1");
-            cmd.arg("-noautorotate")
-               .arg("-i")
-               .arg(&path)
-               .arg("-vf")
-               .arg("hflip")
-               .arg("-map_metadata").arg("-1");
-
-            if ext == "jpg" || ext == "jpeg" {
-                cmd.arg("-q:v").arg("1");
-            } else if ext == "webp" {
-                cmd.arg("-quality").arg("100");
-            }
-
-            cmd.arg("-update").arg("1");
-            cmd.arg(temp_path.to_string_lossy().to_string());
-        } else {
-            cmd.arg("-i")
-               .arg(&path)
-               .arg("-vf")
-               .arg("hflip")
-               .arg("-c:v")
-               .arg("libx264")
-               .arg("-preset")
-               .arg("fast")
-               .arg("-crf")
-               .arg("22")
-               .arg("-c:a")
-               .arg("copy")
-               .arg(temp_path.to_string_lossy().to_string());
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-
-        debug_log(&format!("Running ffmpeg: {:?}", cmd));
-        let output = cmd.output().map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
-
-        if !output.status.success() {
-            if temp_path.exists() {
-                let _ = std::fs::remove_file(&temp_path);
-            }
-            return Err(format!("FFmpeg mirroring failed: {}", String::from_utf8_lossy(&output.stderr)));
-        }
-
-        if !temp_path.exists() {
-            return Err("FFmpeg ran but mirror file was not created".to_string());
-        }
-
-        debug_log(&format!("Copying temp_path {:?} to original path {:?}", temp_path, path));
-        std::fs::copy(&temp_path, &path).map_err(|e| format!("Failed to overwrite original: {}", e))?;
-        let _ = std::fs::remove_file(&temp_path);
-
-        Ok(path)
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn apply_color_adjustments_on_disk(
-    path: String,
-    brightness: f32,
-    contrast: f32,
-    saturation: f32,
-    hue: f32,
-    gamma: f32,
-    final_r: f32,
-    final_g: f32,
-    final_b: f32,
-    alpha: f32,
-    negative: bool,
-    is_image: bool,
-    save_as_copy: bool,
-) -> Result<String, String> {
-    use std::process::Command;
-    use std::path::{Path, PathBuf};
-
-    let log_msg = format!(
-        "START apply_color_adjustments_on_disk: path={}, brightness={}, contrast={}, saturation={}, hue={}, gamma={}, final_r={}, final_g={}, final_b={}, alpha={}, negative={}, is_image={}, save_as_copy={}",
-        path, brightness, contrast, saturation, hue, gamma, final_r, final_g, final_b, alpha, negative, is_image, save_as_copy
-    );
-    debug_log(&log_msg);
-
-    let path_obj = Path::new(&path);
-    if !path_obj.exists() {
-        let err_msg = format!("File does not exist: {}", path);
-        debug_log(&err_msg);
-        return Err(err_msg);
-    }
-
-    let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
-    let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
-    let parent = path_obj.parent().ok_or("No parent dir")?;
-
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    
-    let temp_dir = std::env::temp_dir();
-    let temp_file_name = format!("{}_adj_{}.{}", stem, timestamp, ext);
-    let temp_path = temp_dir.join(&temp_file_name);
-    debug_log(&format!("temp_path={:?}", temp_path));
-
-    let filter_str = format!(
-        "lutrgb=r='clip(val*{},0,255)':g='clip(val*{},0,255)':b='clip(val*{},0,255)',eq=contrast={}:saturation={}:gamma={},hue=h={}{}",
-        final_r * brightness * alpha,
-        final_g * brightness * alpha,
-        final_b * brightness * alpha,
-        contrast,
-        saturation,
-        gamma,
-        hue,
-        if negative { ",negate" } else { "" }
-    );
-    debug_log(&format!("filter_str={}", filter_str));
-
-    let mut cmd = Command::new("ffmpeg");
-    cmd.arg("-y");
-
-    if is_image {
-        cmd.arg("-threads")
-           .arg("1")
-           .arg("-noautorotate")
-           .arg("-i")
-           .arg(&path)
-           .arg("-vf")
-           .arg(&filter_str)
-           .arg("-map_metadata")
-           .arg("-1");
-
-        if ext == "jpg" || ext == "jpeg" {
-            cmd.arg("-q:v").arg("1");
-        } else if ext == "webp" {
-            cmd.arg("-quality").arg("100");
-        }
-        cmd.arg("-update").arg("1");
-        cmd.arg(temp_path.to_string_lossy().to_string());
-    } else {
-        cmd.arg("-i")
-           .arg(&path)
-           .arg("-vf")
-           .arg(&filter_str)
-           .arg("-c:v")
-           .arg("libx264")
-           .arg("-preset")
-           .arg("fast")
-           .arg("-crf")
-           .arg("22")
-           .arg("-c:a")
-           .arg("copy")
-           .arg(temp_path.to_string_lossy().to_string());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-
-    debug_log(&format!("Running ffmpeg: {:?}", cmd));
-    let output = cmd.output().map_err(|e| {
-        let err_str = format!("Failed to spawn ffmpeg: {}", e);
-        debug_log(&err_str);
-        err_str
-    })?;
-    
-    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
-    debug_log(&format!("ffmpeg exit status: {}", output.status));
-    debug_log(&format!("ffmpeg stdout: {}", stdout_str));
-    debug_log(&format!("ffmpeg stderr: {}", stderr_str));
-
-    if !output.status.success() {
-        if temp_path.exists() {
-            let _ = std::fs::remove_file(&temp_path);
-        }
-        let err_str = format!("FFmpeg failed (exit {}): {}", output.status, stderr_str);
-        debug_log(&err_str);
-        return Err(err_str);
-    }
-
-    if !temp_path.exists() {
-        let err_str = "FFmpeg ran but output file was not created".to_string();
-        debug_log(&err_str);
-        return Err(err_str);
-    }
-
-    let target_path = if save_as_copy {
-        let mut index = 0;
-        let mut check_path = parent.join(format!("{}_adjusted.{}", stem, ext));
-        while check_path.exists() {
-            index += 1;
-            check_path = parent.join(format!("{}_adjusted.{}.{}", stem, index, ext));
-        }
-        check_path
-    } else {
-        PathBuf::from(&path)
-    };
-
-    debug_log(&format!("Copying temp_path {:?} to target path {:?}", temp_path, target_path));
-    if let Err(e) = std::fs::copy(&temp_path, &target_path) {
-        let _ = std::fs::remove_file(&temp_path);
-        let err_str = format!("Failed to write to destination: {}", e);
-        debug_log(&err_str);
-        return Err(err_str);
-    }
-    
-    let _ = std::fs::remove_file(&temp_path);
-    debug_log("SUCCESS — file adjustments applied and saved!");
-    Ok(target_path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn get_drag_icon_path() -> Result<String, String> {
-    let temp_dir = std::env::temp_dir();
-    let icon_path = temp_dir.join("cosmo_drag_icon.png");
-    if !icon_path.exists() {
-        let bytes = include_bytes!("../icons/32x32.png");
-        if let Err(e) = std::fs::write(&icon_path, bytes) {
-            return Err(e.to_string());
-        }
-    }
-    Ok(icon_path.to_string_lossy().to_string())
-}
-
-fn resolve_enhancer_command(app: Option<&tauri::AppHandle>) -> Result<(std::path::PathBuf, Vec<String>), String> {
-    use std::path::PathBuf;
-    use tauri::Manager;
-    
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-
-    // Try to resolve the Python script in the Tauri resources folder
-    let resource_py = app.and_then(|a| {
-        a.path().resource_dir().ok().map(|d| d.join("resources").join("cosmo_enhance.py")).filter(|p| p.exists())
-    });
-
-    let local_exe = exe_dir.as_ref()
-        .map(|d| d.join("cosmo_enhance.exe"))
-        .filter(|p| p.exists());
-
-    let local_py = resource_py.or_else(|| {
-        exe_dir.as_ref()
-            .map(|d| d.join("cosmo_enhance.py"))
-            .filter(|p| p.exists())
-    }).or_else(|| {
-        std::env::current_dir()
-            .ok()
-            .map(|d| d.join("cosmo_enhance.py"))
-            .filter(|p| p.exists())
-    }).or_else(|| {
-        std::env::current_dir()
-            .ok()
-            .and_then(|d| d.parent().map(|p| p.join("cosmo_enhance.py")))
-            .filter(|p| p.exists())
-    });
-
-    // 0. HIGHEST PRIORITY: Check cosmo_venv installed by the first-run setup wizard (MSIX-friendly)
-    let cosmo_venv_python = app.and_then(|a| {
-        a.path().app_data_dir().ok().map(|d| d.join("cosmo_venv").join("Scripts").join("python.exe"))
-    }).filter(|p| p.exists());
-
-    // 1. Search for sibling CosmoStudio's virtual environment python (fully loaded with PyTorch, CUDA, etc.)
-    let mut studio_venv_python = None;
-    if let Ok(current_dir) = std::env::current_dir() {
-        let mut check_dir = Some(current_dir.as_path());
-        while let Some(dir) = check_dir {
-            let sibling_studio = dir.join("CosmoStudio");
-            let venv_py = sibling_studio.join(".venv").join("Scripts").join("python.exe");
-            if venv_py.exists() {
-                studio_venv_python = Some(venv_py);
-                break;
-            }
-            check_dir = dir.parent();
-        }
-    }
-
-    // Search common Python install locations
-    let app_data =
-        std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join("AppData").join("Local"));
-    let program_files =
-        std::env::var_os("ProgramFiles")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
-
-    let common_python_paths: Vec<PathBuf> = vec![
-        app_data.join("Programs").join("Python").join("Python312").join("python.exe"),
-        app_data.join("Programs").join("Python").join("Python311").join("python.exe"),
-        program_files.join("Python312").join("python.exe"),
-        program_files.join("Python311").join("python.exe"),
-        program_files.join("Python310").join("python.exe"),
-        PathBuf::from(r"C:\Python312\python.exe"),
-        PathBuf::from(r"C:\Python311\python.exe"),
-        PathBuf::from(r"C:\Python310\python.exe"),
-    ];
-
-    let system_python = cosmo_venv_python
-        .or(studio_venv_python)
-        .or_else(|| common_python_paths.iter().find(|p| p.exists()).cloned());
-
-    if let Some(exe) = local_exe {
-        Ok((exe, vec![]))
-    } else if let Some(py_script) = local_py {
-        let python_exe = system_python.unwrap_or_else(|| PathBuf::from("python"));
-        Ok((python_exe, vec!["-u".to_string(), py_script.to_string_lossy().to_string()]))
-    } else if let Some(py_exe) = system_python {
-        let script = exe_dir.as_ref()
-            .and_then(|d| {
-                let s = d.join("cosmo_enhance.py");
-                if s.exists() { Some(s) } else { None }
-            })
-            .or_else(|| {
-                std::env::current_dir()
-                    .ok()
-                    .map(|d| d.join("cosmo_enhance.py"))
-                    .filter(|p| p.exists())
-            })
-            .or_else(|| {
-                std::env::current_dir()
-                    .ok()
-                    .and_then(|d| d.parent().map(|p| p.join("cosmo_enhance.py")))
-                    .filter(|p| p.exists())
-            })
-            .ok_or("cosmo_enhance.py not found in project root or system search directories")?;
-        Ok((py_exe, vec!["-u".to_string(), script.to_string_lossy().to_string()]))
-    } else {
-        Err("No Python found — install Python or place cosmo_enhance.exe in the application directory".into())
-    }
-}
-
-/// Compute the best models directory path and return it for passing as env var.
-fn resolve_models_dir(app: Option<&tauri::AppHandle>) -> Option<String> {
-    use tauri::Manager;
-    // 1. Check app data dir (MSIX-friendly, user-writable)
-    if let Some(app) = app {
-        if let Ok(mut app_data) = app.path().app_data_dir() {
-            app_data.push(".cosmo_models");
-            if app_data.join("RealESRGAN_x4plus.pth").exists() {
-                return Some(app_data.to_string_lossy().to_string());
-            }
-        }
-    }
-    // 2. Check relative to the exe (covers the project root for dev builds)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            // Walk up from exe dir looking for .cosmo_models
-            let mut dir = Some(exe_dir);
-            while let Some(d) = dir {
-                let candidate = d.join(".cosmo_models");
-                if candidate.join("RealESRGAN_x4plus.pth").exists() {
-                    return Some(candidate.to_string_lossy().to_string());
-                }
-                dir = d.parent();
-            }
-        }
-    }
-    // 3. Check APPDATA and USERPROFILE
-    if let Some(appdata) = std::env::var_os("APPDATA") {
-        let p = std::path::PathBuf::from(appdata).join("com.cosmo.symphony").join(".cosmo_models");
-        if p.join("RealESRGAN_x4plus.pth").exists() {
-            return Some(p.to_string_lossy().to_string());
-        }
-    }
-    if let Some(home) = std::env::var_os("USERPROFILE") {
-        let p = std::path::PathBuf::from(home).join(".cosmo_models");
-        if p.join("RealESRGAN_x4plus.pth").exists() {
-            return Some(p.to_string_lossy().to_string());
-        }
-    }
-    None
-}
-
-fn spawn_enhancement_server(app: Option<&tauri::AppHandle>) -> Result<(), String> {
-    use std::process::Command;
-    
-    let (runner, args) = resolve_enhancer_command(app)?;
-    
-    let mut cmd = Command::new(&runner);
-    cmd.args(&args);
-    
-    // Pass the models directory so the Python script can find the weights
-    if let Some(models_dir) = resolve_models_dir(app) {
-        cmd.env("COSMO_MODELS_DIR", &models_dir);
-        println!("Passing COSMO_MODELS_DIR={} to enhancement server", models_dir);
-    }
-
-    // Set writable current directory so Python libraries don't fail trying to create dirs/files in system folders
-    if let Some(app) = app {
-        if let Ok(app_data) = app.path().app_data_dir() {
-            let _ = std::fs::create_dir_all(&app_data);
-            cmd.current_dir(&app_data);
-        }
-    }
-    
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    
-    cmd.spawn().map_err(|e| format!("Failed to spawn AI enhancement server: {}", e))?;
-    Ok(())
-}
-
-
-fn register_upscale_history(app: &tauri::AppHandle, file_path: &str, used_ai: bool) {
-    use tauri::Manager;
-    if let Ok(app_data) = app.path().app_data_dir() {
-        let history_file = app_data.join("upscale_history.json");
-        let mut history: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&history_file)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-
-        let model_desc = if used_ai {
-            "Real-ESRGAN x4plus + GFPGAN v1.4 (GPU)"
-        } else {
-            "Bilateral Filter + INTER_CUBIC (CPU Fallback)"
-        };
-
-        history.insert(file_path.to_string(), serde_json::Value::String(model_desc.to_string()));
-
-        if let Ok(s) = serde_json::to_string_pretty(&history) {
-            let _ = std::fs::create_dir_all(&app_data);
-            let _ = std::fs::write(history_file, s);
-        }
-    }
-}
-
-#[tauri::command]
-async fn extract_subject_on_disk(app: tauri::AppHandle, path: String) -> Result<String, String> {
-    use std::path::Path;
-    use std::io::{Write, Read};
-    use std::net::TcpStream;
-
-    let p = Path::new(&path);
-    if !p.exists() {
-        return Err("File does not exist".into());
-    }
-
-    // Connect or auto-spawn the HTTP server on port 12000 first
-    let mut stream_connected = TcpStream::connect("127.0.0.1:12000").is_ok();
-    
-    if !stream_connected {
-        println!("AI enhancer server offline. Spawning background server...");
-        if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            // Wait for it to boot (up to 15 seconds)
-            for _ in 0..30 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if TcpStream::connect("127.0.0.1:12000").is_ok() {
-                    stream_connected = true;
-                    println!("AI Enhancement Server booted and connected on port 12000 for cutout!");
-                    break;
-                }
-            }
-        }
-    }
-
-    if !stream_connected {
-        return Err("AI Enhancement Server is offline and could not be started automatically. Please verify local Python dependencies.".into());
-    }
-
-    let mut server_success = false;
-    let mut sticker_path = String::new();
-
-    if let Ok(mut stream) = TcpStream::connect("127.0.0.1:12000") {
-        let json_payload = serde_json::json!({
-            "path": path
-        }).to_string();
-
-        let request = format!(
-            "POST /remove_background HTTP/1.1\r\n\
-             Host: 127.0.0.1:12000\r\n\
-             Content-Type: application/json\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\r\n\
-             {}",
-            json_payload.len(),
-            json_payload
-        );
-
-        if stream.write_all(request.as_bytes()).is_ok() {
-            let mut response = Vec::new();
-            if stream.read_to_end(&mut response).is_ok() {
-                let response_str = String::from_utf8_lossy(&response);
-                if let Some(pos) = response_str.find("\r\n\r\n") {
-                    let body = &response_str[pos + 4..];
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body) {
-                        if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
-                            if let Some(out_p) = parsed.get("path").and_then(|v| v.as_str()) {
-                                sticker_path = out_p.to_string();
-                                server_success = true;
-                            }
-                        } else if let Some(err_msg) = parsed.get("error").and_then(|e| e.as_str()) {
-                            return Err(format!("Background removal server error: {}", err_msg));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if server_success && !sticker_path.is_empty() {
-        Ok(sticker_path)
-    } else {
-        Err("Failed to process background removal. Make sure 'rembg' Python library is fully installed.".into())
-    }
-}
-
-#[tauri::command]
-async fn upscale_image(app: tauri::AppHandle, path: String, overwrite: bool) -> Result<String, String> {
-    use std::process::Command;
-    use std::path::Path;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let p = Path::new(&path);
-    if !p.exists() {
-        return Err("File does not exist".into());
-    }
-
-    let ext = p.extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("png")
-        .to_lowercase();
-    let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
-        return Err("Invalid file name".into());
-    };
-
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-
-    // Output: temp folder if overwrite, otherwise new _upscaled file in same directory
-    let output_path = if overwrite {
-        let temp_dir = std::env::temp_dir();
-        let temp_file_name = format!("{}_upscale_temp_{}.{}", stem, timestamp, ext);
-        temp_dir.join(&temp_file_name)
-    } else {
-        let parent = p.parent().unwrap_or_else(|| Path::new("."));
-        let mut final_path = parent.join(format!("{}_upscaled.{}", stem, ext));
-        let mut index = 1;
-        while final_path.exists() {
-            final_path = parent.join(format!("{}_upscaled.{}.{}", stem, index, ext));
-            index += 1;
-        }
-        final_path
-    };
-
-    let out_str = output_path.to_string_lossy().to_string();
-
-    // Connect or auto-spawn the HTTP server on port 12000 first (zero contention, instant, 5080 speed!)
-    let mut stream_connected = std::net::TcpStream::connect("127.0.0.1:12000").is_ok();
-    
-    if !stream_connected {
-        println!("AI enhancer server offline. Spawning background server...");
-        if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            // Wait for it to boot and warm-load the models (typically 4-8 seconds on first boot)
-            for _ in 0..30 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if std::net::TcpStream::connect("127.0.0.1:12000").is_ok() {
-                    stream_connected = true;
-                    println!("AI Enhancement Server booted and connected on port 12000!");
-                    break;
-                }
-            }
-        }
-    }
-
-    let mut server_success = false;
-    let mut server_used_ai = false;
-
-    if stream_connected {
-        if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
-            use std::io::{Write, Read};
-            let json_payload = serde_json::json!({
-                "path": path,
-                "output_path": out_str,
-                "fidelity": 0.5
-            }).to_string();
-
-            let request = format!(
-                "POST /enhance HTTP/1.1\r\n\
-                 Host: 127.0.0.1:12000\r\n\
-                 Content-Type: application/json\r\n\
-                 Content-Length: {}\r\n\
-                 Connection: close\r\n\r\n\
-                 {}",
-                json_payload.len(),
-                json_payload
-            );
-
-            if stream.write_all(request.as_bytes()).is_ok() {
-                let mut response = Vec::new();
-                if stream.read_to_end(&mut response).is_ok() {
-                    let response_str = String::from_utf8_lossy(&response);
-                    if let Some(pos) = response_str.find("\r\n\r\n") {
-                        let body = &response_str[pos + 4..];
-                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body) {
-                            if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
-                                let used_ai = parsed.get("used_ai").and_then(|v| v.as_bool()).unwrap_or(false);
-                                if !used_ai {
-                                    println!("WARNING: Upscale completed but AI models were NOT loaded — fallback resize was used.");
-                                }
-                                server_success = true;
-                                server_used_ai = used_ai;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if server_success {
-        // Prefix the result path with [FALLBACK] if AI wasn't used, so the frontend can warn
-        let prefix = if !server_used_ai { "[FALLBACK]" } else { "" };
-        let final_saved_path = if overwrite {
-            if let Err(e) = std::fs::copy(&output_path, &p) {
-                let _ = std::fs::remove_file(&output_path);
-                return Err(format!("Failed to overwrite original file: {}", e));
-            }
-            let _ = std::fs::remove_file(&output_path);
-            path.clone()
-        } else {
-            out_str.clone()
-        };
-
-        // Register in upscale history database
-        register_upscale_history(&app, &final_saved_path, server_used_ai);
-
-        return Ok(format!("{}{}", prefix, final_saved_path));
-    }
-
-    // Fallback: Resolve the script/binary and run in CLI mode
-    println!("HTTP server upscale failed or server couldn't start. Falling back to CLI mode...");
-    let (runner, mut args) = resolve_enhancer_command(Some(&app))?;
-    
-    // For CLI mode we append input path and output path
-    args.push(path.clone());
-    args.push(output_path.to_string_lossy().to_string());
-
-    let mut cmd = Command::new(&runner);
-    cmd.args(&args);
-
-    // Set writable current directory so Python libraries don't fail trying to create dirs/files in system folders
-    if let Ok(app_data) = app.path().app_data_dir() {
-        let _ = std::fs::create_dir_all(&app_data);
-        cmd.current_dir(&app_data);
-    }
-
-    // Pass models directory to the CLI process
-    if let Some(models_dir) = resolve_models_dir(Some(&app)) {
-        cmd.env("COSMO_MODELS_DIR", &models_dir);
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-
-    let log_file = app.path().app_data_dir()
-        .ok()
-        .map(|mut d| { d.push("upscale.log"); d });
-
-    let output = cmd.output().map_err(|e| format!("Failed to start upscaler: {}", e))?;
-
-    if let Some(ref log_path) = log_file {
-        if let Some(parent) = log_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-            .and_then(|mut f| {
-                use std::io::Write;
-                let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-                writeln!(f, "[{}] exit={} stdout={} stderr={}",
-                    t,
-                    output.status.code().unwrap_or(-1),
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                )
-            });
-    }
-
-    if !output.status.success() {
-        if overwrite && output_path.exists() {
-            let _ = std::fs::remove_file(&output_path);
-        }
-        return Err(format!(
-            "Upscale failed (exit {:?}): {}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let cli_used_ai = stdout_str.contains("[USED_AI=True]") || stdout_str.contains("[USED_AI=true]");
-
-    let final_saved_path = if overwrite {
-        if let Err(e) = std::fs::copy(&output_path, &p) {
-            let _ = std::fs::remove_file(&output_path);
-            return Err(format!("Failed to overwrite original file: {}", e));
-        }
-        let _ = std::fs::remove_file(&output_path);
-        path.clone()
-    } else {
-        output_path.to_string_lossy().to_string()
-    };
-
-    // Register in upscale history database
-    register_upscale_history(&app, &final_saved_path, cli_used_ai);
-
-    let prefix = if !cli_used_ai { "[FALLBACK]" } else { "" };
-    Ok(format!("{}{}", prefix, final_saved_path))
-}
-
-#[tauri::command]
-fn enhance_image_crop(app: tauri::AppHandle, base64_data: String) -> Result<String, String> {
-    use std::io::{Write, Read};
-    use std::net::TcpStream;
-
-    let mut stream_connected = TcpStream::connect("127.0.0.1:12000").is_ok();
-    
-    if !stream_connected {
-        println!("AI crop enhancement requested but server is offline. Spawning background server...");
-        if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            // Wait for it to boot and warm-load the models
-            for _ in 0..30 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if TcpStream::connect("127.0.0.1:12000").is_ok() {
-                    stream_connected = true;
-                    println!("AI Enhancement Server booted and connected on port 12000 for crop upscale!");
-                    break;
-                }
-            }
-        }
-    }
-    
-    if !stream_connected {
-        return Err("Connection to local AI enhancer failed. Make sure Python is installed and the models are available.".into());
-    }
-
-    let mut stream = TcpStream::connect("127.0.0.1:12000").map_err(|e| format!("Connection to local AI enhancer failed: {}", e))?;
-    
-    let json_payload = serde_json::json!({
-        "image": base64_data,
-        "fidelity": 0.5
-    }).to_string();
-    
-    let request = format!(
-        "POST /enhance HTTP/1.1\r\n\
-         Host: 127.0.0.1:12000\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\r\n\
-         {}",
-        json_payload.len(),
-        json_payload
-    );
-    
-    stream.write_all(request.as_bytes()).map_err(|e| format!("Failed to send data to AI enhancer: {}", e))?;
-    
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).map_err(|e| format!("Failed to read response from AI enhancer: {}", e))?;
-    
-    let response_str = String::from_utf8_lossy(&response);
-    
-    // Find the end of HTTP headers (\r\n\r\n)
-    if let Some(pos) = response_str.find("\r\n\r\n") {
-        let body = &response_str[pos + 4..];
-        
-        // Parse JSON body
-        let parsed: serde_json::Value = serde_json::from_str(body).map_err(|e| format!("Upscaling server returned invalid JSON: {}", e))?;
-        if let Some(err) = parsed.get("error") {
-            return Err(err.as_str().unwrap_or("Unknown server error").to_string());
-        }
-        
-        if let Some(img) = parsed.get("image") {
-            if let Some(img_str) = img.as_str() {
-                return Ok(img_str.to_string());
-            }
-        }
-        
-        Err("Upscaling server returned invalid response format".to_string())
-    } else {
-        Err("Upscaling server returned invalid HTTP response".to_string())
-    }
-}
-
-
-#[tauri::command]
-async fn auto_erase_watermark(
-    app: tauri::AppHandle,
-    path: String,
-    rect_x: f64,
-    rect_y: f64,
-    rect_w: f64,
-    rect_h: f64,
-    width_disp: f64,
-    height_disp: f64,
-) -> Result<String, String> {
-    use std::io::{Write, Read};
-    use std::net::TcpStream;
-
-    let mut stream_connected = TcpStream::connect("127.0.0.1:12000").is_ok();
-    
-    if !stream_connected {
-        println!("Watermark auto-eraser requested but server is offline. Spawning background server...");
-        if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            // Wait for it to boot and warm-load the models
-            for _ in 0..30 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if TcpStream::connect("127.0.0.1:12000").is_ok() {
-                    stream_connected = true;
-                    println!("AI Enhancement Server booted and connected on port 12000 for watermark eraser!");
-                    break;
-                }
-            }
-        }
-    }
-    
-    if !stream_connected {
-        return Err("Connection to local AI server failed. Make sure Python is installed and the models are available.".into());
-    }
-
-    let mut stream = TcpStream::connect("127.0.0.1:12000").map_err(|e| format!("Connection to local AI enhancer failed: {}", e))?;
-    
-    let json_payload = serde_json::json!({
-        "path": path,
-        "rect_x": rect_x,
-        "rect_y": rect_y,
-        "rect_w": rect_w,
-        "rect_h": rect_h,
-        "width_disp": width_disp,
-        "height_disp": height_disp
-    }).to_string();
-    
-    let request = format!(
-        "POST /inpaint HTTP/1.1\r\n\
-         Host: 127.0.0.1:12000\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\r\n\
-         {}",
-        json_payload.len(),
-        json_payload
-    );
-    
-    stream.write_all(request.as_bytes()).map_err(|e| format!("Failed to send data to AI enhancer: {}", e))?;
-    
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).map_err(|e| format!("Failed to read response from AI enhancer: {}", e))?;
-    
-    let response_str = String::from_utf8_lossy(&response);
-    
-    // Find the end of HTTP headers (\r\n\r\n)
-    if let Some(pos) = response_str.find("\r\n\r\n") {
-        let body = &response_str[pos + 4..];
-        
-        // Parse JSON body
-        let parsed: serde_json::Value = serde_json::from_str(body).map_err(|e| format!("Inpainting server returned invalid JSON: {}", e))?;
-        if let Some(err) = parsed.get("error") {
-            return Err(err.as_str().unwrap_or("Unknown server error").to_string());
-        }
-        
-        if let Some(img) = parsed.get("image") {
-            if let Some(img_str) = img.as_str() {
-                return Ok(img_str.to_string());
-            }
-        }
-        
-        Err("Inpainting server returned invalid response format".to_string())
-    } else {
-        Err("Inpainting server returned invalid HTTP response".to_string())
-    }
-}
-
-#[tauri::command]
-async fn save_inpainted_image(path: String, base64_data: String) -> Result<(), String> {
-    use std::fs::File;
-    use std::io::Write;
-    
-    // Decode base64 string
-    let decoded = general_purpose::STANDARD
-        .decode(base64_data.trim())
-        .map_err(|e| format!("Failed to decode base64 data: {}", e))?;
-        
-    // Overwrite the original file
-    let mut file = File::create(&path).map_err(|e| format!("Failed to open file for writing: {}", e))?;
-    file.write_all(&decoded).map_err(|e| format!("Failed to write decoded bytes to disk: {}", e))?;
-    
-    Ok(())
-}
-
-#[tauri::command]
-async fn get_subdirectories(dir_path: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let path = std::path::Path::new(&dir_path);
-        if !path.exists() || !path.is_dir() {
-            return Err("Directory does not exist".to_string());
-        }
-        let mut subdirs = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(path) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_dir() {
-                    if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                        subdirs.push(name.to_string());
-                    }
-                }
-            }
-        }
-        subdirs.sort();
-        Ok(subdirs)
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn create_new_folder(parent_dir: String, folder_name: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let parent_path = std::path::Path::new(&parent_dir);
-        if !parent_path.exists() || !parent_path.is_dir() {
-            return Err("Parent directory does not exist".to_string());
-        }
-        let sanitized = folder_name.replace(|c: char| !c.is_alphanumeric() && c != ' ' && c != '_' && c != '-', "");
-        if sanitized.trim().is_empty() {
-            return Err("Invalid folder name".to_string());
-        }
-        let new_folder_path = parent_path.join(&sanitized);
-        std::fs::create_dir_all(&new_folder_path).map_err(|e| format!("Failed to create folder: {}", e))?;
-        Ok(new_folder_path.to_string_lossy().to_string())
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn move_file_on_disk(src_path: String, dest_dir: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let src = std::path::Path::new(&src_path);
-        let dest_folder = std::path::Path::new(&dest_dir);
-        if !src.exists() {
-            return Err("Source file does not exist".to_string());
-        }
-        if !dest_folder.exists() || !dest_folder.is_dir() {
-            return Err("Destination folder does not exist".to_string());
-        }
-        let file_name = src.file_name().ok_or("Invalid source filename")?;
-        let dest_path = dest_folder.join(file_name);
-        
-        if dest_path.exists() {
-            return Err("File already exists in destination folder".to_string());
-        }
-
-        let rename_result = std::fs::rename(src, &dest_path);
-        if rename_result.is_err() {
-            std::fs::copy(src, &dest_path).map_err(|e| format!("Copy fallback failed: {}", e))?;
-            std::fs::remove_file(src).map_err(|e| format!("Remove source failed: {}", e))?;
-        }
-        Ok(dest_path.to_string_lossy().to_string())
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn copy_file_on_disk(src_path: String, dest_dir: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let src = std::path::Path::new(&src_path);
-        let dest_folder = std::path::Path::new(&dest_dir);
-        if !src.exists() {
-            return Err("Source file does not exist".to_string());
-        }
-        if !dest_folder.exists() || !dest_folder.is_dir() {
-            return Err("Destination folder does not exist".to_string());
-        }
-        let file_name = src.file_name().ok_or("Invalid source filename")?;
-        let dest_path = dest_folder.join(file_name);
-        
-        if dest_path.exists() {
-            return Err("File already exists in destination folder".to_string());
-        }
-
-        std::fs::copy(src, &dest_path).map_err(|e| format!("Copy failed: {}", e))?;
-        Ok(dest_path.to_string_lossy().to_string())
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-/// Crops an image on disk using FFmpeg, preserving the original format and compression.
-/// crop_x, crop_y, crop_w, crop_h are expressed as percentages (0.0–100.0) of the image dimensions.
-/// If overwrite is false, the file is saved with a _crop_001 suffix next to the original.
-async fn crop_image_on_disk(
-    path: String,
-    crop_x: f64,
-    crop_y: f64,
-    crop_w: f64,
-    crop_h: f64,
-    overwrite: bool,
-) -> Result<String, String> {
-    use std::process::Command;
-    use std::path::Path;
-
-    debug_log(&format!(
-        "START crop_image_on_disk: path={}, crop_x={}, crop_y={}, crop_w={}, crop_h={}, overwrite={}",
-        path, crop_x, crop_y, crop_w, crop_h, overwrite
-    ));
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let path_obj = Path::new(&path);
-        if !path_obj.exists() {
-            return Err("File does not exist".to_string());
-        }
-
-        let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
-        let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
-        let parent = path_obj.parent().ok_or("No parent dir")?;
-
-        // Use ffprobe to get image dimensions
-        let mut probe_cmd = Command::new("ffprobe");
-        probe_cmd
-            .args(["-v", "error", "-select_streams", "v:0",
-                   "-show_entries", "stream=width,height",
-                   "-of", "csv=s=x:p=0", &path]);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            probe_cmd.creation_flags(0x08000000);
-        }
-        let probe_out = probe_cmd.output().map_err(|e| format!("ffprobe failed: {}", e))?;
-        let dims_str = String::from_utf8_lossy(&probe_out.stdout).trim().to_string();
-        let parts: Vec<&str> = dims_str.split('x').collect();
-        if parts.len() != 2 {
-            return Err(format!("Could not parse image dimensions from ffprobe: '{}'", dims_str));
-        }
-        let img_w: f64 = parts[0].trim().parse().map_err(|_| format!("Bad width: {}", parts[0]))?;
-        let img_h: f64 = parts[1].trim().parse().map_err(|_| format!("Bad height: {}", parts[1]))?;
-
-        let px_x = ((crop_x / 100.0) * img_w).round() as u64;
-        let px_y = ((crop_y / 100.0) * img_h).round() as u64;
-        let px_w = ((crop_w / 100.0) * img_w).round() as u64;
-        let px_h = ((crop_h / 100.0) * img_h).round() as u64;
-
-        if px_w == 0 || px_h == 0 {
-            return Err("Crop dimensions are zero".to_string());
-        }
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-
-        let temp_dir = std::env::temp_dir();
-        let temp_file_name = format!("{}_crop_{}.{}", stem, timestamp, ext);
-        let temp_path = temp_dir.join(&temp_file_name);
-
-        let crop_filter = format!("crop={}:{}:{}:{}", px_w, px_h, px_x, px_y);
-
-        let mut cmd = Command::new("ffmpeg");
-        cmd.arg("-y")
-           .arg("-threads").arg("1")
-           .arg("-noautorotate")
-           .arg("-i").arg(&path)
-           .arg("-vf").arg(&crop_filter)
-           .arg("-map_metadata").arg("-1");
-
-        // Preserve quality for common formats
-        if ext == "jpg" || ext == "jpeg" {
-            cmd.arg("-q:v").arg("1");
-        } else if ext == "webp" {
-            cmd.arg("-quality").arg("100");
-        }
-
-        cmd.arg("-update").arg("1");
-        cmd.arg(temp_path.to_string_lossy().to_string());
-
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-
-        debug_log(&format!("Running ffmpeg crop: {:?}", cmd));
-        let output = cmd.output().map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
-        let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
-        debug_log(&format!("ffmpeg crop exit: {}, stderr: {}", output.status, stderr_str));
-
-        if !output.status.success() {
-            if temp_path.exists() { let _ = std::fs::remove_file(&temp_path); }
-            return Err(format!("FFmpeg crop failed: {}", stderr_str));
-        }
-        if !temp_path.exists() {
-            return Err("FFmpeg ran but crop file was not created".to_string());
-        }
-
-        let target_path = if overwrite {
-            std::path::PathBuf::from(&path)
-        } else {
-            // Find an unused _crop_001, _crop_002 … name
-            let mut index = 1u32;
-            let mut candidate = parent.join(format!("{}_crop_{:03}.{}", stem, index, ext));
-            while candidate.exists() {
-                index += 1;
-                candidate = parent.join(format!("{}_crop_{:03}.{}", stem, index, ext));
-            }
-            candidate
-        };
-
-        std::fs::copy(&temp_path, &target_path)
-            .map_err(|e| format!("Failed to write crop to destination: {}", e))?;
-        let _ = std::fs::remove_file(&temp_path);
-
-        debug_log(&format!("Crop saved to: {:?}", target_path));
-        Ok(target_path.to_string_lossy().to_string())
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn duplicate_file_on_disk(src_path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let src = std::path::Path::new(&src_path);
-        if !src.exists() {
-            return Err("Source file does not exist".to_string());
-        }
-        let parent = src.parent().ok_or("Invalid parent directory")?;
-        let file_stem = src.file_stem().ok_or("Invalid file stem")?.to_string_lossy().to_string();
-        let ext = src.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
-        
-        let ext_str = if ext.is_empty() {
-            "".to_string()
-        } else {
-            format!(".{}", ext)
-        };
-        
-        let mut index = 1;
-        let mut target_path = parent.join(format!("{}_{:03}{}", file_stem, index, ext_str));
-        while target_path.exists() {
-            index += 1;
-            target_path = parent.join(format!("{}_{:03}{}", file_stem, index, ext_str));
-        }
-
-        std::fs::copy(src, &target_path).map_err(|e| format!("Duplicate copy failed: {}", e))?;
-        Ok(target_path.to_string_lossy().to_string())
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn secure_delete_file(path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let path_obj = std::path::Path::new(&path);
-        if !path_obj.exists() {
-            return Err("File not found".to_string());
-        }
-        
-        let metadata = std::fs::metadata(&path_obj).map_err(|e| e.to_string())?;
-        if !metadata.is_file() {
-            return Err("Only files can be securely deleted".to_string());
-        }
-        
-        let file_size = metadata.len();
-        
-        // 2 passes of overwriting with zeroes
-        for _ in 0..2 {
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .open(&path_obj)
-                .map_err(|e| format!("Failed to open file for overwrite: {}", e))?;
-            
-            use std::io::{Seek, SeekFrom, Write};
-            file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-            
-            let chunk = vec![0u8; 65536]; // 64KB chunks
-            let mut remaining = file_size;
-            while remaining > 0 {
-                let write_size = remaining.min(65536) as usize;
-                file.write_all(&chunk[..write_size])
-                    .map_err(|e| format!("Failed to overwrite file content: {}", e))?;
-                remaining -= write_size as u64;
-            }
-            file.flush().map_err(|e| format!("Failed to flush file to disk: {}", e))?;
-        }
-        
-        // Truncate to 0 bytes
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&path_obj)
-            .map_err(|e| format!("Failed to open file for truncation: {}", e))?;
-        file.set_len(0).map_err(|e| format!("Failed to truncate file: {}", e))?;
-        
-        std::fs::remove_file(&path_obj).map_err(|e| format!("Failed to delete file from disk: {}", e))?;
-        Ok(())
-    }).await.map_err(|e| e.to_string())?
-}
-
-// ─── FIRST-RUN DEPENDENCY SETUP ───────────────────────────────────────────────
-
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-struct DepsStatus {
-    python_ok: bool,
-    packages_ok: bool,
-    models_ok: bool,
-    venv_path: String,
-    models_path: String,
-}
-
-#[derive(serde::Serialize, Clone)]
-struct SetupProgressEvent {
-    step: String,
-    message: String,
-    percent: u32,
-    done: bool,
-    error: Option<String>,
-}
-
-/// Returns the canonical cosmo_venv path inside AppData
-fn cosmo_venv_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
-    use tauri::Manager;
-    app.path().app_data_dir().ok().map(|d| d.join("cosmo_venv"))
-}
-
-/// Returns the canonical .cosmo_models path inside AppData
-fn cosmo_models_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
-    use tauri::Manager;
-    app.path().app_data_dir().ok().map(|d| d.join(".cosmo_models"))
-}
-
-#[tauri::command]
-async fn check_dependencies(app: tauri::AppHandle) -> Result<DepsStatus, String> {
-    use tauri::Manager;
-
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let venv_path = app_data.join("cosmo_venv");
-    let venv_python = venv_path.join("Scripts").join("python.exe");
-    let models_path = app_data.join(".cosmo_models");
-    let realesrgan_model = models_path.join("RealESRGAN_x4plus.pth");
-    let gfpgan_model = models_path.join("GFPGANv1.4.pth");
-
-    let python_ok = venv_python.exists();
-
-    // Quick import check — only runs if Python exists
-    let packages_ok = if python_ok {
-        let result = std::process::Command::new(&venv_python)
-            .args(["-c", "import cv2, numpy, torch, basicsr; print('ok')"])
-            .output();
-        result
-            .ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).contains("ok"))
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    let models_ok = realesrgan_model.exists() && gfpgan_model.exists();
-
-    Ok(DepsStatus {
-        python_ok,
-        packages_ok,
-        models_ok,
-        venv_path: venv_path.to_string_lossy().to_string(),
-        models_path: models_path.to_string_lossy().to_string(),
-    })
-}
-
-#[tauri::command]
-async fn install_dependencies(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::{Manager, Emitter};
-
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let _ = std::fs::create_dir_all(&app_data);
-
-    let emit = |step: &str, msg: &str, percent: u32| {
-        let _ = app.emit("setup-progress", SetupProgressEvent {
-            step: step.to_string(),
-            message: msg.to_string(),
-            percent,
-            done: false,
-            error: None,
-        });
-    };
-
-    let emit_done = |app: &tauri::AppHandle| {
-        let _ = app.emit("setup-progress", SetupProgressEvent {
-            step: "done".to_string(),
-            message: "Setup complete! AI features are ready.".to_string(),
-            percent: 100,
-            done: true,
-            error: None,
-        });
-    };
-
-    let emit_error = |app: &tauri::AppHandle, msg: &str| {
-        let _ = app.emit("setup-progress", SetupProgressEvent {
-            step: "error".to_string(),
-            message: msg.to_string(),
-            percent: 0,
-            done: false,
-            error: Some(msg.to_string()),
-        });
-    };
-
-    let venv_path = app_data.join("cosmo_venv");
-    let venv_python = venv_path.join("Scripts").join("python.exe");
-
-    // ── STEP 1: Download Python embeddable ──────────────────────────────────
-    let python_embed_dir = app_data.join("python_embed");
-    let python_zip = app_data.join("python-embed.zip");
-    let python_exe = python_embed_dir.join("python.exe");
-
-    if !python_exe.exists() {
-        emit("python", "Downloading Python 3.11 runtime (~8 MB)...", 3);
-        let ps = format!(
-            "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip' -OutFile '{}' -UseBasicParsing",
-            python_zip.display()
-        );
-        let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
-            .output()
-            .map_err(|e| format!("PowerShell download failed: {}", e))?;
-        if !out.status.success() {
-            let msg = format!("Failed to download Python: {}", String::from_utf8_lossy(&out.stderr));
-            emit_error(&app, &msg);
-            return Err(msg);
-        }
-
-        emit("python", "Extracting Python runtime...", 8);
-        let ps_extract = format!(
-            "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-            python_zip.display(),
-            python_embed_dir.display()
-        );
-        let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_extract])
-            .output()
-            .map_err(|e| format!("Extraction failed: {}", e))?;
-        if !out.status.success() {
-            let msg = format!("Failed to extract Python: {}", String::from_utf8_lossy(&out.stderr));
-            emit_error(&app, &msg);
-            return Err(msg);
-        }
-
-        // Patch the ._pth file to enable site-packages (required for pip)
-        if let Ok(entries) = std::fs::read_dir(&python_embed_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.ends_with("._pth") {
-                    let path = entry.path();
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        let patched = content.replace("#import site", "import site");
-                        let _ = std::fs::write(&path, patched);
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Download and bootstrap pip
-        emit("pip", "Bootstrapping pip...", 12);
-        let get_pip_path = app_data.join("get-pip.py");
-        let ps_getpip = format!(
-            "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '{}' -UseBasicParsing",
-            get_pip_path.display()
-        );
-        let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_getpip])
-            .output();
-
-        let _ = std::process::Command::new(&python_exe)
-            .arg(&get_pip_path)
-            .output();
-    }
-
-    // ── STEP 2: Create venv ─────────────────────────────────────────────────
-    if !venv_python.exists() {
-        emit("venv", "Creating isolated Python environment...", 15);
-        let out = std::process::Command::new(&python_exe)
-            .args(["-m", "venv", &venv_path.to_string_lossy().to_string()])
-            .output()
-            .map_err(|e| format!("venv creation failed: {}", e))?;
-        if !out.status.success() {
-            // Fallback: try system python
-            let _ = std::process::Command::new("python")
-                .args(["-m", "venv", &venv_path.to_string_lossy().to_string()])
-                .output();
-        }
-    }
-
-    if !venv_python.exists() {
-        let msg = "Could not create Python virtual environment.".to_string();
-        emit_error(&app, &msg);
-        return Err(msg);
-    }
-
-    let pip = venv_path.join("Scripts").join("pip.exe");
-
-    // ── STEP 3: Install CPU PyTorch ─────────────────────────────────────────
-    emit("torch", "Installing PyTorch (CPU) — this may take a few minutes...", 20);
-    let torch_out = std::process::Command::new(&pip)
-        .args([
-            "install", "--quiet",
-            "torch", "torchvision",
-            "--index-url", "https://download.pytorch.org/whl/cpu"
-        ])
-        .output()
-        .map_err(|e| format!("torch install failed: {}", e))?;
-
-    if !torch_out.status.success() {
-        let msg = format!("PyTorch install failed: {}", String::from_utf8_lossy(&torch_out.stderr));
-        emit_error(&app, &msg);
-        return Err(msg);
-    }
-
-    // ── STEP 4: Install AI packages ─────────────────────────────────────────
-    let packages = [
-        ("numpy", "NumPy", 60),
-        ("opencv-python-headless", "OpenCV", 65),
-        ("basicsr", "BasicSR", 70),
-        ("realesrgan", "Real-ESRGAN", 78),
-        ("gfpgan", "GFPGAN", 85),
-        ("rembg", "Background Removal (rembg)", 92),
-    ];
-
-    for (pkg, label, pct) in &packages {
-        emit("packages", &format!("Installing {}...", label), *pct);
-        let out = std::process::Command::new(&pip)
-            .args(["install", "--quiet", pkg])
-            .output()
-            .map_err(|e| format!("install {} failed: {}", pkg, e))?;
-        if !out.status.success() {
-            let msg = format!("Failed to install {}: {}", label, String::from_utf8_lossy(&out.stderr));
-            emit_error(&app, &msg);
-            return Err(msg);
-        }
-    }
-
-    emit_done(&app);
-    Ok(())
-}
-
-#[tauri::command]
-async fn download_models(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::{Manager, Emitter};
-
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let models_dir = app_data.join(".cosmo_models");
-    let _ = std::fs::create_dir_all(&models_dir);
-
-    let emit = |step: &str, msg: &str, percent: u32| {
-        let _ = app.emit("model-download-progress", SetupProgressEvent {
-            step: step.to_string(),
-            message: msg.to_string(),
-            percent,
-            done: false,
-            error: None,
-        });
-    };
-
-    let models: &[(&str, &str, &str, u32, u32)] = &[
-        (
-            "realesrgan",
-            "RealESRGAN_x4plus.pth",
-            "https://huggingface.co/xinntao/Real-ESRGAN/resolve/main/RealESRGAN_x4plus.pth",
-            0, 50
-        ),
-        (
-            "gfpgan",
-            "GFPGANv1.4.pth",
-            "https://huggingface.co/Iceclear/gfpgan-weights/resolve/main/GFPGANv1.4.pth",
-            50, 100
-        ),
-    ];
-
-    for (step, filename, url, start_pct, end_pct) in models {
-        let dest = models_dir.join(filename);
-        if dest.exists() {
-            emit(step, &format!("{} already downloaded ✓", filename), *end_pct);
-            continue;
-        }
-
-        emit(step, &format!("Downloading {} (~67 MB)...", filename), *start_pct + 2);
-
-        let ps = format!(
-            "Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
-            url,
-            dest.display()
-        );
-
-        // Spawn PowerShell download in a thread and poll file size for progress
-        let dest_clone = dest.clone();
-        let app_clone = app.clone();
-        let step_str = step.to_string();
-        let filename_str = filename.to_string();
-        let start = *start_pct;
-        let end = *end_pct;
-
-        let handle = std::thread::spawn(move || {
-            std::process::Command::new("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
-                .output()
-        });
-
-        // Poll file size while download runs
-        let expected_size: u64 = 67_000_000; // ~67 MB estimate
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            let current_size = std::fs::metadata(&dest_clone).map(|m| m.len()).unwrap_or(0);
-            let pct = if current_size > 0 {
-                (start as f64 + (current_size as f64 / expected_size as f64) * (end - start) as f64) as u32
-            } else {
-                start + 2
-            };
-            let _ = app_clone.emit("model-download-progress", SetupProgressEvent {
-                step: step_str.clone(),
-                message: format!("Downloading {}... ({} MB)", filename_str, current_size / 1_000_000),
-                percent: pct.min(end - 1),
-                done: false,
-                error: None,
-            });
-
-            if handle.is_finished() { break; }
-        }
-
-        match handle.join() {
-            Ok(Ok(out)) if out.status.success() => {
-                emit(step, &format!("{} downloaded ✓", filename), *end_pct);
-            }
-            Ok(Ok(out)) => {
-                let msg = format!("Failed to download {}: {}", filename, String::from_utf8_lossy(&out.stderr));
-                let _ = app.emit("model-download-progress", SetupProgressEvent {
-                    step: step.to_string(),
-                    message: msg.clone(),
-                    percent: *start_pct,
-                    done: false,
-                    error: Some(msg.clone()),
-                });
-                return Err(msg);
-            }
-            _ => {
-                return Err(format!("Download thread panicked for {}", filename));
-            }
-        }
-    }
-
-    let _ = app.emit("model-download-progress", SetupProgressEvent {
-        step: "done".to_string(),
-        message: "All AI model weights downloaded ✓".to_string(),
-        percent: 100,
-        done: true,
-        error: None,
-    });
-
-    Ok(())
-}
-
-// ─── END FIRST-RUN DEPENDENCY SETUP ──────────────────────────────────────────
-
-static AI_HARDWARE_MODE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-
-
-#[tauri::command]
-fn get_ai_hardware_status() -> String {
-    AI_HARDWARE_MODE.get().cloned().unwrap_or_else(|| "Detecting...".to_string())
-}
-
-#[tauri::command]
-async fn span_all_monitors(window: tauri::Window) -> Result<(), String> {
-    println!("--- span_all_monitors triggered ---");
-    let monitors = window.available_monitors().map_err(|e| {
-        println!("Error getting available monitors: {}", e);
-        e.to_string()
-    })?;
-    println!("Found {} monitors", monitors.len());
-    for (i, m) in monitors.iter().enumerate() {
-        println!("  Monitor [{}]: Name={:?}, Position={:?}, Size={:?}, ScaleFactor={}", i, m.name(), m.position(), m.size(), m.scale_factor());
-    }
-
-    if monitors.is_empty() {
-        return Err("No monitors found".into());
-    }
-
-    let mut min_x = i32::MAX;
-    let mut min_y = i32::MAX;
-    let mut max_x = i32::MIN;
-    let mut max_y = i32::MIN;
-
-    for m in &monitors {
-        let pos = m.position();
-        let size = m.size();
-        let x1 = pos.x;
-        let y1 = pos.y;
-        let x2 = pos.x + size.width as i32;
-        let y2 = pos.y + size.height as i32;
-
-        if x1 < min_x { min_x = x1; }
-        if y1 < min_y { min_y = y1; }
-        if x2 > max_x { max_x = x2; }
-        if y2 > max_y { max_y = y2; }
-    }
-
-    let width = (max_x - min_x) as u32;
-    let height = (max_y - min_y) as u32;
-    println!("Calculated Spanning Area: x={}, y={}, width={}, height={}", min_x, min_y, width, height);
-
-    // Unmaximize first, give OS time to settle
-    let _ = window.unmaximize();
-    std::thread::sleep(std::time::Duration::from_millis(150));
-
-    // Use raw Win32 SetWindowPos for a single atomic position+size call.
-    // Tauri's sequential set_position then set_size can be overridden by the Windows
-    // compositor between calls — SetWindowPos avoids this by applying both at once.
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_FRAMECHANGED};
-        use windows::Win32::Foundation::HWND;
-
-        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
-        let hwnd = HWND(hwnd.0 as *mut std::ffi::c_void);
-        unsafe {
-            SetWindowPos(
-                hwnd,
-                None,
-                min_x,
-                min_y,
-                width as i32,
-                height as i32,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-            ).map_err(|e| e.to_string())?;
-        }
-        println!("--- span_all_monitors complete (Win32 SetWindowPos) ---");
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = window.set_decorations(false);
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: min_x, y: min_y }));
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width, height }));
-        println!("--- span_all_monitors complete (fallback) ---");
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn unspan_monitors(window: tauri::Window) -> Result<(), String> {
-    println!("--- unspan_monitors triggered ---");
-    if let Err(e) = window.set_decorations(false) {
-        println!("  set_decorations error: {}", e);
-    }
-    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 1280, height: 720 })) {
-        println!("  set_size error: {}", e);
-    }
-    if let Err(e) = window.center() {
-        println!("  center error: {}", e);
-    }
-    println!("--- unspan_monitors complete ---");
-    Ok(())
+pub struct DirectoryWatcherState {
+    pub watcher: std::sync::Mutex<Option<(String, notify::RecommendedWatcher)>>,
 }
 
 fn spawn_symphony_backend() {
     std::thread::spawn(move || {
-        // 1. Check if port 8000 is already active
-        if std::net::TcpStream::connect("127.0.0.1:8000").is_ok() {
-            println!("Symphony Backend already online on port 8000.");
+        // 1. Check if port 8005 is already active (matches studio_agent.py uvicorn port)
+        if std::net::TcpStream::connect("127.0.0.1:8005").is_ok() {
+            println!("Symphony Backend already online on port 8005.");
             return;
         }
 
-        // 2. Robust directory traversal to locate sibling "CosmoStudio"
+        // 2. Kill any zombie python process holding port 8005 from a previous unclean shutdown.
+        //    This prevents Errno 10048 "address already in use" on next startup.
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            let kill_result = std::process::Command::new("powershell.exe")
+                .args(&[
+                    "-NoProfile", "-Command",
+                    "Get-NetTCPConnection -LocalPort 8005 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+                ])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output();
+            if let Ok(output) = kill_result {
+                if output.status.success() {
+                    // Give the OS a moment to release the socket
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            }
+        }
+
+        // 3. Robust directory traversal to locate sibling "CosmoStudio"
         if let Ok(current_dir) = std::env::current_dir() {
             let mut check_dir = Some(current_dir.as_path());
             
@@ -2526,27 +85,90 @@ fn spawn_symphony_backend() {
     });
 }
 
+pub static POPOUT_MEDIA_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let mut is_popout_process = false;
+    let mut popout_url = String::new();
+    let mut popout_title = String::new();
+
+    for i in 0..args.len() {
+        if args[i] == "--popout" {
+            is_popout_process = true;
+        }
+        if args[i] == "--url" && i + 1 < args.len() {
+            popout_url = args[i + 1].clone();
+        }
+        if args[i] == "--title" && i + 1 < args.len() {
+            popout_title = args[i + 1].clone();
+        }
+    }
+
+    if is_popout_process {
+        let _ = POPOUT_MEDIA_URL.set(popout_url.clone());
+        let pid = std::process::id();
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let pop_wv2_dir = std::path::Path::new(&local_app_data)
+                .join("CosmoSymphonyDev")
+                .join(format!("WebView2Popout_{}", pid));
+            let _ = std::fs::create_dir_all(&pop_wv2_dir);
+            std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", pop_wv2_dir);
+        }
+    } else {
+        #[cfg(debug_assertions)]
+        {
+            if std::env::var("WEBVIEW2_USER_DATA_FOLDER").is_err() {
+                if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+                    let dev_wv2_dir = std::path::Path::new(&local_app_data)
+                        .join("CosmoSymphonyDev")
+                        .join("WebView2Dev");
+                    let _ = std::fs::create_dir_all(&dev_wv2_dir);
+                    std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dev_wv2_dir);
+                }
+            }
+        }
+    }
+
+    // Self-healing: Clean up any zombie processes holding port 12000 from previous sessions
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("powershell.exe")
+            .args(&[
+                "-NoProfile", "-Command",
+                "Get-NetTCPConnection -LocalPort 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+            ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+    }
+
     // Self-healing: Clean up .window-state.json to prevent dynamic popout windows from loading in a loop
-    if let Some(mut config_dir) = dirs::config_dir() {
-        config_dir.push("com.cosmo.symphony");
-        let state_file = config_dir.join(".window-state.json");
-        if state_file.exists() {
-            if let Ok(content) = std::fs::read_to_string(&state_file) {
-                if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(obj) = json.as_object_mut() {
-                        // Remove all window state keys that start with "pop-" or are not "main"
-                        let keys_to_remove: Vec<String> = obj.keys()
-                            .filter(|k| k.starts_with("pop-") || *k != "main")
-                            .map(|k| k.to_string())
-                            .collect();
-                        
-                        if !keys_to_remove.is_empty() {
-                            for k in keys_to_remove {
-                                obj.remove(&k);
-                            }
-                            if let Ok(updated_content) = serde_json::to_string(&json) {
-                                let _ = std::fs::write(&state_file, updated_content);
+    if let Some(config_base) = dirs::config_dir() {
+        let targets = [
+            "com.cosmo.symphony",
+            "MicroMeadow.CosmoSymphony",
+            "MicroMeadow.CosmoSymphonyDev"
+        ];
+        for target in targets {
+            let state_file = config_base.join(target).join(".window-state.json");
+            if state_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&state_file) {
+                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(obj) = json.as_object_mut() {
+                            // Remove all window state keys that are not "main" (e.g. "popout" or starting with "pop-")
+                            let keys_to_remove: Vec<String> = obj.keys()
+                                .filter(|k| k.starts_with("pop-") || *k == "popout" || *k != "main")
+                                .map(|k| k.to_string())
+                                .collect();
+                            
+                            if !keys_to_remove.is_empty() {
+                                for k in keys_to_remove {
+                                    obj.remove(&k);
+                                }
+                                if let Ok(updated_content) = serde_json::to_string(&json) {
+                                    let _ = std::fs::write(&state_file, updated_content);
+                                }
                             }
                         }
                     }
@@ -2555,7 +177,7 @@ fn main() {
         }
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
         .plugin(
@@ -2761,53 +383,130 @@ fn main() {
         })
         .manage(AppState {
             sys: Mutex::new(System::new_with_specifics(
-                RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()),
+                sysinfo::RefreshKind::nothing().with_cpu(sysinfo::CpuRefreshKind::everything()),
             )),
             last_refresh: Mutex::new(std::time::Instant::now()),
         })
         .manage(LaunchArgs(Mutex::new(None)))
+        .manage(DirectoryWatcherState { watcher: std::sync::Mutex::new(None) })
         .invoke_handler(tauri::generate_handler![
-            get_launch_args,
-            cosmo_log,
-            select_folder_cmd,
-            get_folder_videos,
-            save_snapshot,
-            save_persistence,
-            load_persistence,
-            open_folder,
-            set_always_on_top,
-            pop_out,
-            get_telemetry,
-            get_video_metadata,
-            rename_video,
-            recycle_unit,
-            rotate_media_on_disk,
-            mirror_media_on_disk,
-            apply_color_adjustments_on_disk,
-            get_drag_icon_path,
-            extract_subject_on_disk,
-            upscale_image,
-            enhance_image_crop,
-            auto_erase_watermark,
-            save_inpainted_image,
-            get_ai_hardware_status,
-            span_all_monitors,
-            unspan_monitors,
-            snapshot_video_frame,
-            get_subdirectories,
-            create_new_folder,
-            move_file_on_disk,
-            copy_file_on_disk,
-            duplicate_file_on_disk,
-            crop_image_on_disk,
-            secure_delete_file,
-            exit_app,
-            check_dependencies,
-            install_dependencies,
-            download_models
+            commands::filesystem::watch_directory,
+            commands::system::get_launch_args,
+            commands::system::cosmo_log,
+            commands::filesystem::select_folder_cmd,
+            commands::filesystem::select_files_cmd,
+            commands::filesystem::get_folder_videos,
+            commands::media::save_snapshot,
+            commands::media::save_persistence,
+            commands::media::load_persistence,
+            commands::filesystem::open_folder,
+            commands::system::set_always_on_top,
+            commands::system::pop_out,
+            commands::system::close_popout,
+            commands::system::get_popout_url,
+            commands::system::get_telemetry,
+            commands::media::get_video_metadata,
+            commands::filesystem::rename_video,
+            commands::filesystem::recycle_unit,
+            commands::media::rotate_media_on_disk,
+            commands::media::mirror_media_on_disk,
+            commands::media::apply_color_adjustments_on_disk,
+            commands::media::get_drag_icon_path,
+            commands::media::extract_subject_on_disk,
+            commands::media::upscale_image,
+            commands::media::generate_store_logos,
+            commands::media::enhance_image_crop,
+            commands::media::auto_erase_watermark,
+            commands::media::save_inpainted_image,
+            commands::system::get_ai_hardware_status,
+            commands::system::span_all_monitors,
+            commands::system::unspan_monitors,
+            commands::media::snapshot_video_frame,
+            commands::filesystem::get_subdirectories,
+            commands::filesystem::create_new_folder,
+            commands::filesystem::list_directory_contents,
+            commands::filesystem::move_file_on_disk,
+            commands::filesystem::copy_file_on_disk,
+            commands::filesystem::file_exists,
+            commands::filesystem::duplicate_file_on_disk,
+            commands::media::crop_image_on_disk,
+            commands::media::resize_image_on_disk,
+            commands::filesystem::secure_delete_file,
+            commands::system::exit_app,
+            commands::system::check_dependencies,
+            commands::system::install_dependencies,
+            commands::system::install_gpu_pack,
+            commands::system::download_models,
+            commands::media::convert_heic_to_jpg,
+            commands::media::convert_media_to_standard,
+            commands::system::open_external_url,
+            commands::media::upscale_video,
+            commands::media::cancel_video_upscale,
+            commands::filesystem::get_file_stats,
+            commands::server::set_wifi_shared_files,
+            commands::server::download_shared_file_to_downloads
         ])
-        .setup(|app| {
+        .setup(move |app| {
             use tauri::Manager;
+            use std::path::PathBuf;
+
+            if is_popout_process {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_title(&popout_title);
+                    
+                    let app_handle = app.handle().clone();
+                    let window_clone = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                        let _ = app_handle.run_on_main_thread(move || {
+                            let _ = window_clone.set_decorations(true);
+                            let _ = window_clone.set_shadow(true);
+                            let _ = window_clone.unmaximize();
+                            let _ = window_clone.set_fullscreen(false);
+                            let _ = window_clone.set_size(tauri::Size::Logical(tauri::LogicalSize::new(850.0, 500.0)));
+                            let _ = window_clone.set_resizable(true);
+                            let _ = window_clone.show();
+                            let _ = window_clone.set_focus();
+                        });
+                    });
+                }
+                return Ok(());
+            }
+
+            // Resolve the frontend dist path for local Wi-Fi file sharing
+            let resource_path = app
+                .path()
+                .resource_dir()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+            // Check if bundled resources path exists
+            let dist_path = resource_path.join("resources").join("wifi-share-web");
+
+            // Fallback for development
+            let dist_path = if dist_path.exists() {
+                dist_path
+            } else {
+                let dev_dist = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("resources")
+                    .join("wifi-share-web");
+                if dev_dist.exists() {
+                    dev_dist
+                } else {
+                    // Try parent directory fallback
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .map(|p| p.join("src-tauri").join("resources").join("wifi-share-web"))
+                        .unwrap_or_else(|| PathBuf::from("resources/wifi-share-web"))
+                }
+            };
+
+            let dist_str = dist_path.to_string_lossy().to_string();
+            println!("[Wi-Fi Share Setup] Static web path: {}", dist_str);
+
+            // Spawn the Axum HTTP server in the background
+            tauri::async_runtime::spawn(async move {
+                commands::server::start_server(dist_str).await;
+            });
 
             // Auto-start Symphony Backend (FastAPI on port 8000) if not running
             spawn_symphony_backend();
@@ -2826,8 +525,9 @@ fn main() {
             // Spawn background task to detect AI GPU vs CPU capability
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
-                let mut has_cuda = false;
-                if let Ok((runner, args)) = resolve_enhancer_command(Some(&app_handle)) {
+                let mut has_gpu = false;
+                let mut is_dml = false;
+                if let Ok((runner, args)) = commands::system::resolve_enhancer_command(Some(&app_handle)) {
                     let mut check_args = args;
                     check_args.push("--check-cuda".to_string());
                     
@@ -2841,7 +541,7 @@ fn main() {
                     }
 
                     // Pass models directory to CUDA check process
-                    if let Some(models_dir) = resolve_models_dir(Some(&app_handle)) {
+                    if let Some(models_dir) = commands::system::resolve_models_dir(Some(&app_handle)) {
                         cmd.env("COSMO_MODELS_DIR", &models_dir);
                     }
                     #[cfg(target_os = "windows")]
@@ -2853,17 +553,24 @@ fn main() {
                     if let Ok(output) = cmd.output() {
                         let out_str = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
                         if out_str.contains("cuda") {
-                            has_cuda = true;
+                            has_gpu = true;
+                        } else if out_str.contains("dml") || out_str.contains("directml") {
+                            has_gpu = true;
+                            is_dml = true;
                         }
                     }
                 }
                 
-                let mode_str = if has_cuda {
-                    "GPU (Nvidia CUDA)".to_string()
+                let mode_str = if has_gpu {
+                    if is_dml {
+                        "GPU (AMD DirectML)".to_string()
+                    } else {
+                        "GPU (NVIDIA CUDA)".to_string()
+                    }
                 } else {
                     "CPU (Bilateral Filter Fallback)".to_string()
                 };
-                let _ = AI_HARDWARE_MODE.set(mode_str);
+                let _ = commands::system::AI_HARDWARE_MODE.set(mode_str);
             });
 
             if let Some(window) = app.get_webview_window("main") {
@@ -2871,7 +578,16 @@ fn main() {
                 let _ = window.set_focus();
             }
             Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        });
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            println!("Cosmo Symphony: Running secure forensic cleanup of temp files...");
+            let _ = commands::server::secure_cleanup_on_exit(app_handle);
+            std::process::exit(0);
+        }
+    });
 }

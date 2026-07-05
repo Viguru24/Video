@@ -19,6 +19,8 @@
           "https://www.facebook.com/*",
           "https://www.linkedin.com/*",
           "https://cosmo.symphony*",
+          "https://cosmowhisper.com*",
+          "https://*.cosmowhisper.com*",
           "whatsapp://*",
           "tg://*"
         ]

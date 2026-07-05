@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Pause, Play, Sliders, Crop, Sparkles, ChevronLeft, ChevronRight, VolumeX, Volume2, Camera, FolderOpen, CheckCircle2, MoreHorizontal } from 'lucide-react';
+import { Pause, Play, Sliders, Crop, Minimize2, Sparkles, ChevronLeft, ChevronRight, VolumeX, Volume2, Camera, FolderOpen, CheckCircle2, MoreHorizontal, Repeat, Repeat1 } from 'lucide-react';
 import { VideoCard } from './VideoCard';
 import { CropOverlay } from './CropOverlay';
 import type { VideoItem, RepeatMode } from '../types';
@@ -34,6 +34,7 @@ interface SoloPlayerProps {
   handleDeepFocus: (id: string, time?: number) => void;
   handleNavigateSibling: (direction: 1 | -1) => void;
   handleUpscale: (v: VideoItem) => void;
+  handleResize?: (v: VideoItem) => void;
   enhancingVideoId: string | null;
   isCropping: boolean;
   setIsCropping: (val: boolean) => void;
@@ -56,6 +57,8 @@ interface SoloPlayerProps {
   stopFrameStep: () => void;
   setShowSaveCropOptions: (val: boolean) => void;
   setMasterMuted: (val: boolean) => void;
+  isStickerLoading?: boolean;
+  onCreateSticker?: (video: VideoItem) => void;
 }
 
 export function SoloPlayer({
@@ -86,6 +89,7 @@ export function SoloPlayer({
   handleDeepFocus,
   handleNavigateSibling,
   handleUpscale,
+  handleResize,
   enhancingVideoId,
   isCropping,
   setIsCropping,
@@ -107,11 +111,22 @@ export function SoloPlayer({
   startFrameStep,
   stopFrameStep,
   setShowSaveCropOptions,
-  setMasterMuted
+  setMasterMuted,
+  isStickerLoading = false,
+  onCreateSticker
 }: SoloPlayerProps) {
   const selectedIds = useStore((state) => state.selectedIds);
   const setSelectedIds = useStore((state) => state.setSelectedIds);
   const setSelectionMode = useStore((state) => state.setSelectionMode);
+
+  const lastFocusedIdRef = useRef<string | null>(null);
+  const isEntering = lastFocusedIdRef.current === null;
+
+  useEffect(() => {
+    lastFocusedIdRef.current = focusedId;
+  }, [focusedId]);
+
+  const currentFocusedVideo = videos.find(v => v.id === focusedId);
 
   return (
     <div 
@@ -120,13 +135,13 @@ export function SoloPlayer({
       style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden' }}
     >
       <div className="solo-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
-        <AnimatePresence initial={false} mode="popLayout">
-          {videos.find(v => v.id === focusedId) && (
+        <AnimatePresence mode="popLayout">
+          {currentFocusedVideo && (
             <motion.div
               key={focusedId}
-              initial={{ opacity: 0, x: navDirection * 300, scale: 0.98 }}
+              initial={isEntering ? { opacity: 0 } : { opacity: 0, x: navDirection * 300, scale: 0.98 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: -navDirection * 300, scale: 0.98 }}
+              exit={isEntering ? { opacity: 0 } : { opacity: 0, x: -navDirection * 300, scale: 0.98 }}
               transition={{ type: 'spring', damping: 26, stiffness: 220 }}
               style={{
                 position: 'absolute',
@@ -141,7 +156,7 @@ export function SoloPlayer({
               }}
             >
               <VideoCard 
-                video={videos.find(v => v.id === focusedId)!}
+                video={currentFocusedVideo}
                 globalRepeat={globalRepeat}
                 globalSpeed={speed}
                 fitMode={fitMode}
@@ -173,6 +188,10 @@ export function SoloPlayer({
                 isAiEnhancing={enhancingVideoId === focusedId}
                 isCropping={isCropping}
                 onAddVideo={onAddVideo}
+                isStickerLoading={isStickerLoading}
+                onCreateSticker={onCreateSticker}
+                isSlideshowActive={isSlideshowActive}
+                setIsSlideshowActive={setIsSlideshowActive}
               />
             </motion.div>
           )}
@@ -192,10 +211,10 @@ export function SoloPlayer({
               backdropFilter: 'blur(16px) saturate(180%)',
               border: '1px solid rgba(255, 255, 255, 0.08)',
               borderRadius: '30px',
-              padding: '6px 18px',
+              padding: '4px 12px',
               display: 'flex',
               alignItems: 'center',
-              gap: '16px',
+              gap: '10px',
               boxShadow: '0 12px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
               pointerEvents: showImmersiveUI ? 'auto' : 'none',
               opacity: showImmersiveUI ? 1 : 0,
@@ -223,7 +242,7 @@ export function SoloPlayer({
               onMouseOut={e => e.currentTarget.style.background = 'none'}
               title="Previous Media"
             >
-              <ChevronLeft size={20} />
+              <ChevronLeft size={14} />
             </button>
 
             {isFocusedImage ? (
@@ -234,28 +253,54 @@ export function SoloPlayer({
                     background: 'var(--accent, #00ff88)',
                     border: 'none',
                     color: '#000',
-                    width: '36px',
-                    height: '36px',
+                    width: '28px',
+                    height: '28px',
                     borderRadius: '50%',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     transition: 'all 0.2s',
                     cursor: 'pointer',
-                    boxShadow: '0 0 10px rgba(0, 255, 136, 0.3)'
+                    boxShadow: '0 0 8px rgba(0, 255, 136, 0.3)'
                   }}
                   onMouseOver={e => {
                     e.currentTarget.style.transform = 'scale(1.08)';
-                    e.currentTarget.style.boxShadow = '0 0 15px rgba(0, 255, 136, 0.5)';
+                    e.currentTarget.style.boxShadow = '0 0 12px rgba(0, 255, 136, 0.5)';
                   }}
                   onMouseOut={e => {
                     e.currentTarget.style.transform = 'scale(1)';
-                    e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.3)';
+                    e.currentTarget.style.boxShadow = '0 0 8px rgba(0, 255, 136, 0.3)';
                   }}
                   title={isSlideshowActive ? "Pause Slideshow" : "Play Slideshow"}
                 >
-                  {isSlideshowActive ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                  {isSlideshowActive ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
                 </button>
+
+                {/* Next Sibling Button (for images) */}
+                <button 
+                  onClick={() => handleNavigateSibling(1)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px',
+                    borderRadius: '50%',
+                    transition: 'background 0.2s',
+                    pointerEvents: 'auto'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                  title="Next Media"
+                >
+                  <ChevronRight size={14} />
+                </button>
+
+                {/* Divider */}
+                <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
 
                 <button 
                   onClick={() => setColorAdjustId(focusedVideo.id)}
@@ -267,7 +312,7 @@ export function SoloPlayer({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '6px',
+                    padding: '4px',
                     borderRadius: '50%',
                     transition: 'background 0.2s, transform 0.1s'
                   }}
@@ -281,7 +326,7 @@ export function SoloPlayer({
                   }}
                   title="Color adjustment"
                 >
-                  <Sliders size={18} />
+                  <Sliders size={14} />
                 </button>
 
                 <button 
@@ -298,7 +343,7 @@ export function SoloPlayer({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '6px',
+                    padding: '4px',
                     borderRadius: '50%',
                     transition: 'background 0.2s, transform 0.1s'
                   }}
@@ -312,7 +357,34 @@ export function SoloPlayer({
                   }}
                   title="Crop Image"
                 >
-                  <Crop size={18} />
+                  <Crop size={14} />
+                </button>
+
+                <button 
+                  onClick={() => focusedVideo && handleResize && handleResize(focusedVideo)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px',
+                    borderRadius: '50%',
+                    transition: 'background 0.2s, transform 0.1s'
+                  }}
+                  onMouseOver={e => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                    e.currentTarget.style.transform = 'scale(1.05)';
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.background = 'none';
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }}
+                  title="Rescale / Resize Media"
+                >
+                  <Minimize2 size={14} />
                 </button>
 
                 <button 
@@ -325,7 +397,7 @@ export function SoloPlayer({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '6px',
+                    padding: '4px',
                     borderRadius: '50%',
                     transition: 'background 0.2s, transform 0.1s'
                   }}
@@ -339,7 +411,38 @@ export function SoloPlayer({
                   }}
                   title="✨ AI Upscale (4x Enhance)"
                 >
-                  <Sparkles size={18} />
+                  <Sparkles size={14} />
+                </button>
+
+                <button 
+                  onClick={() => onCreateSticker && onCreateSticker(focusedVideo)}
+                  disabled={isStickerLoading}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: isStickerLoading ? '#555' : 'var(--accent, #00ff88)',
+                    cursor: isStickerLoading ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px',
+                    borderRadius: '50%',
+                    transition: 'background 0.2s, transform 0.1s',
+                    opacity: isStickerLoading ? 0.5 : 1
+                  }}
+                  onMouseOver={e => {
+                    if (!isStickerLoading) {
+                      e.currentTarget.style.background = 'rgba(0, 255, 136, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1.05)';
+                    }
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.background = 'none';
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }}
+                  title="Create Sticker (Cutout)"
+                >
+                  <Sparkles size={14} style={{ color: isStickerLoading ? '#555' : 'var(--accent, #00ff88)' }} />
                 </button>
               </>
             ) : (
@@ -365,7 +468,7 @@ export function SoloPlayer({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '6px',
+                    padding: '4px',
                     borderRadius: '50%',
                     transition: 'background 0.2s'
                   }}
@@ -373,7 +476,7 @@ export function SoloPlayer({
                   onMouseOut={e => e.currentTarget.style.background = 'none'}
                   title="Step Back (1 Frame)"
                 >
-                  <ChevronLeft size={18} />
+                  <ChevronLeft size={12} />
                 </button>
 
                 <button 
@@ -384,27 +487,27 @@ export function SoloPlayer({
                     background: 'var(--accent, #00ff88)',
                     border: 'none',
                     color: '#000',
-                    width: '36px',
-                    height: '36px',
+                    width: '28px',
+                    height: '28px',
                     borderRadius: '50%',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     transition: 'all 0.2s',
                     cursor: 'pointer',
-                    boxShadow: '0 0 10px rgba(0, 255, 136, 0.3)'
+                    boxShadow: '0 0 8px rgba(0, 255, 136, 0.3)'
                   }}
                   onMouseOver={e => {
                     e.currentTarget.style.transform = 'scale(1.08)';
-                    e.currentTarget.style.boxShadow = '0 0 15px rgba(0, 255, 136, 0.5)';
+                    e.currentTarget.style.boxShadow = '0 0 12px rgba(0, 255, 136, 0.5)';
                   }}
                   onMouseOut={e => {
                     e.currentTarget.style.transform = 'scale(1)';
-                    e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.3)';
+                    e.currentTarget.style.boxShadow = '0 0 8px rgba(0, 255, 136, 0.3)';
                   }}
                   title={focusedVideo.playing ? "Pause" : "Play"}
                 >
-                  {focusedVideo.playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                  {focusedVideo.playing ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
                 </button>
 
                 <button 
@@ -428,7 +531,7 @@ export function SoloPlayer({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '6px',
+                    padding: '4px',
                     borderRadius: '50%',
                     transition: 'background 0.2s'
                   }}
@@ -436,30 +539,102 @@ export function SoloPlayer({
                   onMouseOut={e => e.currentTarget.style.background = 'none'}
                   title="Step Forward (1 Frame)"
                 >
-                  <ChevronRight size={18} />
+                  <ChevronRight size={12} />
                 </button>
+
+                {/* Next Sibling Button (for videos) */}
+                <button 
+                  onClick={() => handleNavigateSibling(1)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px',
+                    borderRadius: '50%',
+                    transition: 'background 0.2s',
+                    pointerEvents: 'auto'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                  title="Next Media"
+                >
+                  <ChevronRight size={14} />
+                </button>
+
+                {/* Divider */}
+                <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
+
+                {/* Repeat Loop Toggles */}
+                <button 
+                  onClick={() => {
+                    const nextMode = focusedVideo.repeatMode === 'always' ? 'none' : 'always';
+                    useStore.getState().setGlobalRepeat(nextMode);
+                    setVideos(prev => prev.map(v => ({ ...v, repeatMode: nextMode })));
+                    addLog(`Repeat One: ${nextMode === 'always' ? 'Enabled Globals' : 'Disabled Globals'}`);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: focusedVideo.repeatMode === 'always' ? 'var(--accent, #00ff88)' : '#fff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px',
+                    borderRadius: '50%',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                  title="Repeat One (Loop Video)"
+                >
+                  <Repeat1 size={14} />
+                </button>
+
+                <button 
+                  onClick={() => {
+                    const nextMode = focusedVideo.repeatMode === 'folder' ? 'none' : 'folder';
+                    useStore.getState().setGlobalRepeat(nextMode);
+                    setVideos(prev => prev.map(v => ({ ...v, repeatMode: nextMode })));
+                    addLog(`Repeat All: ${nextMode === 'folder' ? 'Enabled Globals' : 'Disabled Globals'}`);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: focusedVideo.repeatMode === 'folder' ? 'var(--accent, #00ff88)' : '#fff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px',
+                    borderRadius: '50%',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                  title="Repeat All (Loop Folder)"
+                >
+                  <Repeat size={14} />
+                </button>
+
+                {/* Divider */}
+                <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
 
                 <div 
                   ref={soloVolumeContainerRef}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px'
+                    gap: '6px'
                   }}
                 >
                   <button 
                     onClick={() => {
-                      const currentlyMuted = masterMuted || focusedVideo.muted;
-                      if (currentlyMuted) {
-                        if (masterMuted) {
-                          toggleMasterMute(focusedVideo.id);
-                        }
-                        if (focusedVideo.muted) {
-                          onUpdateVideo(focusedVideo.id, { muted: false });
-                        }
-                      } else {
-                        toggleMasterMute(focusedVideo.id);
-                      }
+                      toggleMasterMute(focusedVideo.id);
                     }}
                     style={{
                       background: 'none',
@@ -469,22 +644,22 @@ export function SoloPlayer({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      padding: '6px',
+                      padding: '4px',
                       borderRadius: '50%',
                       transition: 'background 0.2s'
                     }}
                     onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
                     onMouseOut={e => e.currentTarget.style.background = 'none'}
-                    title={(masterMuted || focusedVideo.muted) ? "Unmute" : "Mute"}
+                    title={masterMuted ? "Unmute" : "Mute"}
                   >
-                    {(masterMuted || focusedVideo.muted) ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                    {masterMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
                   </button>
                   <input 
                     type="range"
                     min="0"
                     max="1"
                     step="0.01"
-                    value={(masterMuted || focusedVideo.muted) ? 0 : globalVolume}
+                    value={masterMuted ? 0 : globalVolume}
                     onChange={(e) => {
                       setGlobalVolume(parseFloat(e.target.value));
                       if (masterMuted) {
@@ -495,109 +670,56 @@ export function SoloPlayer({
                       }
                     }}
                     style={{
-                      width: '60px',
-                      height: '4px',
+                      width: '50px',
+                      height: '3px',
                       borderRadius: '2px',
-                      background: `linear-gradient(to right, var(--accent, #00ff88) ${((masterMuted || focusedVideo.muted) ? 0 : globalVolume) * 100}%, rgba(255, 255, 255, 0.2) ${((masterMuted || focusedVideo.muted) ? 0 : globalVolume) * 100}%)`,
+                      background: `linear-gradient(to right, var(--accent, #00ff88) ${(masterMuted ? 0 : globalVolume) * 100}%, rgba(255, 255, 255, 0.2) ${(masterMuted ? 0 : globalVolume) * 100}%)`,
                       outline: 'none',
                       cursor: 'pointer',
                       WebkitAppearance: 'none',
                       transition: 'all 0.2s'
                     }}
-                    title={`Volume: ${Math.round(((masterMuted || focusedVideo.muted) ? 0 : globalVolume) * 100)}% - Scroll to adjust`}
+                    title={`Volume: ${Math.round((masterMuted ? 0 : globalVolume) * 100)}% - Scroll to adjust`}
                   />
                 </div>
 
                 <button 
-                  onClick={() => setGlobalControl(`snapshot-${focusedVideo.id}-${Date.now()}`)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setGlobalControl(`snapshot-${focusedVideo.id}-${Date.now()}`);
+                  }}
                   style={{
-                    background: 'none',
-                    border: 'none',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.05)',
                     color: 'var(--accent, #00ff88)',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '6px',
+                    width: '28px',
+                    height: '28px',
                     borderRadius: '50%',
-                    transition: 'background 0.2s, transform 0.1s'
+                    transition: 'all 0.2s ease'
                   }}
                   onMouseOver={e => {
-                    e.currentTarget.style.background = 'rgba(0,255,136,0.08)';
-                    e.currentTarget.style.transform = 'scale(1.05)';
+                    e.currentTarget.style.background = 'rgba(0, 255, 136, 0.1)';
+                    e.currentTarget.style.borderColor = 'rgba(0, 255, 136, 0.2)';
+                    e.currentTarget.style.transform = 'scale(1.08)';
                   }}
                   onMouseOut={e => {
-                    e.currentTarget.style.background = 'none';
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
                     e.currentTarget.style.transform = 'scale(1)';
                   }}
                   title="Save Snapshot"
                 >
-                  <Camera size={18} />
-                </button>
-
-                <button 
-                  onClick={() => {
-                    if (snapshotDir && snapshotDir.trim() !== '') {
-                      invoke('open_folder', { path: snapshotDir });
-                    } else {
-                      invoke('open_folder', { path: 'default_snapshots' });
-                    }
-                  }}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--accent, #00ff88)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '6px',
-                    borderRadius: '50%',
-                    transition: 'background 0.2s, transform 0.1s'
-                  }}
-                  onMouseOver={e => {
-                    e.currentTarget.style.background = 'rgba(0,255,136,0.08)';
-                    e.currentTarget.style.transform = 'scale(1.05)';
-                  }}
-                  onMouseOut={e => {
-                    e.currentTarget.style.background = 'none';
-                    e.currentTarget.style.transform = 'scale(1)';
-                  }}
-                  title="Open Snapshots Folder"
-                >
-                  <FolderOpen size={18} />
+                  <Camera size={15} />
                 </button>
               </>
             )}
 
             {/* Divider */}
-            <div style={{ width: '1px', height: '16px', background: 'rgba(255, 255, 255, 0.12)' }} />
-
-            {/* Next Sibling Button */}
-            <button 
-              onClick={() => handleNavigateSibling(1)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#fff',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '4px',
-                borderRadius: '50%',
-                transition: 'background 0.2s',
-                pointerEvents: 'auto'
-              }}
-              onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-              onMouseOut={e => e.currentTarget.style.background = 'none'}
-              title="Next Media"
-            >
-              <ChevronRight size={20} />
-            </button>
-
-            {/* Divider */}
-            <div style={{ width: '1px', height: '16px', background: 'rgba(255, 255, 255, 0.12)' }} />
+            <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
 
             {/* Select Button */}
             <button
@@ -615,18 +737,18 @@ export function SoloPlayer({
                 });
               }}
               style={{
-                background: selectedIds.has(focusedVideo.id) ? 'rgba(0, 255, 136, 0.15)' : 'none',
-                border: selectedIds.has(focusedVideo.id) ? '1px solid rgba(0, 255, 136, 0.4)' : 'none',
-                color: selectedIds.has(focusedVideo.id) ? 'var(--accent, #00ff88)' : '#fff',
+                background: selectedIds.has(focusedVideo.id) ? 'var(--accent, #00ff88)' : 'none',
+                border: selectedIds.has(focusedVideo.id) ? '1px solid var(--accent, #00ff88)' : '1px solid rgba(255, 255, 255, 0.2)',
+                color: selectedIds.has(focusedVideo.id) ? '#000' : '#fff',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '6px 14px',
+                padding: '4px 10px',
                 borderRadius: '20px',
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: 'bold',
-                gap: '6px',
+                gap: '4px',
                 transition: 'all 0.2s',
                 pointerEvents: 'auto'
               }}
@@ -634,24 +756,24 @@ export function SoloPlayer({
                 if (!selectedIds.has(focusedVideo.id)) {
                   e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
                 } else {
-                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.25)';
+                  e.currentTarget.style.background = 'var(--accent-hover, #00dd77)';
                 }
               }}
               onMouseOut={e => {
                 if (!selectedIds.has(focusedVideo.id)) {
                   e.currentTarget.style.background = 'none';
                 } else {
-                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.15)';
+                  e.currentTarget.style.background = 'var(--accent, #00ff88)';
                 }
               }}
               title={selectedIds.has(focusedVideo.id) ? "Deselect video" : "Select video"}
             >
-              <CheckCircle2 size={16} />
+              <CheckCircle2 size={13} />
               <span>{selectedIds.has(focusedVideo.id) ? 'SELECTED' : 'SELECT'}</span>
             </button>
 
             {/* Divider */}
-            <div style={{ width: '1px', height: '16px', background: 'rgba(255, 255, 255, 0.12)' }} />
+            <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
 
             {/* Actions Menu (⋯) Button */}
             <button
@@ -667,7 +789,7 @@ export function SoloPlayer({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '6px',
+                padding: '4px',
                 borderRadius: '50%',
                 transition: 'background 0.2s',
                 pointerEvents: 'auto'
@@ -676,7 +798,7 @@ export function SoloPlayer({
               onMouseOut={e => e.currentTarget.style.background = 'none'}
               title="More Actions"
             >
-              <MoreHorizontal size={18} />
+              <MoreHorizontal size={14} />
             </button>
           </div>
         )}

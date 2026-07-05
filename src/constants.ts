@@ -29,8 +29,8 @@ export const STEP_INTERVAL = 100; // ms - Interval between frame steps when hold
 export const STEP_DELAY = 400; // ms - Delay before repeating frame steps
 
 // Snapshot
-export const SNAPSHOT_TOAST_DURATION = 2000; // ms - How long to show snapshot notification
-export const SNAPSHOT_THUMBNAIL_DURATION = 1600; // ms - Alternative duration for thumbnails
+export const SNAPSHOT_TOAST_DURATION = 8000; // ms - How long to show snapshot notification
+export const SNAPSHOT_THUMBNAIL_DURATION = 8000; // ms - Duration for the toast with Open Folder button
 
 // UI
 export const IMMERSIVE_HIDE_DELAY = 3000; // ms - Delay before hiding UI in immersive mode

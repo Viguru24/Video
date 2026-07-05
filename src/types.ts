@@ -38,7 +38,9 @@ export interface VideoItem {
   repeatMode: RepeatMode;
   repeatCount: number;
   cols: number;
-  folderFiles?: { name: string; url: string; path: string }[];
+  folderFiles?: { name: string; url: string; path: string; size?: number; modified?: number; created?: number }[];
+  folderPath?: string;
+  folderMode?: 'video' | 'picture' | 'all';
   currentIdx?: number;
   playing: boolean;
   muted: boolean;
@@ -47,7 +49,23 @@ export interface VideoItem {
   currentTime?: number;
   colorFilters?: ColorFilters;
   prevColorFilters?: ColorFilters;
+  size?: number;
+  modified?: number;
+  created?: number;
 }
+
+export type SortOption =
+  | 'custom'
+  | 'name-asc'
+  | 'name-desc'
+  | 'size-asc'
+  | 'size-desc'
+  | 'modified-newest'
+  | 'modified-oldest'
+  | 'created-newest'
+  | 'created-oldest'
+  | 'videos-first'
+  | 'pictures-first';
 
 export interface TelemetryData {
   cpu: string;
@@ -71,6 +89,7 @@ export interface CollageItem {
   zIndex: number;
   playing: boolean;
   muted: boolean;
+  fitMode?: 'cover' | 'contain';
 }
 
 export interface CollageConfig {

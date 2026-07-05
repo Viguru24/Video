@@ -43,6 +43,8 @@ interface SortableVideoCardProps {
   onColorAdjust?: (id: string) => void;
   onStartCrop?: (id: string) => void;
   onAddVideo?: (newVideo: VideoItem) => void;
+  isStickerLoading?: boolean;
+  onCreateSticker?: (video: VideoItem) => void;
 }
 
 import { useStore } from '../store/useStore';

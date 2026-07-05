@@ -1,38 +1,109 @@
 /**
  * Workspace Persistence Hook
- * 
+ *
  * Manages application state persistence using Tauri's file system API.
  * Automatically saves and loads workspace state including videos, collections,
  * settings, and preferences.
- * 
+ *
  * Features:
  * - Auto-save with debouncing (PERSISTENCE_DEBOUNCE)
- * - Boot guard to ensure initialization
+ * - Single readyToSaveRef gate: only opens after full init completes
  * - Legacy data migration support
  * - Type-safe state management
- * 
+ *
  * @param addLog - Logging function for telemetry
  * @param isPopout - Whether this is a popout window
  * @param masterMuted - Master mute state
  * @param masterPlaying - Master play state
  * @returns Workspace state and setters
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem, RepeatMode } from '../types';
 import { PERSISTENCE_DEBOUNCE } from '../constants';
-import { isValidVideoExtension, isValidPictureExtension, convertToVideoUrl, toCosmoUrl, isTauri, toRealPath } from '../utils/videoUtils';
+import {
+  isValidVideoExtension, isValidPictureExtension,
+  toCosmoUrl, isTauri, toRealPath
+} from '../utils/videoUtils';
 import { useStore } from '../store/useStore';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
-/** Strip null bytes and control characters from a persisted string. Returns empty string if the result is unusable. */
+/** Strip null bytes and control characters from a persisted string. */
 function sanitizePersistedString(s: string | null | undefined): string {
   if (!s) return '';
-  // Remove null bytes (\x00) and other ASCII control characters
-  const cleaned = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
-  return cleaned;
+  return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
 }
 
-export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout: boolean, masterMuted: boolean, masterPlaying: boolean) {
+export function cleanVideosForPersistence(
+  vids: VideoItem[],
+  opts?: { keepPictures?: boolean }
+): VideoItem[] {
+  return vids.map(v => {
+      const isFolderType = v.repeatMode === 'folder' || !!v.folderPath ||
+        (Array.isArray(v.folderFiles) && v.folderFiles.length > 0);
+      if (isFolderType) {
+        let inferredFolderPath = v.folderPath;
+        if (!inferredFolderPath && (v.realPath || v.url)) {
+          const path = v.realPath || v.url;
+          const sep = path.includes('\\') ? '\\' : '/';
+          const lastIdx = path.lastIndexOf(sep);
+          if (lastIdx !== -1) inferredFolderPath = path.substring(0, lastIdx);
+        }
+        const isPictureFolder =
+          v.folderMode === 'picture' ||
+          (v.folderFiles && v.folderFiles.some(f => isValidPictureExtension(f.path)));
+        return {
+          ...v,
+          folderFiles: [],
+          folderPath: inferredFolderPath,
+          folderMode: v.folderMode || (isPictureFolder ? 'picture' : 'video'),
+          url: isPictureFolder ? '' : v.url,
+          realPath: isPictureFolder ? '' : v.realPath,
+          title: isPictureFolder
+            ? (/\.(jpg|jpeg|png|gif|webp)$/i.test(v.title) ? 'Image Folder' : v.title)
+            : v.title,
+          currentIdx: 0,
+        };
+      }
+      return v;
+    });
+}
+
+export function cleanCollectionsForPersistence(
+  colls: Record<string, VideoItem[]>
+): Record<string, VideoItem[]> {
+  const result: Record<string, VideoItem[]> = {};
+  for (const [name, vids] of Object.entries(colls)) {
+    // Collections are explicitly saved by the user — preserve ALL tile types
+    // (including pictures). Only strip folderFiles arrays to reduce file size.
+    result[name] = cleanVideosForPersistence(vids, { keepPictures: true });
+  }
+  return result;
+}
+
+/** Deserialise one saved VideoItem, fixing up cosmo:// URLs. */
+function hydrateItem(item: any): VideoItem {
+  const cleanPath =
+    toRealPath(item.realPath) || toRealPath(item.url) || item.realPath || item.url;
+  const updatedUrl = toCosmoUrl(cleanPath);
+  const updatedRealPath = toRealPath(cleanPath) || cleanPath;
+
+  let updatedFolderFiles = item.folderFiles;
+  if (Array.isArray(item.folderFiles)) {
+    updatedFolderFiles = item.folderFiles.map((ff: any) => {
+      const ffPath = toRealPath(ff.path) || toRealPath(ff.url) || ff.path || ff.url;
+      return { ...ff, url: toCosmoUrl(ffPath), path: toRealPath(ffPath) || ffPath };
+    });
+  }
+  return { ...item, url: updatedUrl, realPath: updatedRealPath, folderFiles: updatedFolderFiles };
+}
+
+export function useWorkspacePersistence(
+  addLog: (msg: string) => void,
+  isPopout: boolean,
+  masterMuted: boolean,
+  masterPlaying: boolean
+) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [collections, setCollections] = useState<Record<string, VideoItem[]>>({});
   const [rotationInterval, setRotationInterval] = useState(10);
@@ -43,27 +114,59 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
   const setGlobalRepeat = useStore(state => state.setGlobalRepeat);
   const [confirmDeletion, setConfirmDeletion] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
-  const isLoadedRef = useRef(false);
-  const hasLoadedRef = useRef(false);
 
-  // PERSISTENCE (Native) & BOOT GUARD
+  /**
+   * Single gate ref. Only becomes true after the full init() Promise resolves
+   * (or the boot guard fires). Nothing will be written to disk/localStorage
+   * until this is true, preventing boot-time overwrites.
+   */
+  const readyToSaveRef = useRef(false);
+
+  // Keep a ref to the latest state values to avoid stale closures on beforeunload
+  const stateRef = useRef({
+    videos,
+    collections,
+    rotationInterval,
+    snapshotDir,
+    theme,
+    globalRepeat,
+    confirmDeletion
+  });
+
+  useEffect(() => {
+    stateRef.current = {
+      videos,
+      collections,
+      rotationInterval,
+      snapshotDir,
+      theme,
+      globalRepeat,
+      confirmDeletion
+    };
+  }, [videos, collections, rotationInterval, snapshotDir, theme, globalRepeat, confirmDeletion]);
+
+  // ─── BOOT: LOAD PERSISTENCE ─────────────────────────────────────────────────
   useEffect(() => {
     if (isPopout) {
-      hasLoadedRef.current = true;
+      readyToSaveRef.current = true;
       setIsInitialized(true);
       return;
     }
+
     let mounted = true;
+
+    // Safety net: if init hangs for >5 s, open the save gate anyway
     const bootGuard = setTimeout(() => {
-      if (mounted && !isInitialized) {
-        isLoadedRef.current = true;
+      if (mounted && !readyToSaveRef.current) {
+        readyToSaveRef.current = true;
         setIsInitialized(true);
-        addLog("Boot Guard Triggered: Forcing Initialization");
+        addLog('Boot Guard Triggered: Forcing Initialization');
       }
-    }, 3000);
+    }, 5000);
 
     async function init() {
       try {
+        // ── Read raw strings ──────────────────────────────────────────────
         let v: string | null = null;
         let c: string | null = null;
         let r: string | null = null;
@@ -80,242 +183,448 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
           c = await invoke<string | null>('load_persistence', { key: 'cosmo-collections' });
           if (!c) c = await invoke<string | null>('load_persistence', { key: 'cosmo-video-collections' });
 
-          // Double-redundancy: fall back to localStorage if Tauri files are empty/corrupted
+          // Double-redundancy: fall back to localStorage if Tauri files are empty
           if (!v) v = localStorage.getItem('cosmo-v2') || localStorage.getItem('cosmo-video-v2') || localStorage.getItem('cosmo-video');
           if (!c) c = localStorage.getItem('cosmo-collections') || localStorage.getItem('cosmo-video-collections');
 
-          r = await invoke<string | null>('load_persistence', { key: 'cosmo-rot-int' });
-          s = await invoke<string | null>('load_persistence', { key: 'cosmo-snap-dir' });
-          t = await invoke<string | null>('load_persistence', { key: 'cosmo-theme' });
+          r  = await invoke<string | null>('load_persistence', { key: 'cosmo-rot-int' });
+          s  = await invoke<string | null>('load_persistence', { key: 'cosmo-snap-dir' });
+          t  = await invoke<string | null>('load_persistence', { key: 'cosmo-theme' });
           gr = await invoke<string | null>('load_persistence', { key: 'cosmo-repeat' });
           cd = await invoke<string | null>('load_persistence', { key: 'cosmo-confirm-del' });
         } else {
-          v = localStorage.getItem('cosmo-v2') || localStorage.getItem('cosmo-video-v2') || localStorage.getItem('cosmo-video');
-          c = localStorage.getItem('cosmo-collections') || localStorage.getItem('cosmo-video-collections');
-          r = localStorage.getItem('cosmo-rot-int');
-          s = localStorage.getItem('cosmo-snap-dir');
-          t = localStorage.getItem('cosmo-theme');
+          v  = localStorage.getItem('cosmo-v2') || localStorage.getItem('cosmo-video-v2') || localStorage.getItem('cosmo-video');
+          c  = localStorage.getItem('cosmo-collections') || localStorage.getItem('cosmo-video-collections');
+          r  = localStorage.getItem('cosmo-rot-int');
+          s  = localStorage.getItem('cosmo-snap-dir');
+          t  = localStorage.getItem('cosmo-theme');
           gr = localStorage.getItem('cosmo-repeat');
           cd = localStorage.getItem('cosmo-confirm-del');
         }
 
-        if (mounted) {
-          if (t) setTheme(t);
-          if (v) {
-            try {
-              const parsed = JSON.parse(v);
-              if (Array.isArray(parsed)) {
-                  const filteredVids = parsed.filter(v => {
-                    const path = v.realPath || v.url;
-                    return isValidVideoExtension(path) || isValidPictureExtension(path);
-                  }).map(v => {
-                    // MIGRATION: Convert to high-performance cosmo:// protocol and upgrade realPath
-                    const cleanPath = toRealPath(v.realPath) || toRealPath(v.url) || v.realPath || v.url;
-                    const updatedUrl = toCosmoUrl(cleanPath);
-                    const updatedRealPath = toRealPath(cleanPath) || cleanPath;
+        if (!mounted) return;
 
-                    let updatedFolderFiles = v.folderFiles;
-                    if (Array.isArray(v.folderFiles)) {
-                      updatedFolderFiles = v.folderFiles.map((ff: any) => {
-                        const ffPath = toRealPath(ff.path) || toRealPath(ff.url) || ff.path || ff.url;
-                        return {
-                          ...ff,
-                          url: toCosmoUrl(ffPath),
-                          path: toRealPath(ffPath) || ffPath
-                        };
-                      });
-                    }
+        // ── Apply scalar settings ─────────────────────────────────────────
+        if (t)  setTheme(t);
+        if (r)  setRotationInterval(parseInt(r) || 10);
+        const cleanSnapDir = sanitizePersistedString(s);
+        if (cleanSnapDir) setSnapshotDir(cleanSnapDir);
+        if (gr) setGlobalRepeat(sanitizePersistedString(gr) as RepeatMode);
+        if (cd) setConfirmDeletion(cd === 'true');
 
-                    return { 
-                      ...v, 
-                      url: updatedUrl, 
-                      realPath: updatedRealPath,
-                      folderFiles: updatedFolderFiles,
-                      muted: masterMuted, 
-                      playing: masterPlaying 
-                    };
-                  });
-                setVideos(filteredVids);
-              } else {
-                setVideos([]);
-              }
-            } catch { setVideos([]); }
+        // ── Enforce Demo Symphony Workspace Collection ────────────────────
+        const defaultDemoItems: VideoItem[] = [
+          {
+            id: 'demo-1',
+            title: 'Work Colleagues',
+            url: '/demos/promo_001.mp4',
+            repeatMode: 'all',
+            repeatCount: 0,
+            playing: true,
+            muted: true
+          },
+          {
+            id: 'demo-2',
+            title: 'Space Command',
+            url: '/demos/promo_002.mp4',
+            repeatMode: 'all',
+            repeatCount: 0,
+            playing: true,
+            muted: true
+          },
+          {
+            id: 'demo-3',
+            title: 'Girl Listening to Music',
+            url: '/demos/promo_003.mp4',
+            repeatMode: 'all',
+            repeatCount: 0,
+            playing: true,
+            muted: true
+          },
+          {
+            id: 'demo-4',
+            title: 'Glowing Flower',
+            url: '/demos/promo_004.mp4',
+            repeatMode: 'all',
+            repeatCount: 0,
+            playing: true,
+            muted: true
+          },
+          {
+            id: 'demo-5',
+            title: 'Sixties Cinematic',
+            url: '/demos/promo_005.mp4',
+            repeatMode: 'all',
+            repeatCount: 0,
+            playing: true,
+            muted: true
+          },
+          {
+            id: 'demo-6',
+            title: 'Rainy City',
+            url: '/demos/promo_006.mp4',
+            repeatMode: 'all',
+            repeatCount: 0,
+            playing: true,
+            muted: true
+          },
+          {
+            id: 'demo-7',
+            title: 'Chameleon in Forest',
+            url: '/demos/chameleon.webp',
+            repeatMode: 'none',
+            repeatCount: 0,
+            playing: false,
+            muted: true
+          },
+          {
+            id: 'demo-8',
+            title: 'Helicopter Waterfall',
+            url: '/demos/promo_008.mp4',
+            repeatMode: 'all',
+            repeatCount: 0,
+            playing: true,
+            muted: true
+          },
+          {
+            id: 'demo-9',
+            title: 'Man with Cat',
+            url: '/demos/man_cat.webp',
+            repeatMode: 'none',
+            repeatCount: 0,
+            playing: false,
+            muted: true
+          },
+          {
+            id: 'demo-10',
+            title: 'Chameleon in Forest (Alt)',
+            url: '/demos/chameleon.webp',
+            repeatMode: 'none',
+            repeatCount: 0,
+            playing: false,
+            muted: true
+          },
+          {
+            id: 'demo-11',
+            title: 'Chinese Lady Drinking Tea',
+            url: '/demos/chinese_lady_tea.webp',
+            repeatMode: 'none',
+            repeatCount: 0,
+            playing: false,
+            muted: true
+          },
+          {
+            id: 'demo-12',
+            title: 'Native American Elder',
+            url: '/demos/abstract_art_1.webp',
+            repeatMode: 'none',
+            repeatCount: 0,
+            playing: false,
+            muted: true
+          },
+          {
+            id: 'demo-13',
+            title: 'Monitor Setup',
+            url: '/demos/abstract_art_2.webp',
+            repeatMode: 'none',
+            repeatCount: 0,
+            playing: false,
+            muted: true
+          },
+          {
+            id: 'demo-14',
+            title: 'Friends Walking',
+            url: '/demos/friends_town.webp',
+            repeatMode: 'none',
+            repeatCount: 0,
+            playing: false,
+            muted: true
           }
-          if (c) {
-            try {
-              const parsed = JSON.parse(c);
-              if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
-                // MIGRATION: Convert to high-performance cosmo:// protocol
-                const migrated = Object.entries(parsed).reduce((acc, [name, items]) => {
-                  if (Array.isArray(items)) {
-                    acc[name] = items.map(v => {
-                      const cleanPath = toRealPath(v.realPath) || toRealPath(v.url) || v.realPath || v.url;
-                      const updatedUrl = toCosmoUrl(cleanPath);
-                      const updatedRealPath = toRealPath(cleanPath) || cleanPath;
-
-                      let updatedFolderFiles = v.folderFiles;
-                      if (Array.isArray(v.folderFiles)) {
-                        updatedFolderFiles = v.folderFiles.map((ff: any) => {
-                          const ffPath = toRealPath(ff.path) || toRealPath(ff.url) || ff.path || ff.url;
-                          return {
-                            ...ff,
-                            url: toCosmoUrl(ffPath),
-                            path: toRealPath(ffPath) || ffPath
-                          };
-                        });
-                      }
-
-                      return { 
-                        ...v, 
-                        url: updatedUrl, 
-                        realPath: updatedRealPath,
-                        folderFiles: updatedFolderFiles
-                      };
-                    });
-                  }
-                  return acc;
-                }, {} as Record<string, VideoItem[]>);
-                setCollections(migrated);
-              } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                // Was an empty object, preserve it
-                setCollections({});
-              } else {
-                setCollections({ "Cinematic Symphony": [] });
+        ];
+        
+        let loadedCollections: Record<string, VideoItem[]> = {
+          "Demo Symphony": defaultDemoItems
+        };
+        if (c) {
+          try {
+            const parsed = JSON.parse(c);
+            if (parsed && typeof parsed === 'object') {
+              const hydrated: Record<string, VideoItem[]> = {};
+              for (const [name, list] of Object.entries(parsed)) {
+                if (Array.isArray(list)) {
+                  hydrated[name] = list.map(item => hydrateItem(item));
+                }
               }
-            } catch { setCollections({ "Cinematic Symphony": [] }); }
-          } else {
-            setCollections({ "Cinematic Symphony": [] });
+              loadedCollections = {
+                ...loadedCollections,
+                ...hydrated,
+                "Demo Symphony": defaultDemoItems // Enforce default demo set is always present
+              };
+            }
+          } catch (err) {
+            console.error('Failed to parse collections json:', err);
           }
-          if (r) setRotationInterval(parseInt(r) || 10);
-          const cleanSnapDir = sanitizePersistedString(s);
-          if (cleanSnapDir) setSnapshotDir(cleanSnapDir);
-          if (gr) setGlobalRepeat(sanitizePersistedString(gr) as RepeatMode);
-          if (cd) setConfirmDeletion(cd === 'true');
-
-          hasLoadedRef.current = true;
-          isLoadedRef.current = true;
-          setIsInitialized(true);
-          addLog("Mission Control Initialized");
-          clearTimeout(bootGuard);
         }
+        setCollections(loadedCollections);
+
+        // ── Parse videos, then scan their folders ─────────────────────────
+        let initialVids: VideoItem[] = [];
+        if (v) {
+          try {
+            const parsed = JSON.parse(v);
+            if (Array.isArray(parsed)) {
+              initialVids = parsed
+                .filter(item => {
+                  if (item.repeatMode === 'folder' || item.folderPath) return true;
+                  const path = item.realPath || item.url;
+                  return isValidVideoExtension(path) || isValidPictureExtension(path);
+                })
+                .map(item => ({
+                  ...hydrateItem(item),
+                  muted: masterMuted,
+                  playing: masterPlaying,
+                }));
+            }
+          } catch (err) {
+            console.error('Failed to parse videos json:', err);
+          }
+        }
+
+        if (!mounted) return;
+
+        setVideos(initialVids);
+
+        // ── Open the save gate NOW, after all data is loaded ──────────────
+        readyToSaveRef.current = true;
+        setIsInitialized(true);
+        clearTimeout(bootGuard);
+        addLog('Mission Control Initialized');
+
+        // Now, asynchronously scan folders in the background without blocking the UI boot!
+        initialVids.forEach(async (item) => {
+          if ((item.repeatMode === 'folder' || item.folderPath) && item.folderPath) {
+            try {
+              const scanned = await invoke<{ name: string; url: string }[]>(
+                'get_folder_videos',
+                { path: item.folderPath, mode: item.folderMode || 'all' }
+              );
+              if (scanned && scanned.length > 0 && mounted) {
+                scanned.sort((a, b) =>
+                  a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+                );
+                const folderWithUrls = scanned.map(fi => ({
+                  name: fi.name,
+                  url: toCosmoUrl(fi.url),
+                  path: fi.url,
+                }));
+                // Update this specific video item in the state
+                setVideos(prev => prev.map(v => v.id === item.id ? {
+                  ...v,
+                  folderFiles: folderWithUrls,
+                  url: toCosmoUrl(scanned[0].url),
+                  realPath: scanned[0].url,
+                  title: scanned[0].name,
+                } : v));
+              }
+            } catch (err) {
+              console.error(`Failed to scan folder asynchronously: ${item.folderPath}`, err);
+            }
+          }
+        });
       } catch (err) {
-        console.error("Init Failure:", err);
+        console.error('Init Failure:', err);
         if (mounted) {
-          hasLoadedRef.current = true;
-          isLoadedRef.current = true;
+          readyToSaveRef.current = true;
           setIsInitialized(true);
+          clearTimeout(bootGuard);
         }
       }
     }
-    init();
-    return () => { mounted = false; clearTimeout(bootGuard); };
-  }, [addLog, isPopout]); // Removed masterMuted/masterPlaying from deps to avoid re-init on toggle
 
-  // INDIVIDUAL DEBOUNCED PERSISTENCE (Multi-layer: writes to both disk and localStorage in Tauri)
+    init();
+    return () => {
+      mounted = false;
+      clearTimeout(bootGuard);
+    };
+  }, [addLog, isPopout]); // intentionally omit masterMuted/masterPlaying to avoid re-init on toggle
+
+  // ─── SAVE: ACTIVE WORKSPACE ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!isInitialized || isPopout || !isLoadedRef.current || !hasLoadedRef.current) return;
+    if (!isInitialized || isPopout || !readyToSaveRef.current) return;
     const timer = setTimeout(() => {
-      const dataStr = JSON.stringify(videos);
-      if (isTauri()) {
-        invoke('save_persistence', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
-      }
+      const dataStr = JSON.stringify(cleanVideosForPersistence(videos));
+      if (isTauri()) invoke('save_persistence', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
       localStorage.setItem('cosmo-v2', dataStr);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [videos, isInitialized, isPopout]);
 
-  // INSTANT PERSISTENCE FOR COLLECTIONS (No debounce, user manual actions, saves to both disk and localStorage)
+  // ─── SAVE: COLLECTIONS (debounced to avoid spurious boot writes) ─────────────
   useEffect(() => {
-    if (!isInitialized || isPopout || !isLoadedRef.current || !hasLoadedRef.current) return;
-    const dataStr = JSON.stringify(collections);
-    if (isTauri()) {
-      invoke('save_persistence', { key: 'cosmo-collections', data: dataStr }).catch(console.error);
-    }
-    localStorage.setItem('cosmo-collections', dataStr);
+    if (!isInitialized || isPopout || !readyToSaveRef.current) return;
+    const timer = setTimeout(() => {
+      const dataStr = JSON.stringify(cleanCollectionsForPersistence(collections));
+      if (isTauri()) invoke('save_persistence', { key: 'cosmo-collections', data: dataStr }).catch(console.error);
+      localStorage.setItem('cosmo-collections', dataStr);
+    }, 300); // short debounce — fast enough for manual saves, long enough to skip boot noise
+    return () => clearTimeout(timer);
   }, [collections, isInitialized, isPopout]);
 
+  // ─── SAVE: ROTATION INTERVAL ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!isInitialized || isPopout || !isLoadedRef.current || !hasLoadedRef.current) return;
+    if (!isInitialized || isPopout || !readyToSaveRef.current) return;
     const timer = setTimeout(() => {
       const dataStr = rotationInterval.toString();
-      if (isTauri()) {
-        invoke('save_persistence', { key: 'cosmo-rot-int', data: dataStr }).catch(console.error);
-      }
+      if (isTauri()) invoke('save_persistence', { key: 'cosmo-rot-int', data: dataStr }).catch(console.error);
       localStorage.setItem('cosmo-rot-int', dataStr);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [rotationInterval, isInitialized, isPopout]);
 
+  // ─── SAVE: SNAPSHOT DIR ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isInitialized || isPopout || !isLoadedRef.current || !hasLoadedRef.current || !snapshotDir) return;
+    if (!isInitialized || isPopout || !readyToSaveRef.current || !snapshotDir) return;
     const timer = setTimeout(() => {
-      if (isTauri()) {
-        invoke('save_persistence', { key: 'cosmo-snap-dir', data: snapshotDir }).catch(console.error);
-      }
+      if (isTauri()) invoke('save_persistence', { key: 'cosmo-snap-dir', data: snapshotDir }).catch(console.error);
       localStorage.setItem('cosmo-snap-dir', snapshotDir);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [snapshotDir, isInitialized, isPopout]);
 
+  // ─── SAVE: THEME ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isInitialized || isPopout || !isLoadedRef.current || !hasLoadedRef.current) return;
+    if (!isInitialized || isPopout || !readyToSaveRef.current) return;
     const timer = setTimeout(() => {
-      if (isTauri()) {
-        invoke('save_persistence', { key: 'cosmo-theme', data: theme }).catch(console.error);
-      }
+      if (isTauri()) invoke('save_persistence', { key: 'cosmo-theme', data: theme }).catch(console.error);
       localStorage.setItem('cosmo-theme', theme);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [theme, isInitialized, isPopout]);
 
+  // ─── SAVE: GLOBAL REPEAT ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isInitialized || isPopout || !isLoadedRef.current || !hasLoadedRef.current) return;
+    if (!isInitialized || isPopout || !readyToSaveRef.current) return;
     const timer = setTimeout(() => {
-      if (isTauri()) {
-        invoke('save_persistence', { key: 'cosmo-repeat', data: globalRepeat }).catch(console.error);
-      }
+      if (isTauri()) invoke('save_persistence', { key: 'cosmo-repeat', data: globalRepeat }).catch(console.error);
       localStorage.setItem('cosmo-repeat', globalRepeat);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [globalRepeat, isInitialized, isPopout]);
 
+  // ─── SAVE: CONFIRM DELETION ───────────────────────────────────────────────────
   useEffect(() => {
-    if (!isInitialized || isPopout || !isLoadedRef.current || !hasLoadedRef.current) return;
+    if (!isInitialized || isPopout || !readyToSaveRef.current) return;
     const timer = setTimeout(() => {
       const dataStr = confirmDeletion.toString();
-      if (isTauri()) {
-        invoke('save_persistence', { key: 'cosmo-confirm-del', data: dataStr }).catch(console.error);
-      }
+      if (isTauri()) invoke('save_persistence', { key: 'cosmo-confirm-del', data: dataStr }).catch(console.error);
       localStorage.setItem('cosmo-confirm-del', dataStr);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [confirmDeletion, isInitialized, isPopout]);
 
-  // EMERGENCY BACKUP SAVE ON WINDOW UNLOAD
+  // ─── SAVE ON CLOSE (Tauri onCloseRequested — more reliable than beforeunload) ─
   useEffect(() => {
-    if (isPopout) return;
-    const handleBeforeUnload = () => {
-      if (isLoadedRef.current && isInitialized) {
-        const videosStr = JSON.stringify(videos);
-        const collectionsStr = JSON.stringify(collections);
-        localStorage.setItem('cosmo-v2', videosStr);
-        localStorage.setItem('cosmo-collections', collectionsStr);
-        localStorage.setItem('cosmo-rot-int', rotationInterval.toString());
-        if (snapshotDir) localStorage.setItem('cosmo-snap-dir', snapshotDir);
-        localStorage.setItem('cosmo-theme', theme);
-        localStorage.setItem('cosmo-repeat', globalRepeat);
-        localStorage.setItem('cosmo-confirm-del', confirmDeletion.toString());
+    if (isPopout || !isTauri()) return;
 
-        if (isTauri()) {
-          // Fire-and-forget native disk saves before Webview is destroyed
-          invoke('save_persistence', { key: 'cosmo-v2', data: videosStr }).catch(() => {});
-          invoke('save_persistence', { key: 'cosmo-collections', data: collectionsStr }).catch(() => {});
-        }
+    let unlisten: (() => void) | null = null;
+    let isClosing = false; // prevent re-entrant close (taskbar + X simultaneously)
+
+    const setup = async () => {
+      try {
+        // Cache window handle at setup time — safer than calling inside handler
+        const appWindow = getCurrentWindow();
+
+        unlisten = await appWindow.onCloseRequested(async (event) => {
+          event.preventDefault();
+
+          // Guard: if we're already running the close sequence, bail
+          if (isClosing) return;
+          isClosing = true;
+
+          try {
+            if (readyToSaveRef.current) {
+              const {
+                videos: curVideos,
+                collections: curCollections,
+                rotationInterval: curRot,
+                snapshotDir: curSnap,
+                theme: curTheme,
+                globalRepeat: curRepeat,
+                confirmDeletion: curConfirm
+              } = stateRef.current;
+
+              const videosStr      = JSON.stringify(cleanVideosForPersistence(curVideos));
+              const collectionsStr = JSON.stringify(cleanCollectionsForPersistence(curCollections));
+
+              // Synchronous localStorage writes — always succeed instantly
+              localStorage.setItem('cosmo-v2',          videosStr);
+              localStorage.setItem('cosmo-collections', collectionsStr);
+              localStorage.setItem('cosmo-rot-int',     curRot.toString());
+              if (curSnap) localStorage.setItem('cosmo-snap-dir', curSnap);
+              localStorage.setItem('cosmo-theme',       curTheme);
+              localStorage.setItem('cosmo-repeat',      curRepeat);
+              localStorage.setItem('cosmo-confirm-del', curConfirm.toString());
+
+              // Tauri IPC saves with a hard 2s timeout.
+              // If the Rust backend is dead/hanging (common during taskbar close),
+              // we still close the window instead of freezing forever.
+              const tauriSaves = Promise.allSettled([
+                invoke('save_persistence', { key: 'cosmo-v2',          data: videosStr      }),
+                invoke('save_persistence', { key: 'cosmo-collections', data: collectionsStr }),
+              ]);
+              await Promise.race([
+                tauriSaves,
+                new Promise(resolve => setTimeout(resolve, 2000)),
+              ]);
+            }
+          } catch (saveErr) {
+            console.error('Save-on-close error (will still close):', saveErr);
+          } finally {
+            // ALWAYS close the window — no matter what happened above
+            try {
+              await appWindow.destroy();
+            } catch {
+              // Last resort if destroy() itself fails
+              window.close();
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Failed to register onCloseRequested:', err);
       }
+    };
+
+    setup();
+    return () => { if (unlisten) unlisten(); };
+  }, [isPopout]);
+
+  // ─── FALLBACK: beforeunload for non-Tauri / web mode ─────────────────────────
+  useEffect(() => {
+    if (isPopout || isTauri()) return; // Tauri uses onCloseRequested above
+    const handleBeforeUnload = () => {
+      if (!readyToSaveRef.current) return;
+      const {
+        videos: curVideos,
+        collections: curCollections,
+        rotationInterval: curRot,
+        snapshotDir: curSnap,
+        theme: curTheme,
+        globalRepeat: curRepeat,
+        confirmDeletion: curConfirm
+      } = stateRef.current;
+      const videosStr      = JSON.stringify(cleanVideosForPersistence(curVideos));
+      const collectionsStr = JSON.stringify(cleanCollectionsForPersistence(curCollections));
+      localStorage.setItem('cosmo-v2',          videosStr);
+      localStorage.setItem('cosmo-collections', collectionsStr);
+      localStorage.setItem('cosmo-rot-int',     curRot.toString());
+      if (curSnap) localStorage.setItem('cosmo-snap-dir', curSnap);
+      localStorage.setItem('cosmo-theme',       curTheme);
+      localStorage.setItem('cosmo-repeat',      curRepeat);
+      localStorage.setItem('cosmo-confirm-del', curConfirm.toString());
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [videos, collections, rotationInterval, snapshotDir, theme, globalRepeat, confirmDeletion, isInitialized]);
+  }, [isPopout]);
 
   return {
     videos, setVideos,
@@ -323,6 +632,6 @@ export function useWorkspacePersistence(addLog: (msg: string) => void, isPopout:
     rotationInterval, setRotationInterval,
     snapshotDir, setSnapshotDir,
     confirmDeletion, setConfirmDeletion,
-    isInitialized, setIsInitialized
+    isInitialized, setIsInitialized,
   };
 }

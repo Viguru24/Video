@@ -424,19 +424,26 @@ export function ColorAdjustmentPanel({
           <button onClick={handleRedo} disabled={!video.prevColorFilters || isSaving} title="Restore previous adjustments">Redo</button>
         </div>
 
-        {video.realPath && (
-          <div className="save-action-container">
-            <button 
-              className="save-disk-btn" 
-              onClick={() => setShowSaveOptions(true)}
-              title="Bake adjustments directly to the media file on disk"
-              disabled={isSaving}
-            >
-              <Save size={12} />
-              <span>Save to Disk</span>
-            </button>
-          </div>
-        )}
+        <div className="save-action-container" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+          <button 
+            className="save-disk-btn" 
+            onClick={onClose}
+            title="Keep adjustments in the current workspace session"
+            style={{ background: 'rgba(255, 255, 255, 0.08)', flex: 1 }}
+          >
+            <span>Apply</span>
+          </button>
+          <button 
+            className="save-disk-btn" 
+            onClick={() => setShowSaveOptions(true)}
+            title={video.realPath ? "Bake adjustments directly to the media file on disk" : "Cannot save to disk because the native file path was not resolved"}
+            disabled={isSaving || !video.realPath}
+            style={{ flex: 1.5 }}
+          >
+            <Save size={12} />
+            <span>Save to Disk</span>
+          </button>
+        </div>
       </div>
 
       {/* Confirmation Overlay */}

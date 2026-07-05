@@ -1,14 +1,12 @@
 {
-  "publisher": "CN=CosmoSymphony, O=Cosmo, C=UK",
-  "publisherDisplayName": "Cosmo Symphony",
+  "publisher": "CN=E79B034B-3211-490A-96BE-648E426FE339",
+  "publisherDisplayName": "Micro Meadow",
   "capabilities": {
     "general": [
       "internetClient",
       "privateNetworkClientServer"
     ],
-    "restricted": [
-      "broadFileSystemAccess"
-    ]
+    "restricted": []
   },
   "extensions": {
     "shareTarget": false,

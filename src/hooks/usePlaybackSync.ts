@@ -39,10 +39,17 @@ export function usePlaybackSync({
       setGlobalVolume(0);
     } else {
       setGlobalVolume(preMuteVolume > 0 ? preMuteVolume : 1);
+      // If unmuting via a specific video card (string ID passed), only unmute that card and keep others muted
+      if (soloId && typeof soloId === 'string') {
+        setVideos(p => p.map(v => ({ ...v, muted: v.id !== soloId })));
+      } else {
+        // Unmute all individual videos on the grid so they actually play sound
+        setVideos(p => p.map(v => ({ ...v, muted: false })));
+      }
     }
     
-    addLog(`System Volume: ${newState ? 'OFF' : 'ON'}${soloId ? ' (Individual)' : ''}`);
-  }, [masterMuted, globalVolume, preMuteVolume, setMasterMuted, setMasterMutedOverride, setGlobalVolume, addLog]);
+    addLog(`System Volume: ${newState ? 'OFF' : 'ON'}${soloId && typeof soloId === 'string' ? ` (Solo: ${soloId})` : ''}`);
+  }, [masterMuted, globalVolume, preMuteVolume, setMasterMuted, setMasterMutedOverride, setGlobalVolume, setVideos, addLog]);
 
   const toggleMasterPlay = useCallback(() => {
     const newState = !masterPlaying;

@@ -1,5 +1,7 @@
 import React, { useRef } from 'react';
 import { Upload } from 'lucide-react';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { invoke } from '@tauri-apps/api/core';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
@@ -59,6 +61,10 @@ interface VideoGridProps {
   onColorAdjust?: (id: string) => void;
   onStartCrop?: (id: string) => void;
   onAddVideo?: (newVideo: VideoItem) => void;
+  stickerLoadingId?: string | null;
+  onCreateSticker?: (video: VideoItem) => void;
+  onBgContextMenu: (x: number, y: number) => void;
+  onLoadDemos: () => void;
 }
 
 export function VideoGrid({
@@ -110,12 +116,31 @@ export function VideoGrid({
   setIsSlideshowActive,
   onColorAdjust,
   onStartCrop,
-  onAddVideo
+  onAddVideo,
+  stickerLoadingId,
+  onCreateSticker,
+  onBgContextMenu,
+  onLoadDemos
 }: VideoGridProps) {
   const mediaMode = useStore((state) => state.mediaMode);
   const setZoom = useStore((state) => state.setZoom);
   const setSelectedIds = useStore((state) => state.setSelectedIds);
   const setSelectionMode = useStore((state) => state.setSelectionMode);
+
+  const handleOpenWebsite = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      await invoke('open_external_url', { url: 'https://cosmowhisper.com' });
+    } catch (err) {
+      console.error("Failed to open URL via backend invoke:", err);
+      try {
+        await openUrl('https://cosmowhisper.com');
+      } catch (err2) {
+        console.error("Failed to open URL via Tauri openUrl plugin:", err2);
+        window.open('https://cosmowhisper.com', '_blank');
+      }
+    }
+  };
 
   // Check if touch device
   const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -209,6 +234,19 @@ export function VideoGrid({
     }
   };
 
+  const handleBgContextMenu = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (
+      target.classList.contains('video-scroll') ||
+      target.classList.contains('video-grid-container') ||
+      target.classList.contains('video-grid') ||
+      target.classList.contains('empty-grid-state')
+    ) {
+      e.preventDefault();
+      onBgContextMenu(e.clientX, e.clientY);
+    }
+  };
+
   return (
     <>
       <div
@@ -218,13 +256,162 @@ export function VideoGrid({
         onTouchMove={handleGridTouchMove}
         onTouchEnd={handleGridTouchEnd}
         onDoubleClick={handleBackgroundDoubleClick}
+        onContextMenu={handleBgContextMenu}
       >
         {videos.length === 0 && (
-          <div className="empty-grid-state">
-            <Upload size={13} strokeWidth={2.5} style={{ opacity: 0.5, flexShrink: 0 }} />
-            <h2>{mediaMode === 'picture' ? 'Drop pictures here' : 'Drop videos here'}</h2>
-            <div style={{ marginTop: '12px', fontSize: '10px', opacity: 0.6 }}>
-              Check out my other products at <a href="https://cosmowhisper.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent, #00ff88)', textDecoration: 'none', fontWeight: 600 }}>cosmowhisper.com</a>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '80vh',
+            color: '#fff',
+            padding: '24px',
+            fontFamily: 'system-ui, sans-serif'
+          }}>
+            {/* Onboarding Dashboard */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '16px',
+              padding: '30px 40px',
+              maxWidth: '800px',
+              width: '100%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '24px'
+            }}>
+              {/* Header */}
+              <div style={{ textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <img src="/logo.png" style={{ height: '24px', objectFit: 'contain' }} alt="Cosmo" />
+                  <h1 style={{ fontSize: '20px', fontWeight: 900, letterSpacing: '2px', margin: 0, background: 'linear-gradient(90deg, #fff 0%, #a855f7 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    COSMO SYMPHONY
+                  </h1>
+                </div>
+                <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.5px', margin: 0 }}>
+                  A professional multi-video & image orchestration workspace.
+                </p>
+              </div>
+
+              {/* Feature Cards Grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '16px',
+                marginTop: '8px'
+              }}>
+                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>📂</span> BUILT-IN FILE BROWSER
+                  </h3>
+                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
+                    Skip Windows Explorer! Drag & drop folder directories or individual media files directly from our fast, integrated Side Browser.
+                  </p>
+                </div>
+
+                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🔍</span> INTERACTIVE POINTER ZOOM
+                  </h3>
+                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
+                    Hover your mouse over any image or video tile, and scroll your wheel to zoom directly into where your cursor is pointing!
+                  </p>
+                </div>
+
+                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>⚡</span> AI ENHANCE & RESCALE
+                  </h3>
+                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
+                    Right-click tiles to upscale low-res content using local AI models, crop-resize, adjust temperature, contrast, RGB color balances, or flip media on the fly.
+                  </p>
+                </div>
+
+                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🎹</span> PRO KEYBOARD SHORTCUTS
+                  </h3>
+                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
+                    Use quick shortcuts: <kbd style={{ background: '#333', padding: '1px 4px', borderRadius: '3px', fontSize: '9px' }}>L</kbd> to cycle Loop modes, <kbd style={{ background: '#333', padding: '1px 4px', borderRadius: '3px', fontSize: '9px' }}>Space</kbd> for master play/pause, and <kbd style={{ background: '#333', padding: '1px 4px', borderRadius: '3px', fontSize: '9px' }}>F</kbd> for Fullscreen.
+                  </p>
+                </div>
+
+                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🌐</span> WI-FI SHARE PROTOCOL
+                  </h3>
+                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
+                    Scan the layout QR code or link your phone. Instantly share files between devices or upload media back to your PC over local Wi-Fi!
+                  </p>
+                </div>
+
+                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
+                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🖥️</span> MULTI-MONITOR SPANNING
+                  </h3>
+                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
+                    Instantly expand your video workspace across all connected monitors or TVs with a single click, or return to single-window view dynamically.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Section */}
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '12px',
+                marginTop: '10px',
+                borderTop: '1px solid rgba(255,255,255,0.06)',
+                paddingTop: '20px'
+              }}>
+                <button
+                  onClick={onLoadDemos}
+                  style={{
+                    background: 'rgba(0, 255, 136, 0.08)',
+                    border: '1px solid var(--accent, #00ff88)',
+                    boxShadow: '0 0 15px rgba(0, 255, 136, 0.15)',
+                    borderRadius: '8px',
+                    color: 'var(--accent, #00ff88)',
+                    padding: '10px 24px',
+                    fontSize: '11px',
+                    fontWeight: 'bold',
+                    letterSpacing: '1px',
+                    cursor: 'pointer',
+                    textTransform: 'uppercase',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = 'var(--accent, #00ff88)';
+                    e.currentTarget.style.color = '#000';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'rgba(0, 255, 136, 0.08)';
+                    e.currentTarget.style.color = 'var(--accent, #00ff88)';
+                  }}
+                >
+                  🌟 Load Demo Workspace
+                </button>
+                <div style={{
+                  border: '1.5px dashed rgba(255, 255, 255, 0.15)',
+                  borderRadius: '10px',
+                  width: '100%',
+                  padding: '24px',
+                  textAlign: 'center',
+                  color: 'rgba(255, 255, 255, 0.4)',
+                  fontSize: '11px',
+                  fontWeight: 600
+                }}>
+                  Or drag and drop your media files directly here to start!
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ marginTop: '20px', fontSize: '10.5px', opacity: 0.75, letterSpacing: '0.5px' }}>
+              🚀 Discover more professional tools & AI creative suites at <a href="https://cosmowhisper.com" onClick={handleOpenWebsite} style={{ color: 'var(--accent, #00ff88)', textDecoration: 'underline', fontWeight: 600 }}>cosmowhisper.com</a>
             </div>
           </div>
         )}
@@ -290,6 +477,8 @@ export function VideoGrid({
                       onColorAdjust={onColorAdjust}
                       onStartCrop={onStartCrop}
                       onAddVideo={onAddVideo}
+                      isStickerLoading={stickerLoadingId === v.id}
+                      onCreateSticker={onCreateSticker}
                     />
                   </div>
                 ))}

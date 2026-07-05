@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { RefreshCw, Zap, X, Hash, ChevronDown } from 'lucide-react';
+import { RefreshCw, Zap, X, Hash, ChevronDown, Trash2, Edit2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import type { VideoItem } from '../../types';
-import { toCosmoUrl, pathsEqual } from '../../utils/videoUtils';
+import { toCosmoUrl, pathsEqual, toRealPath, showConfirm } from '../../utils/videoUtils';
 
 interface BatchRenameModalProps {
   videos: VideoItem[];
@@ -13,7 +13,8 @@ interface BatchRenameModalProps {
 }
 
 export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRenameModalProps) {
-  const { mediaMode, selectedIds, setSelectedIds, setSelectionMode, renameHistory, addToRenameHistory } = useStore();
+  const mouseDownOnOverlay = useRef(false);
+  const { mediaMode, selectedIds, setSelectedIds, setSelectionMode, renameHistory, addToRenameHistory, removeFromRenameHistory, updateRenameHistory } = useStore();
   
   const [batchPrefix, setBatchPrefix] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
@@ -39,7 +40,7 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
       return;
     }
     
-    if (!confirm(`CAUTION: This will rename ${targets.length} selected physical assets. Proceed?`)) return;
+    if (!await showConfirm(`CAUTION: This will rename ${targets.length} selected physical assets. Proceed?`, { title: 'Batch Rename', kind: 'warning' })) return;
     
     setIsRenaming(true);
     addLog(`INITIALIZING SMART BATCH RENAME: ${batchPrefix}_###`);
@@ -61,7 +62,8 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
       const v = sorted[i];
       if (!v.realPath) continue;
 
-      const parentDir = getParentDir(v.realPath);
+      const targetPath = toRealPath(v.realPath) || v.realPath;
+      const parentDir = getParentDir(targetPath);
       
       if (parentDir && folderStartNums[parentDir] === undefined) {
         try {
@@ -98,7 +100,7 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
       while (!success && attempt < 10) {
         try {
           const resultPath = await invoke<string>('rename_video', { 
-            oldPath: v.realPath, 
+            oldPath: targetPath, 
             newName: finalNewName 
           });
           
@@ -186,7 +188,17 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
   };
 
   return (
-    <div className="modal-overlay">
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        mouseDownOnOverlay.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && mouseDownOnOverlay.current && !isRenaming) {
+          onClose();
+        }
+      }}
+    >
       <div className="modal-content premium-glass" onClick={(e) => e.stopPropagation()} style={{ width: '420px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -297,12 +309,11 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
                       .map((item, idx) => (
                         <div
                           key={idx}
-                          onClick={() => {
-                            setBatchPrefix(item);
-                            setShowHistoryDropdown(false);
-                          }}
                           style={{
-                            padding: '10px 16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 16px',
                             fontSize: '12px',
                             color: '#fff',
                             cursor: 'pointer',
@@ -313,7 +324,67 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
                           onMouseOver={(e) => e.currentTarget.style.background = 'rgba(var(--accent-rgb), 0.15)'}
                           onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          {item}
+                          <span
+                            onClick={() => {
+                              setBatchPrefix(item);
+                              setShowHistoryDropdown(false);
+                            }}
+                            style={{ flex: 1, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}
+                          >
+                            {item}
+                          </span>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              title="Edit Entry"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const val = prompt("Edit Rename History Entry:", item);
+                                if (val !== null) {
+                                  const trimmed = val.trim();
+                                  if (trimmed && trimmed !== item) {
+                                    updateRenameHistory(item, trimmed);
+                                  }
+                                }
+                              }}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'rgba(255, 255, 255, 0.5)',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                transition: 'color 0.2s',
+                              }}
+                              onMouseOver={(e) => e.currentTarget.style.color = 'var(--accent)'}
+                              onMouseOut={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)'}
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete Entry"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFromRenameHistory(item);
+                              }}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'rgba(255, 255, 255, 0.5)',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                transition: 'color 0.2s',
+                              }}
+                              onMouseOver={(e) => e.currentTarget.style.color = '#ff4a4a'}
+                              onMouseOut={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)'}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </div>
                       ))}
                   </div>
