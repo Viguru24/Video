@@ -3,6 +3,10 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+# Redirect rembg model home directory to prevent sandboxed download attempts
+if os.environ.get("COSMO_MODELS_DIR"):
+    os.environ["U2NET_HOME"] = os.environ.get("COSMO_MODELS_DIR")
+
 # Aggressively limit CPU thread pool sizes — prevents OS-level lockups
 os.environ["OMP_NUM_THREADS"] = "2"
 os.environ["MKL_NUM_THREADS"] = "2"
@@ -115,24 +119,38 @@ def init_models():
         from gfpgan import GFPGANer
         from basicsr.archs.rrdbnet_arch import RRDBNet
         
-        if not torch.cuda.is_available():
-            print("CUDA not available. Running in fallback filter mode.", file=sys.stderr)
+        device = 'cpu'
+        if torch.cuda.is_available():
+            device = 'cuda'
+        else:
+            try:
+                import torch_directml
+                if torch_directml.is_available():
+                    device = torch_directml.device()
+            except ImportError:
+                pass
+
+        if device == 'cpu':
+            print("GPU acceleration not available. Running in fallback filter mode.", file=sys.stderr)
             return
             
         model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
 
         # Dynamically pick tile size based on available VRAM
-        # Larger tiles = fewer GPU round-trips = dramatically faster on high-VRAM cards
         gpu_tile = 128  # safe default
-        try:
-            free_vram_mb = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
-            if free_vram_mb >= 12000:    # 12GB+ VRAM → large tiles
-                gpu_tile = 512
-            elif free_vram_mb >= 8000:  # 8GB+ VRAM → medium tiles
-                gpu_tile = 256
-        except Exception:
-            pass
-        print(f"Using tile size: {gpu_tile} (total VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024 / 1024:.0f} MB)", file=sys.stderr)
+        if device == 'cuda':
+            try:
+                free_vram_mb = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
+                if free_vram_mb >= 12000:    # 12GB+ VRAM → large tiles
+                    gpu_tile = 512
+                elif free_vram_mb >= 8000:  # 8GB+ VRAM → medium tiles
+                    gpu_tile = 256
+                print(f"Using tile size: {gpu_tile} (total VRAM: {free_vram_mb:.0f} MB)", file=sys.stderr)
+            except Exception:
+                pass
+        else:
+            gpu_tile = 256
+            print(f"Using tile size: {gpu_tile} (AMD / DirectML GPU)", file=sys.stderr)
 
         upscaler = RealESRGANer(
             scale=4,
@@ -141,8 +159,8 @@ def init_models():
             tile=gpu_tile,
             tile_pad=10,
             pre_pad=0,
-            half=True,   # FP16 for ~2x speed — safe on RTX 5080/4080/4090
-            device='cuda'
+            half=(device == 'cuda'),   # FP16 FP16 for ~2x speed — only supported/stable on CUDA
+            device=device
         )
         
         gfpganer = GFPGANer(
@@ -152,22 +170,49 @@ def init_models():
             channel_multiplier=2,
             bg_upsampler=upscaler
         )
-        print("Real-ESRGAN and GFPGAN models warmloaded into GPU VRAM successfully!")
+        print(f"Real-ESRGAN and GFPGAN models warmloaded into GPU ({device}) successfully!")
     except Exception as e:
         print(f"Failed to initialize models: {e}. Running in fallback filter mode.", file=sys.stderr)
 
+def safe_read_image(img_or_bytes):
+    img = None
+    if isinstance(img_or_bytes, bytes):
+        try:
+            nparr = np.frombuffer(img_or_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        except Exception:
+            pass
+        if img is None:
+            try:
+                import io
+                from PIL import Image
+                pil_img = Image.open(io.BytesIO(img_or_bytes)).convert('RGB')
+                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            except Exception:
+                pass
+    else:
+        try:
+            # It's a file path string! Safe unicode reading on Windows
+            img = cv2.imdecode(np.fromfile(img_or_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        except Exception:
+            pass
+        if img is None:
+            try:
+                img = cv2.imread(img_or_bytes, cv2.IMREAD_COLOR)
+            except Exception:
+                pass
+        if img is None:
+            try:
+                from PIL import Image
+                pil_img = Image.open(img_or_bytes).convert('RGB')
+                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            except Exception:
+                pass
+    return img
+
 def process_enhance(img_or_bytes, fidelity=0.5):
     init_models()
-    # Decode image
-    if isinstance(img_or_bytes, bytes):
-        nparr = np.frombuffer(img_or_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    else:
-        # It's a file path string! Safe unicode reading on Windows
-        img = cv2.imdecode(np.fromfile(img_or_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
-        if img is None:
-            img = cv2.imread(img_or_bytes, cv2.IMREAD_COLOR)
-            
+    img = safe_read_image(img_or_bytes)
     if img is None:
         raise ValueError("Could not decode or read the input image.")
         
@@ -188,6 +233,18 @@ def process_enhance(img_or_bytes, fidelity=0.5):
             # Release VRAM back to OS immediately
             import torch
             torch.cuda.empty_cache()
+            
+            # Capping maximum resolution to 4K max (3840x2160) to prevent oversized files
+            h_out, w_out = restored_img.shape[:2]
+            max_width = 3840
+            max_height = 2160
+            if w_out > max_width or h_out > max_height:
+                scale = min(max_width / w_out, max_height / h_out)
+                new_w = int(w_out * scale)
+                new_h = int(h_out * scale)
+                restored_img = cv2.resize(restored_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                print(f"Downscaled upscaled image from {w_out}x{h_out} to {new_w}x{new_h} (max 4K cap)", file=sys.stderr)
+
             # Brief yield — lets Windows compositor catch up after heavy GPU load
             time.sleep(0.05)
             return restored_img, True
@@ -195,12 +252,22 @@ def process_enhance(img_or_bytes, fidelity=0.5):
             print(f"Model inference failed: {e}. Falling back to high-fidelity resize filter.", file=sys.stderr)
             
     # Resilient high-fidelity CPU fallback:
-    # Filter on low-res image first (16x cheaper), then scale up with cubic interpolation.
     smoothed = cv2.bilateralFilter(img, 9, 75, 75)
     gaussian = cv2.GaussianBlur(smoothed, (5, 5), 0)
     unsharp_lowres = cv2.addWeighted(smoothed, 1.5, gaussian, -0.5, 0)
     h, w = img.shape[:2]
-    resized = cv2.resize(unsharp_lowres, (w * 4, h * 4), interpolation=cv2.INTER_CUBIC)
+    
+    # Cap CPU fallback to 4K as well!
+    target_w = w * 4
+    target_h = h * 4
+    max_width = 3840
+    max_height = 2160
+    if target_w > max_width or target_h > max_height:
+        scale = min(max_width / target_w, max_height / target_h)
+        target_w = int(target_w * scale)
+        target_h = int(target_h * scale)
+        
+    resized = cv2.resize(unsharp_lowres, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
     return resized, False
 
 def texture_aware_inpaint(img, mask, grain_blend=1.0, inpaint_radius=3, method=cv2.INPAINT_TELEA):
@@ -385,9 +452,18 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                         else:
                             out_path = img_path + '_upscaled.png'
                             
-                    # Save image safely supporting Unicode paths
+                    # Save image safely supporting Unicode paths with optimal compression
                     _, ext = os.path.splitext(out_path)
-                    success, encoded_img = cv2.imencode(ext if ext else '.png', enhanced_img)
+                    ext_lower = ext.lower() if ext else '.png'
+                    params = []
+                    if ext_lower in ['.jpg', '.jpeg']:
+                        params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+                    elif ext_lower == '.png':
+                        params = [cv2.IMWRITE_PNG_COMPRESSION, 6]
+                    elif ext_lower == '.webp':
+                        params = [cv2.IMWRITE_WEBP_QUALITY, 80]
+
+                    success, encoded_img = cv2.imencode(ext_lower, enhanced_img, params)
                     if not success:
                         raise ValueError("Failed to encode upscaled image for saving")
                         
@@ -405,7 +481,7 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                     enhanced_img, used_ai = process_enhance(img_bytes, fidelity=fidelity)
                     
                     # Encode back to base64
-                    success, encoded_img = cv2.imencode('.png', enhanced_img)
+                    success, encoded_img = cv2.imencode('.png', enhanced_img, [cv2.IMWRITE_PNG_COMPRESSION, 6])
                     if not success:
                         raise ValueError("Failed to encode upscaled image to PNG")
                         
@@ -456,10 +532,7 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                 grain_blend = float(payload.get('grain_blend', 1.0))
                 
                 # Safe unicode read on Windows
-                img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8), cv2.IMREAD_COLOR)
-                if img is None:
-                    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
-                    
+                img = safe_read_image(img_path)
                 if img is None:
                     raise ValueError(f"Could not load image from: {img_path}")
                     
@@ -549,6 +622,156 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+        elif self.path == '/remove_background':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length)
+                payload = json.loads(post_data.decode('utf-8'))
+                
+                img_path = payload['path']
+                
+                # Load image supporting Unicode paths on Windows
+                img = safe_read_image(img_path)
+                if img is None:
+                    raise ValueError(f"Could not load image from: {img_path}")
+                
+                # Dynamic import of rembg
+                from rembg import remove
+                
+                # remove() returns the image with transparency (BGRA)
+                result = remove(img)
+                
+                # Autocrop transparent borders to keep image size small
+                if result.ndim == 3 and result.shape[2] == 4:
+                    alpha = result[:, :, 3]
+                    pts = np.argwhere(alpha > 5) # Find non-transparent pixels
+                    if pts.size > 0:
+                        y_min, x_min = pts.min(axis=0)
+                        y_max, x_max = pts.max(axis=0)
+                        
+                        # Add a small 4px padding so we don't clip the edges of the subject
+                        h, w = result.shape[:2]
+                        y_min = max(0, y_min - 4)
+                        x_min = max(0, x_min - 4)
+                        y_max = min(h - 1, y_max + 4)
+                        x_max = min(w - 1, x_max + 4)
+                        
+                        result = result[y_min:y_max+1, x_min:x_max+1]
+                
+                # Resolve output path next to the original file, always as a transparent PNG sticker
+                ext_idx = img_path.rfind('.')
+                if ext_idx != -1:
+                    base_path = img_path[:ext_idx] + '_sticker'
+                else:
+                    base_path = img_path + '_sticker'
+                    
+                out_path = base_path + '.png'
+                
+                # Generate unique index name if sticker already exists
+                index = 1
+                while os.path.exists(out_path):
+                    out_path = f"{base_path}_{index:03d}.png"
+                    index += 1
+                
+                # Encode with high PNG compression (level 9)
+                success, encoded_img = cv2.imencode('.png', result, [int(cv2.IMWRITE_PNG_COMPRESSION), 9])
+                if not success:
+                    raise ValueError("Failed to encode transparent sticker")
+                    
+                encoded_img.tofile(out_path)
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'success', 'path': out_path}).encode('utf-8'))
+                
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+        elif self.path == '/generate_store_logos':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length)
+                payload = json.loads(post_data.decode('utf-8'))
+                
+                img_path = payload['path']
+                bg_color_hex = payload.get('bg_color', '#00000000') # hex with alpha
+                
+                # Load image using PIL for easy alpha-channel padding and resizing
+                from PIL import Image
+                img = Image.open(img_path)
+                
+                # Parse bg color (support #RRGGBBAA or #RRGGBB)
+                bg_color_hex = bg_color_hex.lstrip('#')
+                if len(bg_color_hex) == 8:
+                    r = int(bg_color_hex[0:2], 16)
+                    g = int(bg_color_hex[2:4], 16)
+                    b = int(bg_color_hex[4:6], 16)
+                    a = int(bg_color_hex[6:8], 16)
+                    bg_color = (r, g, b, a)
+                elif len(bg_color_hex) == 6:
+                    r = int(bg_color_hex[0:2], 16)
+                    g = int(bg_color_hex[2:4], 16)
+                    b = int(bg_color_hex[4:6], 16)
+                    bg_color = (r, g, b, 255)
+                else:
+                    bg_color = (0, 0, 0, 0)
+                
+                # Define targets: list of (name, width, height)
+                targets = [
+                    ("poster_art_720x1080.png", 720, 1080),
+                    ("box_art_1080x1080.png", 1080, 1080),
+                    ("app_tile_300x300.png", 300, 300),
+                    ("logo_150x150.png", 150, 150),
+                    ("logo_71x71.png", 71, 71)
+                ]
+                
+                # Create a subfolder next to the image
+                parent_dir = os.path.dirname(img_path)
+                stem = os.path.splitext(os.path.basename(img_path))[0]
+                output_dir = os.path.join(parent_dir, f"{stem}_store_logos")
+                os.makedirs(output_dir, exist_ok=True)
+                
+                generated_paths = []
+                
+                for filename, tw, th in targets:
+                    # Resize while keeping aspect ratio (fit inside the box)
+                    logo = img.copy()
+                    logo.thumbnail((tw, th), Image.Resampling.LANCZOS)
+                    
+                    # Create background canvas
+                    canvas = Image.new("RGBA", (tw, th), bg_color)
+                    
+                    # Center the logo on the canvas
+                    lw, lh = logo.size
+                    x = (tw - lw) // 2
+                    y = (th - lh) // 2
+                    canvas.paste(logo, (x, y), logo if logo.mode == 'RGBA' else None)
+                    
+                    target_path = os.path.join(output_dir, filename)
+                    canvas.save(target_path, "PNG")
+                    generated_paths.append(target_path)
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'status': 'success',
+                    'output_dir': output_dir,
+                    'files': generated_paths
+                }).encode('utf-8'))
+                
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
         else:
             self.send_response(404)
             self.end_headers()
@@ -560,19 +783,14 @@ if __name__ == '__main__':
             if torch.cuda.is_available():
                 print("cuda")
             else:
-                print("cpu")
-        except Exception:
-            print("cpu")
-        sys.exit(0)
-
-    # Check-cuda mode: just detect and report — never enter upscale logic
-    if '--check-cuda' in sys.argv:
-        try:
-            import torch
-            if torch.cuda.is_available():
-                print("cuda")
-            else:
-                print("cpu")
+                try:
+                    import torch_directml
+                    if torch_directml.is_available():
+                        print("dml")
+                    else:
+                        print("cpu")
+                except Exception:
+                    print("cpu")
         except Exception:
             print("cpu")
         sys.exit(0)
@@ -586,9 +804,18 @@ if __name__ == '__main__':
             init_models()
             enhanced, used_ai = process_enhance(input_path, fidelity=0.5)
             
-            # Save enhanced image supporting Unicode paths
+            # Save enhanced image supporting Unicode paths with optimal compression
             _, ext = os.path.splitext(output_path)
-            success, encoded_img = cv2.imencode(ext if ext else '.png', enhanced)
+            ext_lower = ext.lower() if ext else '.png'
+            params = []
+            if ext_lower in ['.jpg', '.jpeg']:
+                params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+            elif ext_lower == '.png':
+                params = [cv2.IMWRITE_PNG_COMPRESSION, 6]
+            elif ext_lower == '.webp':
+                params = [cv2.IMWRITE_WEBP_QUALITY, 80]
+                
+            success, encoded_img = cv2.imencode(ext_lower, enhanced, params)
             if not success:
                 raise ValueError("Failed to encode upscaled image")
             encoded_img.tofile(output_path)

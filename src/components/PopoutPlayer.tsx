@@ -9,7 +9,8 @@ import {
   isValidPictureExtension, 
   getFileNameFromPath, 
   convertToVideoUrl,
-  pathsEqual
+  pathsEqual,
+  extractBasePrefix
 } from '../utils/videoUtils';
 import { ColorFilterDefs } from './ColorFilterDefs';
 import { CropOverlay } from './CropOverlay';
@@ -54,6 +55,8 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const [upscaleTarget, setUpscaleTarget] = useState<VideoItem | null>(null);
   const [showSaveUpscaleOptions, setShowSaveUpscaleOptions] = useState(false);
   const [upscaleStatus, setUpscaleStatus] = useState<'idle' | 'enhancing' | 'success' | 'failed'>('idle');
+  const [upscaleProgressPercent, setUpscaleProgressPercent] = useState<number | null>(null);
+  const [upscaleStage, setUpscaleStage] = useState<string | null>(null);
   const [enhancingVideoId, setEnhancingVideoId] = useState<string | null>(null);
   const [lastEnhancedTitle, setLastEnhancedTitle] = useState('');
   const [aiServerOffline, setAiServerOffline] = useState(false);
@@ -165,25 +168,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     }
   }, []);
 
-  // Automatic fullscreen on mount with safety delay
-  useEffect(() => {
-    let active = true;
-    const startFullscreen = async () => {
-      try {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        if (!active) return;
-        const win = getCurrentWindow();
-        await win.setFullscreen(true);
-        await win.focus();
-      } catch (err) {
-        console.error("Failed to enter fullscreen:", err);
-      }
-    };
-    startFullscreen();
-    return () => {
-      active = false;
-    };
-  }, []);
+
 
   // Sync video playing status
   useEffect(() => {
@@ -311,8 +296,11 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
           try {
             const win = getCurrentWindow();
             const isFS = await win.isFullscreen();
+            const isMax = await win.isMaximized();
             if (isFS) {
               await win.setFullscreen(false);
+            } else if (isMax) {
+              await win.unmaximize();
             } else {
               await win.close();
             }
@@ -328,6 +316,31 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
       window.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [activeVideo, isCropping, colorAdjustId]);
+
+  const toggleMaximize = async () => {
+    try {
+      const win = getCurrentWindow();
+      const isMax = await win.isMaximized();
+      if (isMax) {
+        await win.unmaximize();
+      } else {
+        await win.maximize();
+      }
+    } catch (err) {
+      console.error("Failed to toggle maximize:", err);
+    }
+  };
+
+  const handleTitlebarMouseDown = async (e: React.MouseEvent) => {
+    if (e.button === 0) {
+      try {
+        const win = getCurrentWindow();
+        await win.startDragging();
+      } catch (err) {
+        console.error("Failed to start dragging:", err);
+      }
+    }
+  };
 
   // Custom Video Scrubber
   const scrubTrackRef = useRef<HTMLDivElement>(null);
@@ -455,7 +468,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
               setAiServerOffline(true);
               setEnhancingVideoId(null);
               setUpscaleStatus('failed');
-              setTimeout(() => setUpscaleStatus('idle'), 4000);
+              setTimeout(() => setUpscaleStatus('idle'), 5000);
               return;
             }
           }
@@ -470,12 +483,36 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             const extIdx = originalFileName.lastIndexOf('.');
             const nameWithoutExt = extIdx !== -1 ? originalFileName.substring(0, extIdx) : originalFileName;
             const ext = extIdx !== -1 ? originalFileName.substring(extIdx) : '.png';
-            let index = 1;
-            fileNameToUse = `${nameWithoutExt}.${index}${ext}`;
+            
+            const cleanPrefix = extractBasePrefix(nameWithoutExt);
+            
+            let maxNum = 0;
+            try {
+              const existingFiles = await invoke<any[]>('get_folder_videos', { path: dirPath, mode: 'all' });
+              const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const regex = new RegExp(`^${escapeRegExp(cleanPrefix)}_(\\d+)`, 'i');
+              for (const file of existingFiles) {
+                const fNameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+                const match = regex.exec(fNameWithoutExt);
+                if (match) {
+                  const num = parseInt(match[1], 10);
+                  if (!isNaN(num) && num > maxNum) {
+                    maxNum = num;
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn("Failed to scan folder, falling back to 0", e);
+            }
+            
+            const nextNum = maxNum + 1;
+            fileNameToUse = `${cleanPrefix}_${String(nextNum).padStart(3, '0')}${ext}`;
 
+            // Double check against playlist memory too to avoid collisions
+            let counter = nextNum;
             while (playlist.some(v => v.realPath && v.realPath.toLowerCase().endsWith(fileNameToUse.toLowerCase()))) {
-              index++;
-              fileNameToUse = `${nameWithoutExt}.${index}${ext}`;
+              counter++;
+              fileNameToUse = `${cleanPrefix}_${String(counter).padStart(3, '0')}${ext}`;
             }
           }
 
@@ -573,10 +610,32 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     setEnhancingVideoId(v.parentUnitId || v.id);
     setUpscaleStatus('enhancing');
     setLastEnhancedTitle(v.title);
+    setUpscaleProgressPercent(null);
+    setUpscaleStage(null);
     enhancementCancelled.current = false;
-    addLog(`Upscaling: ${v.title} (${overwrite ? 'Overwrite' : 'Save As'}) — running local super-resolution...`);
+
+    const isVideo = v.realPath?.toLowerCase().match(/\.(mp4|webm|mov|mkv|avi|ts|mpeg|mpg)$/);
+    let unlistenProgress: (() => void) | undefined;
+
+    addLog(`Upscaling: ${v.title} (${overwrite ? 'Overwrite' : 'Save As'}) — running local ${isVideo ? 'video' : 'image'} super-resolution...`);
     try {
-      const result = await invoke<string>('upscale_image', { path: v.realPath, overwrite });
+      if (isVideo) {
+        const win = getCurrentWindow();
+        unlistenProgress = await win.listen<{ frame: number, total: number, stage: string }>('upscale-progress', (event) => {
+          const { frame, total, stage } = event.payload;
+          setUpscaleStage(stage);
+          if (stage === 'upscaling' && total > 0) {
+            setUpscaleProgressPercent(Math.round((frame / total) * 100));
+          } else if (stage === 'extracting') {
+            setUpscaleProgressPercent(10);
+          } else if (stage === 'assembling') {
+            setUpscaleProgressPercent(95);
+          }
+        });
+      }
+
+      const result = await invoke<string>(isVideo ? 'upscale_video' : 'upscale_image', { path: v.realPath, overwrite });
+      if (unlistenProgress) unlistenProgress();
       if (enhancementCancelled.current) return;
       
       addLog("Local RTX AI Upscaling Successful!");
@@ -627,9 +686,12 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
       setTimeout(() => {
         setUpscaleStatus('idle');
         setEnhancingVideoId(null);
-      }, 2000);
+        setUpscaleProgressPercent(null);
+        setUpscaleStage(null);
+      }, 5000);
 
     } catch (err) {
+      if (unlistenProgress) unlistenProgress();
       if (enhancementCancelled.current) return;
       console.error("Upscaling failed:", err);
       addLog(`Upscale Failed: ${err}`);
@@ -637,9 +699,22 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
       setTimeout(() => {
         setUpscaleStatus('idle');
         setEnhancingVideoId(null);
-      }, 4000);
+        setUpscaleProgressPercent(null);
+        setUpscaleStage(null);
+      }, 5000);
     }
   };
+
+  const cancelEnhancement = useCallback(() => {
+    enhancementCancelled.current = true;
+    setUpscaleStatus('idle');
+    setEnhancingVideoId(null);
+    setUpscaleTarget(null);
+    setUpscaleProgressPercent(null);
+    setUpscaleStage(null);
+    invoke('cancel_video_upscale').catch(err => console.error("Failed to cancel video upscale:", err));
+    addLog('Enhancement cancelled by user.');
+  }, [addLog]);
 
   // Safe checks
   const displayUrl = activeVideo ? toCosmoUrl(activeVideo.url) : toCosmoUrl(url);
@@ -663,6 +738,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     <div 
       className="popout-root" 
       onWheel={handleWheel}
+      onDoubleClick={toggleMaximize}
       style={{ 
         background: '#000', 
         width: '100vw', 
@@ -672,13 +748,16 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
         alignItems: 'center', 
         justifyContent: 'center', 
         position: 'relative',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        cursor: showUI ? 'default' : 'none'
       }}
     >
       {/* Subtle title bar region for dragging and maximizing */}
       <div 
         className="popout-titlebar"
         data-tauri-drag-region
+        onMouseDown={handleTitlebarMouseDown}
+        onDoubleClick={toggleMaximize}
         style={{ 
           position: 'absolute', 
           top: 0, 
@@ -686,8 +765,8 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
           width: '100%', 
           height: '40px', 
           zIndex: 99999, 
-          background: 'linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 100%)',
-          cursor: 'default',
+          background: 'linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%)',
+          cursor: showUI ? 'default' : 'none',
           display: 'flex',
           alignItems: 'center',
           padding: '0 20px',
@@ -696,13 +775,103 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
           fontWeight: 'bold',
           letterSpacing: '1px',
           textTransform: 'uppercase',
-          pointerEvents: 'auto',
-          userSelect: 'none'
+          pointerEvents: showUI ? 'auto' : 'none',
+          userSelect: 'none',
+          opacity: showUI ? 1 : 0,
+          transition: 'opacity 0.3s ease'
         }}
       >
         <span style={{ pointerEvents: 'none' }}>
           {activeVideo ? activeVideo.title : 'Cosmo Stream'}
         </span>
+
+        {/* Custom Window Controls */}
+        <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto', pointerEvents: 'auto' }}>
+          <button 
+            onClick={() => getCurrentWindow().minimize()}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: 'rgba(255, 255, 255, 0.45)', 
+              cursor: 'pointer',
+              fontSize: '12px',
+              width: '28px',
+              height: '28px',
+              borderRadius: '4px',
+              transition: 'background-color 0.2s, color 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Minimize"
+            onMouseEnter={e => {
+              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.45)';
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            ─
+          </button>
+          <button 
+            onClick={toggleMaximize}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: 'rgba(255, 255, 255, 0.45)', 
+              cursor: 'pointer',
+              fontSize: '11px',
+              width: '28px',
+              height: '28px',
+              borderRadius: '4px',
+              transition: 'background-color 0.2s, color 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Maximize / Restore"
+            onMouseEnter={e => {
+              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.45)';
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            ❑
+          </button>
+          <button 
+            onClick={() => invoke('close_popout').catch(() => getCurrentWindow().close())}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: 'rgba(255, 255, 255, 0.45)', 
+              cursor: 'pointer',
+              fontSize: '13px',
+              width: '28px',
+              height: '28px',
+              borderRadius: '4px',
+              transition: 'background-color 0.2s, color 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Close"
+            onMouseEnter={e => {
+              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.backgroundColor = '#e81123';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.45)';
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {activeVideo && activeVideo.colorFilters && (
@@ -1321,6 +1490,27 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
               >
                 Overwrite with Enhanced Version
               </button>
+
+              {/* Hardware Recommendation Note */}
+              <div style={{
+                background: 'rgba(0, 255, 136, 0.04)',
+                border: '1px solid rgba(0, 255, 136, 0.12)',
+                borderRadius: '12px',
+                padding: '12px',
+                fontSize: '11px',
+                color: 'rgba(255,255,255,0.7)',
+                lineHeight: '1.4',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+                marginTop: '10px'
+              }}>
+                <Sparkles size={14} color="var(--accent, #00ff88)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                <span>
+                  <strong>Hardware Recommendation:</strong> AI super-resolution utilizes hardware acceleration on <strong>NVIDIA graphics cards</strong> (via CUDA) or <strong>AMD graphics cards</strong> (via DirectML) for maximum performance. A high-fidelity bilateral CPU filter fallback is used automatically if compatible graphics hardware is not detected.
+                </span>
+              </div>
+
               <button
                 onClick={() => setShowSaveUpscaleOptions(false)}
                 style={{
@@ -1353,7 +1543,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             left: 0,
             width: '100%',
             height: '100%',
-            background: 'rgba(5, 5, 8, 0.9)',
+            background: 'rgba(5, 5, 8, 0.93)',
             backdropFilter: 'blur(25px)',
             display: 'flex',
             flexDirection: 'column',
@@ -1361,12 +1551,52 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             justifyContent: 'center',
             zIndex: 400000,
             gap: '20px',
-            userSelect: 'none'
+            userSelect: 'none',
+            fontFamily: 'Inter, sans-serif'
           }}
         >
           <RefreshCw size={48} className="spin" style={{ color: 'var(--accent, #00ff88)' }} />
-          <h3 style={{ margin: 0, color: '#fff', fontSize: '18px', fontWeight: 'bold', letterSpacing: '0.5px' }}>✨ AI SUPER-RESOLUTION IN PROGRESS</h3>
-          <p style={{ margin: 0, color: '#888', fontSize: '12px' }}>Executing deep neural network on local GPU. Please wait.</p>
+          <h3 style={{ margin: 0, color: '#fff', fontSize: '18px', fontWeight: 'bold', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+            ✨ AI Super-Resolution Active
+          </h3>
+          <p style={{ margin: 0, color: '#ccc', fontSize: '13px' }}>
+            {lastEnhancedTitle 
+              ? `Processing "${lastEnhancedTitle}"${upscaleProgressPercent !== null ? ` (${upscaleStage}: ${upscaleProgressPercent}%)` : '...'}` 
+              : 'Enhancing target, please wait...'}
+          </p>
+          
+          <div style={{ width: '280px', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden', marginTop: '4px' }}>
+            <div 
+              style={{ 
+                height: '100%', 
+                background: 'linear-gradient(90deg, var(--accent, #00ff88), #00d2ff)', 
+                width: upscaleProgressPercent !== null ? `${upscaleProgressPercent}%` : '5%',
+                borderRadius: '3px',
+                transition: upscaleProgressPercent !== null ? 'width 0.2s ease-out' : 'none',
+                animation: upscaleProgressPercent === null ? 'shimmerBar 40s linear forwards' : 'none'
+              }} 
+            />
+          </div>
+
+          <button
+            onClick={cancelEnhancement}
+            style={{
+              background: 'rgba(255, 77, 77, 0.1)',
+              border: '1px solid rgba(255, 77, 77, 0.25)',
+              color: '#ff4d4d',
+              borderRadius: '12px',
+              padding: '10px 24px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              transition: 'all 0.2s',
+              marginTop: '15px'
+            }}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 77, 77, 0.2)'}
+            onMouseOut={e => e.currentTarget.style.background = 'rgba(255, 77, 77, 0.1)'}
+          >
+            CANCEL UPSCALE
+          </button>
         </div>
       )}
     </div>

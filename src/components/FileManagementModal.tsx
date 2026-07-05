@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Folder, FolderPlus, ArrowRight, Copy, Loader, X, Search, Pin, ChevronDown, Trash2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem } from '../types';
+import { toRealPath } from '../utils/videoUtils';
 
 interface FileManagementModalProps {
   isOpen: boolean;
@@ -41,7 +42,29 @@ export function FileManagementModal({
   // Execution states
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progressText, setProgressText] = useState<string>('');
+
+  // Collision states
+  const [collisionInfo, setCollisionInfo] = useState<{
+    filename: string;
+    resolve: (choice: 'overwrite' | 'keep-both' | 'skip' | 'cancel', applyToAll: boolean) => void;
+  } | null>(null);
+  const [applyToAllChoice, setApplyToAllChoice] = useState<'overwrite' | 'keep-both' | 'skip' | null>(null);
+  const applyToAllRef = useRef<HTMLInputElement>(null);
   
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // If we are currently processing files, do not close via Escape to avoid half-done operations
+      if (isProcessing) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, isProcessing]);
+
   // Load initial settings and directory data
   useEffect(() => {
     if (!isOpen || items.length === 0) return;
@@ -174,7 +197,7 @@ export function FileManagementModal({
     if (pinnedFolders.includes(path)) {
       next = pinnedFolders.filter(f => f !== path);
     } else {
-      next = [...pinnedFolders, path];
+      next = [path, ...pinnedFolders];
     }
     setPinnedFolders(next);
     savePinnedFolders(next);
@@ -194,14 +217,22 @@ export function FileManagementModal({
     }
 
     setIsProcessing(true);
+    setApplyToAllChoice(null); // Reset choice for new operation
     const updatedItemsList: { originalId: string; newPath: string }[] = [];
     const opLabel = mode === 'move' ? 'Moving' : 'Copying';
     
     // Save selected folder to recents
     updateRecentFolders(selectedFolder);
 
+    const cleanDestFolder = toRealPath(selectedFolder) || selectedFolder;
+
     try {
+      let localApplyToAllChoice: 'overwrite' | 'keep-both' | 'skip' | null = null;
+      let cancelled = false;
+      const failedItems: string[] = [];
+
       for (let i = 0; i < items.length; i++) {
+        if (cancelled) break;
         const item = items[i];
         setProgressText(`${opLabel} file ${i + 1} of ${items.length}: ${item.title}...`);
         
@@ -211,24 +242,103 @@ export function FileManagementModal({
           continue;
         }
 
-        const cmd = mode === 'move' ? 'move_file_on_disk' : 'copy_file_on_disk';
-        const newPath = await invoke<string>(cmd, {
-          srcPath: path,
-          destDir: selectedFolder
-        });
-        
-        updatedItemsList.push({ originalId: item.id, newPath });
-        addLog(`SUCCESS: ${opLabel} completed for ${item.title}`);
+        const cleanSrcPath = toRealPath(path) || path;
+        const separator = cleanSrcPath.includes('/') ? '/' : '\\';
+        const fileName = cleanSrcPath.substring(cleanSrcPath.lastIndexOf(separator) + 1);
+        const destFilePath = `${cleanDestFolder}${separator}${fileName}`;
+
+        // Verify source file still exists before attempting move
+        try {
+          const srcExists = await invoke<boolean>('file_exists', { path: cleanSrcPath });
+          if (!srcExists) {
+            addLog(`SKIPPED: Source file no longer exists at ${cleanSrcPath} — it may have been moved already.`);
+            failedItems.push(item.title);
+            continue;
+          }
+        } catch {
+          // If we can't verify, proceed with the move attempt anyway
+        }
+
+        const exists = await invoke<boolean>('file_exists', { path: destFilePath });
+        let choice: 'overwrite' | 'keep-both' | 'skip' | 'cancel' = 'keep-both';
+
+        if (exists) {
+          if (localApplyToAllChoice) {
+            choice = localApplyToAllChoice;
+          } else {
+            // Wait for user collision choice
+            choice = await new Promise<'overwrite' | 'keep-both' | 'skip' | 'cancel'>((resolve) => {
+              setCollisionInfo({
+                filename: fileName,
+                resolve: (userChoice, applyToAll) => {
+                  if (applyToAll) {
+                    localApplyToAllChoice = userChoice;
+                    setApplyToAllChoice(userChoice);
+                  }
+                  resolve(userChoice);
+                }
+              });
+            });
+            setCollisionInfo(null);
+          }
+        } else {
+          choice = 'overwrite'; // No collision, proceed as overwrite
+        }
+
+        if (choice === 'cancel') {
+          addLog(`${opLabel} cancelled by user.`);
+          cancelled = true;
+          break;
+        }
+
+        if (choice === 'skip') {
+          addLog(`SKIPPED: ${fileName} (User choice: Skip conflict)`);
+          continue;
+        }
+
+        const overwrite = choice === 'overwrite';
+        const renameSibling = choice === 'keep-both';
+
+        // Per-file error handling: if one file fails, the rest can still succeed
+        try {
+          const cmd = mode === 'move' ? 'move_file_on_disk' : 'copy_file_on_disk';
+          const newPath = await invoke<string>(cmd, {
+            srcPath: cleanSrcPath,
+            destDir: cleanDestFolder,
+            overwrite,
+            renameSibling
+          });
+          
+          updatedItemsList.push({ originalId: item.id, newPath });
+          addLog(`SUCCESS: ${opLabel} completed for ${item.title}`);
+        } catch (fileErr) {
+          console.error(`Failed to ${mode} ${item.title}:`, fileErr);
+          addLog(`ERROR: Failed to ${mode} "${item.title}" — ${fileErr}`);
+          failedItems.push(item.title);
+        }
       }
 
-      onSuccess(updatedItemsList);
+      // Always sync the grid for items that succeeded, even if some failed
+      if (updatedItemsList.length > 0) {
+        onSuccess(updatedItemsList);
+      }
+
+      if (failedItems.length > 0) {
+        addLog(`WARNING: ${failedItems.length} file(s) could not be ${mode}d: ${failedItems.join(', ')}`);
+      }
+
       onClose();
     } catch (err) {
+      // Catastrophic failure (e.g., modal state error) — still sync whatever succeeded
       console.error(err);
       addLog(`CRITICAL: ${opLabel} failed - ${err}`);
+      if (updatedItemsList.length > 0) {
+        onSuccess(updatedItemsList);
+      }
       alert(`Operation failed: ${err}`);
     } finally {
       setIsProcessing(false);
+      setCollisionInfo(null);
     }
   };
 
@@ -735,6 +845,70 @@ export function FileManagementModal({
         </div>
 
       </div>
+
+      {collisionInfo && (
+        <div className="modal-overlay" style={{ zIndex: 310000, background: 'rgba(0,0,0,0.85)', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-content premium-glass" style={{ width: '400px', padding: '24px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', background: '#121214', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+            <h3 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: 'var(--accent, #00ff88)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              File Collision
+            </h3>
+            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', lineHeight: '1.4', marginBottom: '14px' }}>
+              A file named <strong style={{ color: '#fff' }}>{collisionInfo.filename}</strong> already exists in the destination folder. What would you like to do?
+            </p>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <input 
+                type="checkbox" 
+                id="apply-to-all" 
+                ref={applyToAllRef}
+                style={{ cursor: 'pointer' }}
+              />
+              <label htmlFor="apply-to-all" style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', userSelect: 'none' }}>
+                Apply to all remaining conflicts
+              </label>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button 
+                onClick={() => {
+                  const applyAll = applyToAllRef.current?.checked || false;
+                  collisionInfo.resolve('keep-both', applyAll);
+                }}
+                style={{ width: '100%', justifyContent: 'center', padding: '10px', fontSize: '11px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                Keep Both (Rename new file)
+              </button>
+              <button 
+                onClick={() => {
+                  const applyAll = applyToAllRef.current?.checked || false;
+                  collisionInfo.resolve('overwrite', applyAll);
+                }}
+                style={{ width: '100%', justifyContent: 'center', padding: '10px', fontSize: '11px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#ef4444', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                Overwrite (Replace existing file)
+              </button>
+              <button 
+                onClick={() => {
+                  const applyAll = applyToAllRef.current?.checked || false;
+                  collisionInfo.resolve('skip', applyAll);
+                }}
+                style={{ width: '100%', justifyContent: 'center', padding: '10px', fontSize: '11px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.6)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                Skip File
+              </button>
+              <button 
+                onClick={() => {
+                  collisionInfo.resolve('cancel', false);
+                }}
+                style={{ width: '100%', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '11px', cursor: 'pointer', padding: '8px 0', marginTop: '4px', textDecoration: 'underline' }}
+              >
+                Cancel Operation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

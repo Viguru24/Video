@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { toCosmoUrl, isTauri } from '../utils/videoUtils';
+import { toCosmoUrl, isTauri, showConfirm } from '../utils/videoUtils';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion } from 'framer-motion';
-import type { VideoItem, RepeatMode } from '../types';
+import type { VideoItem, RepeatMode, SortOption } from '../types';
 import { ContextMenu } from './ContextMenu';
 import { useStore } from '../store/useStore';
 import { BatchRenameModal } from './modals/BatchRenameModal';
@@ -51,6 +51,8 @@ import {
   Share2,
   Save,
   MousePointer2,
+  ArrowUpDown,
+  Check,
   Download,
   ExternalLink,
   Command,
@@ -62,7 +64,8 @@ import {
   Film,
   ChevronDown,
   Cpu,
-  Sparkles
+  Sparkles,
+  Wifi
 } from 'lucide-react';
 
 interface ControlBarProps {
@@ -102,8 +105,6 @@ interface ControlBarProps {
   isPopout: boolean;
   showHelp: boolean;
   setShowHelp: React.Dispatch<React.SetStateAction<boolean>>;
-  showSymphonyWorkshop: boolean;
-  setShowSymphonyWorkshop: (val: boolean) => void;
   toggleMasterMute: (soloId?: string) => void;
   globalControl: string | null;
   rotating: boolean;
@@ -112,6 +113,9 @@ interface ControlBarProps {
   setIsSlideshowActive: (val: boolean) => void;
   slideshowInterval: number;
   setSlideshowInterval: React.Dispatch<React.SetStateAction<number>>;
+  onOpenWifiShare?: () => void;
+  onOpenVolumeRepeat?: () => void;
+  onForceSetup?: () => void;
 }
 
 export function ControlBar({
@@ -150,8 +154,6 @@ export function ControlBar({
   isPopout,
   showHelp,
   setShowHelp,
-  showSymphonyWorkshop,
-  setShowSymphonyWorkshop,
   toggleMasterMute,
   globalControl,
   rotating,
@@ -160,6 +162,9 @@ export function ControlBar({
   setIsSlideshowActive,
   slideshowInterval,
   setSlideshowInterval,
+  onOpenWifiShare,
+  onOpenVolumeRepeat,
+  onForceSetup
 }: ControlBarProps) {
   const {
     mediaMode, setMediaMode,
@@ -177,13 +182,112 @@ export function ControlBar({
     masterShowUI, setMasterShowUI,
     selectedIds, setSelectedIds,
     renameHistory,
-    aiHardwareStatus
+    aiHardwareStatus,
+    quickFolders, setQuickFolders,
+    showInAppBrowser, setShowInAppBrowser,
+    inAppBrowserPath, setInAppBrowserPath,
+    enableSlideshowPanZoom, setEnableSlideshowPanZoom,
+    sortOrder, setSortOrder
   } = useStore();
   const [showBatchRename, setShowBatchRename] = useState(false);
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const [sortDropdownPos, setSortDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const sortButtonRef = useRef<HTMLButtonElement>(null);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [isSpanned, setIsSpanned] = useState(false);
   const [showMaxMenu, setShowMaxMenu] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const [showQuickFoldersDropdown, setShowQuickFoldersDropdown] = useState(false);
+  const quickFoldersRef = useRef<HTMLDivElement>(null);
+
+  // Close sort dropdown on outside click
+  useEffect(() => {
+    if (!showSortDropdown) return;
+    function handleSortOutside(e: MouseEvent) {
+      if (
+        sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node) &&
+        sortButtonRef.current && !sortButtonRef.current.contains(e.target as Node)
+      ) {
+        setShowSortDropdown(false);
+      }
+    }
+    window.addEventListener('mousedown', handleSortOutside);
+    return () => window.removeEventListener('mousedown', handleSortOutside);
+  }, [showSortDropdown]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (quickFoldersRef.current && !quickFoldersRef.current.contains(event.target as Node)) {
+        setShowQuickFoldersDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const handlePinNewFolder = async () => {
+    try {
+      const path = await invoke<string>('select_folder_cmd');
+      if (path === 'Cancelled') return;
+      
+      const parts = path.split(/[\\/]/);
+      const defaultName = parts[parts.length - 1] || parts[parts.length - 2] || "Folder";
+      
+      const label = (window as any).__customPromptHandler
+        ? await (window as any).__customPromptHandler("Enter a name/label for this pinned folder:", defaultName, { title: "PIN WORKSPACE FOLDER" })
+        : prompt("Enter a name/label for this pinned folder:", defaultName);
+      if (label === null) return;
+      
+      const nextFolders = [
+        {
+          id: crypto.randomUUID(),
+          name: label.trim() || defaultName,
+          path
+        },
+        ...quickFolders
+      ];
+      setQuickFolders(nextFolders);
+      addLog(`SUCCESS: Pinned directory "${label || defaultName}" (${path})`);
+      
+      // Automatically open the folder in the In-App Browser on selection
+      handleOpenInAppBrowser(path);
+    } catch (err: any) {
+      if (err !== 'Cancelled') {
+        console.error("Failed to pin folder:", err);
+      }
+    }
+  };
+
+  const handleRenamePinnedFolder = (id: string) => {
+    const folder = quickFolders.find(f => f.id === id);
+    if (!folder) return;
+    const label = prompt("Enter a new name for this pinned folder:", folder.name);
+    if (label === null) return;
+    
+    const nextFolders = quickFolders.map(f => 
+      f.id === id ? { ...f, name: label.trim() || f.name } : f
+    );
+    setQuickFolders(nextFolders);
+    addLog(`SUCCESS: Renamed pinned folder to "${label}"`);
+  };
+
+  const handleUnpinFolder = async (id: string) => {
+    const folder = quickFolders.find(f => f.id === id);
+    if (!folder) return;
+    if (await showConfirm(`Are you sure you want to unpin "${folder.name}"?`, { title: 'Unpin Folder', kind: 'warning' })) {
+      setQuickFolders(quickFolders.filter(f => f.id !== id));
+      addLog(`SUCCESS: Unpinned folder "${folder.name}"`);
+    }
+  };
+
+  const handleOpenInAppBrowser = (path: string) => {
+    setInAppBrowserPath(path);
+    setShowInAppBrowser(true);
+    setShowQuickFoldersDropdown(false);
+  };
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -232,39 +336,38 @@ export function ControlBar({
     }
 
     const win = getCurrentWindow();
-    const isMax = await win.isMaximized();
+    const startX = e.screenX;
+    const startY = e.screenY;
 
-    if (isMax || isSpanned) {
-      const startX = e.screenX;
-      const startY = e.screenY;
+    const handleMouseMove = async (moveEvent: MouseEvent) => {
+      const dist = Math.hypot(moveEvent.screenX - startX, moveEvent.screenY - startY);
+      if (dist > 5) {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
 
-      const handleMouseMove = async (moveEvent: MouseEvent) => {
-        const dist = Math.hypot(moveEvent.screenX - startX, moveEvent.screenY - startY);
-        if (dist > 5) {
-          document.removeEventListener('mousemove', handleMouseMove);
-          document.removeEventListener('mouseup', handleMouseUp);
-
+        const isMax = await win.isMaximized();
+        if (isMax || isSpanned) {
           if (isSpanned) {
             await invoke('unspan_monitors').catch(console.error);
             setIsSpanned(false);
           } else {
             await win.unmaximize();
           }
-
           // Small delay for OS to process state transition
           await new Promise(r => setTimeout(r, 50));
-          await win.startDragging();
         }
-      };
 
-      const handleMouseUp = () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
+        await win.startDragging().catch(console.error);
+      }
+    };
 
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   }, [isSpanned]);
 
   const handleHeaderDoubleClick = useCallback(async (e: React.MouseEvent) => {
@@ -292,12 +395,37 @@ export function ControlBar({
     <>
         <header 
           className="app-header"
-          data-tauri-drag-region
           onMouseDown={handleHeaderMouseDown}
           onDoubleClick={handleHeaderDoubleClick}
         >
-          <div className="header-row brand-row" data-tauri-drag-region>
-            <div className="header-left" data-tauri-drag-region>
+          <div className="header-row brand-row">
+            <div className="header-left">
+              {/* BRANDING TITLE */}
+              <div 
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  marginRight: '12px',
+                  userSelect: 'none'
+                }}
+                data-no-drag
+              >
+                <img src="/logo.png" style={{ height: '16px', objectFit: 'contain' }} alt="Cosmo" />
+                <span style={{ 
+                  fontSize: '11px', 
+                  fontWeight: 900, 
+                  letterSpacing: '1.5px', 
+                  color: '#fff', 
+                  fontFamily: 'system-ui, sans-serif',
+                  background: 'linear-gradient(90deg, #fff 0%, #a855f7 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent'
+                }}>
+                  COSMO SYMPHONY
+                </span>
+              </div>
+
               <div className="search-box" data-no-drag>
                 <Search size={14} className="search-icon-mini" />
                 <input 
@@ -346,6 +474,14 @@ export function ControlBar({
 
               <div className="mode-switch-group" data-no-drag>
                 <button 
+                  className={`mode-btn ${mediaMode === 'all' ? 'active' : ''}`}
+                  onClick={() => setMediaMode('all')}
+                  data-tooltip="Show All Media"
+                >
+                  <LayoutGrid size={14} />
+                  <span>ALL</span>
+                </button>
+                <button 
                   className={`mode-btn ${mediaMode === 'video' ? 'active' : ''}`}
                   onClick={() => setMediaMode('video')}
                   data-tooltip="Video Mode"
@@ -365,6 +501,87 @@ export function ControlBar({
 
               <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
 
+              {/* Wi-Fi Sharing Button */}
+              <button 
+                className="mode-btn"
+                onClick={onOpenWifiShare}
+                data-tooltip="Wi-Fi Sharing Protocol"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                <span>WI-FI SHARE</span>
+              </button>
+
+              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+
+              {/* Quick Folders Dropdown */}
+              <div className="quick-folders-container" ref={quickFoldersRef} data-no-drag>
+                <button 
+                  className={`mode-btn quick-folders-trigger-btn ${showQuickFoldersDropdown ? 'active' : ''}`}
+                  onClick={() => setShowQuickFoldersDropdown(!showQuickFoldersDropdown)}
+                  data-tooltip="Quick Access Pinned Folders"
+                >
+                  <FolderOpen size={14} className="quick-folders-icon" />
+                  <span>QUICK FOLDERS</span>
+                  <ChevronDown size={10} className="quick-folders-arrow-icon" style={{ marginLeft: '4px', opacity: 0.7 }} />
+                </button>
+                {showQuickFoldersDropdown && (
+                  <div className="quick-folders-dropdown">
+                    <div className="quick-folders-header">
+                      <span className="quick-folders-title">Pinned Folders</span>
+                      <button 
+                        className="quick-folders-add-btn" 
+                        onClick={handlePinNewFolder}
+                        title="Pin New Folder"
+                      >
+                        <Plus size={11} />
+                        <span>Pin Folder</span>
+                      </button>
+                    </div>
+                    <div className="quick-folders-list">
+                      {quickFolders.length === 0 ? (
+                        <div className="quick-folders-empty">No folders pinned. Click Pin Folder to start.</div>
+                      ) : (
+                        quickFolders.map(folder => (
+                          <div key={folder.id} className="quick-folder-item">
+                            <button 
+                              className="quick-folder-link"
+                              onClick={() => handleOpenInAppBrowser(folder.path)}
+                              title={folder.path}
+                            >
+                              <FolderOpen size={12} className="folder-item-icon" />
+                              <span className="folder-item-name">{folder.name}</span>
+                            </button>
+                            <div className="quick-folder-actions">
+                              <button 
+                                className="quick-folder-action-btn edit" 
+                                onClick={() => handleRenamePinnedFolder(folder.id)}
+                                title="Rename Pin"
+                              >
+                                <Type size={11} />
+                              </button>
+                              <button 
+                                className="quick-folder-action-btn delete" 
+                                onClick={() => handleUnpinFolder(folder.id)}
+                                title="Unpin Folder"
+                              >
+                                <X size={11} />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+
               {/* "Open Screenshots Folder" button removed as per user request — it was confusing because it didn't open the currently active image folder */}
             </div>
             
@@ -377,7 +594,7 @@ export function ControlBar({
               >
                 <button className="win-dot min" onClick={() => getCurrentWindow().minimize()} title="Minimize" />
                 <button className="win-dot max" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMaxMenu(prev => !prev); }} title="Maximize Options" />
-                <button className="win-dot close" onClick={() => getCurrentWindow().close()} title="Close" />
+                <button className="win-dot close" onClick={() => invoke('exit_app')} title="Close" />
                 
                 {showMaxMenu && (
                   <div className="max-options-dropdown" style={{
@@ -493,6 +710,92 @@ export function ControlBar({
               </button>
             </div>
 
+            {/* SORTING CONTROLS */}
+            <div className="ctrl-group sort-group">
+              <button
+                ref={sortButtonRef}
+                onClick={() => {
+                  if (!showSortDropdown && sortButtonRef.current) {
+                    const rect = sortButtonRef.current.getBoundingClientRect();
+                    setSortDropdownPos({ top: rect.bottom + 8, left: rect.left });
+                  }
+                  setShowSortDropdown(v => !v);
+                }}
+                className={`hdr-btn ${sortOrder !== 'custom' ? 'active-accent' : ''}`}
+                data-tooltip="Sort Cards"
+              >
+                <ArrowUpDown size={14} />
+              </button>
+            </div>
+            {showSortDropdown && (
+              <div 
+                ref={sortDropdownRef}
+                className="sort-dropdown"
+                style={{
+                  position: 'fixed',
+                  top: sortDropdownPos.top,
+                  left: sortDropdownPos.left,
+                  background: 'var(--bg-glass, rgba(13, 8, 27, 0.92))',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '8px',
+                  padding: '6px 0',
+                  width: '200px',
+                  zIndex: 999999,
+                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.1)',
+                }}
+              >
+                {[
+                  { label: 'Custom Order', value: 'custom' },
+                  { label: 'Sort: Videos First', value: 'videos-first' },
+                  { label: 'Sort: Stills First', value: 'pictures-first' },
+                  { label: 'Name (A → Z)', value: 'name-asc' },
+                  { label: 'Name (Z → A)', value: 'name-desc' },
+                  { label: 'Size (Small → Large)', value: 'size-asc' },
+                  { label: 'Size (Large → Small)', value: 'size-desc' },
+                  { label: 'Date Modified (Newest)', value: 'modified-newest' },
+                  { label: 'Date Modified (Oldest)', value: 'modified-oldest' },
+                  { label: 'Date Created (Newest)', value: 'created-newest' },
+                  { label: 'Date Created (Oldest)', value: 'created-oldest' },
+                ].map(opt => (
+                  <div
+                    key={opt.value}
+                    className={`sort-dropdown-item ${sortOrder === opt.value ? 'active' : ''}`}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '6px 12px',
+                      fontSize: '11px',
+                      color: sortOrder === opt.value ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.7)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      background: sortOrder === opt.value ? 'rgba(0, 255, 136, 0.05)' : 'transparent',
+                    }}
+                    onMouseDown={() => {
+                      setSortOrder(opt.value as SortOption);
+                      setShowSortDropdown(false);
+                    }}
+                    onMouseEnter={(e) => {
+                      if (sortOrder !== opt.value) {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
+                        e.currentTarget.style.color = '#fff';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (sortOrder !== opt.value) {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+                      }
+                    }}
+                  >
+                    {sortOrder === opt.value ? <Check size={11} className="menu-check" /> : <div style={{ width: 11 }} />}
+                    <span>{opt.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* PLAYBACK ENGINE */}
             {mediaMode === 'video' && (
               <div className="ctrl-group playback-group">
@@ -514,47 +817,36 @@ export function ControlBar({
                   />
                 </div>
                 
-                {/* HORIZONTAL VOLUME */}
-                <div className="slider-h-box" data-tooltip={`Vol: ${Math.round(globalVolume*100)}%`}>
-                  <Volume2 
-                    size={12} 
-                    className="slider-h-icon" 
-                    style={{ cursor: 'pointer' }}
-                    onClick={toggleMasterMute}
-                  />
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={globalVolume}
-                    onChange={(e) => {
-                      setGlobalVolume(parseFloat(e.target.value));
-                      if (parseFloat(e.target.value) > 0 && masterMuted) toggleMasterMute();
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className="h-range volume-range"
-                    style={{
-                      background: `linear-gradient(to right, var(--accent, #00ff88) 0%, var(--accent, #00ff88) ${(masterMuted ? 0 : globalVolume) * 100}%, rgba(255, 255, 255, 0.12) ${(masterMuted ? 0 : globalVolume) * 100}%, rgba(255, 255, 255, 0.12) 100%)`
-                    }}
-                  />
-                </div>
-
+                {/* MODALIZED VOLUME & MIXER BUTTON */}
                 <button
-                  onClick={() => {
-                    const modes: RepeatMode[] = ['none', 'always', 'folder'];
-                    setGlobalRepeat(modes[(modes.indexOf(globalRepeat) + 1) % modes.length]);
-                  }}
-                  className={`hdr-btn ${globalRepeat !== 'none' ? 'active-accent' : ''}`}
-                  data-tooltip={`Repeat: ${globalRepeat.toUpperCase()}`}
+                  onClick={onOpenVolumeRepeat}
+                  className={`hdr-btn ${masterMuted ? 'active-danger' : globalVolume > 0 ? 'active-accent' : ''}`}
+                  data-tooltip={masterMuted ? "Volume: MUTED (Click to Open Mixer)" : `Volume: ${Math.round(globalVolume * 100)}% (Click to Open Mixer)`}
+                  onMouseDown={(e) => e.stopPropagation()}
                 >
-                  {globalRepeat === 'always' ? <Repeat1 size={14} /> : <Repeat size={14} />}
-                </button>
-                <button onClick={toggleMasterPlay} className={`hdr-btn main-play ${masterPlaying ? 'active-accent' : ''}`} data-tooltip="Play/Pause">
-                  {masterPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
-                </button>
-                <button onClick={toggleMasterMute} className={`hdr-btn ${masterMuted ? 'active-accent' : ''}`} data-tooltip="Mute">
                   {masterMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                </button>
+
+                {/* MODALIZED REPEAT BUTTON */}
+                <button
+                  onClick={onOpenVolumeRepeat}
+                  className={`hdr-btn ${globalRepeat !== 'none' ? 'active-accent' : ''}`}
+                  data-tooltip={`Repeat: ${globalRepeat === 'none' ? 'OFF' : globalRepeat === 'always' ? 'ALWAYS' : 'FOLDER'} (Click to Configure)`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  {globalRepeat === 'always' && <Repeat size={14} />}
+                  {globalRepeat === 'folder' && <Repeat size={14} style={{ color: 'var(--accent-dim, #00cc66)' }} />}
+                  {(globalRepeat === 'none' || globalRepeat === 'once') && <Repeat size={14} style={{ opacity: 0.5 }} />}
+                </button>
+
+                {/* PLAY/PAUSE */}
+                <button 
+                  onClick={toggleMasterPlay} 
+                  className={`hdr-btn main-play ${masterPlaying ? 'active-accent' : ''}`} 
+                  data-tooltip="Play/Pause"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  {masterPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
                 </button>
               </div>
             )}
@@ -591,9 +883,10 @@ export function ControlBar({
               </button>
             </div>
 
+
             {/* SYSTEM TOOLS */}
             <div className="ctrl-group system-group">
-              <button onClick={() => { if (confirm('Purge Set?')) setVideos([]); }} className="hdr-btn" data-tooltip="Purge Set"><Trash2 size={14} /></button>
+              <button onClick={async () => { if (await showConfirm('Purge Set? This will clear all cards.', { title: 'Purge Set', kind: 'error' })) setVideos([]); }} className="hdr-btn" data-tooltip="Purge Set"><Trash2 size={14} /></button>
               <button 
                 onClick={() => {
                   const nextState = !alwaysOnTop;
@@ -604,6 +897,13 @@ export function ControlBar({
                 data-tooltip="Always on Top"
               >
                 <Monitor size={14} />
+              </button>
+              <button 
+                onClick={onOpenWifiShare} 
+                className="hdr-btn" 
+                data-tooltip="Wi-Fi Sharing Protocol"
+              >
+                <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
               </button>
               {/* THEME SELECTOR ENGINE */}
               <div className="theme-select-container" onMouseDown={(e) => e.stopPropagation()}>
@@ -650,8 +950,8 @@ export function ControlBar({
                 </div>
               </div>
 
-              {/* AI STATUS BADGE */}
               <div 
+                onClick={onForceSetup}
                 className={`ai-status-badge ${
                   aiHardwareStatus.includes('GPU') 
                     ? 'status-gpu' 
@@ -659,12 +959,13 @@ export function ControlBar({
                     ? 'status-detecting' 
                     : 'status-cpu'
                 }`}
+                style={{ cursor: 'pointer' }}
                 data-tooltip={
                   aiHardwareStatus.includes('GPU')
-                    ? "Nvidia RTX CUDA GPU Upscaler and GFPGAN Face Restore are active & ready."
+                    ? "Nvidia RTX CUDA GPU Upscaler and GFPGAN Face Restore are active & ready. Click to re-run setup."
                     : aiHardwareStatus === 'Detecting...'
                     ? "Detecting AI processing hardware status..."
-                    : "Running with Bilateral Filter CPU fallback. Install Nvidia PyTorch/CUDA for 4x Real-ESRGAN/GFPGAN AI Upscale."
+                    : "Running with Bilateral Filter CPU fallback. Click here to download GPU Acceleration Pack."
                 }
               >
                 {aiHardwareStatus.includes('GPU') ? (
@@ -681,25 +982,73 @@ export function ControlBar({
                 </span>
               </div>
 
-              {/* VERSION BADGE */}
-              <div style={{
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                borderRadius: '6px',
-                height: '28px',
-                padding: '0 8px',
-                color: 'rgba(255, 255, 255, 0.6)',
-                fontSize: '10px',
-                fontFamily: 'monospace',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 'bold',
-                letterSpacing: '0.5px',
-                userSelect: 'none',
-                marginLeft: '4px'
-              }}>
-                v4.0.0
+              {/* VERSION & DEV BADGES */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <a
+                  href="https://cosmowhisper.com"
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    try {
+                      await invoke('open_external_url', { url: 'https://cosmowhisper.com' });
+                    } catch (err) {
+                      try {
+                        window.open('https://cosmowhisper.com', '_blank');
+                      } catch (e2) {}
+                    }
+                  }}
+                  style={{
+                    color: 'var(--accent, #00ff88)',
+                    fontSize: '10px',
+                    textDecoration: 'underline',
+                    marginRight: '8px',
+                    fontWeight: 600,
+                    letterSpacing: '0.5px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Discover Cosmo Whisper"
+                >
+                  🚀 Cosmo Whisper
+                </a>
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '6px',
+                  height: '28px',
+                  padding: '0 8px',
+                  color: 'rgba(255, 255, 255, 0.6)',
+                  fontSize: '10px',
+                  fontFamily: 'monospace',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.5px',
+                  userSelect: 'none',
+                  marginLeft: '4px'
+                }}>
+                  v1.1.2
+                </div>
+                <div style={{
+                  height: '18px',
+                  padding: '0 6px',
+                  background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)',
+                  boxShadow: '0 0 8px rgba(168, 85, 247, 0.4)',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  fontSize: '8px',
+                  fontWeight: 900,
+                  letterSpacing: '1px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  userSelect: 'none',
+                  textTransform: 'uppercase'
+                }} title="Cosmo Symphony Developer Build">
+                  DEV
+                </div>
               </div>
  
               {/* SLIDESHOW TIMER WIDGET */}
@@ -754,7 +1103,47 @@ export function ControlBar({
                 <span>{slideshowInterval}s</span>
               </div>
 
-              <button onClick={() => setShowSettings(!showSettings)} className={`hdr-btn ${showSettings ? 'active-accent' : ''}`} data-tooltip="Settings & Guide"><Settings size={14} /></button>
+              {/* SLIDESHOW PAN & ZOOM TOGGLE */}
+              <div
+                className="slideshow-panzoom-badge"
+                data-tooltip={enableSlideshowPanZoom ? "Slideshow Pan & Zoom: ON" : "Slideshow Pan & Zoom: OFF"}
+                onClick={() => setEnableSlideshowPanZoom(!enableSlideshowPanZoom)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: enableSlideshowPanZoom ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))' : 'rgba(255, 255, 255, 0.05)',
+                  border: enableSlideshowPanZoom ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '6px',
+                  height: '28px',
+                  padding: '0 8px',
+                  color: enableSlideshowPanZoom ? 'var(--accent, #00ff88)' : 'var(--text, #fff)',
+                  fontSize: '11px',
+                  fontFamily: 'monospace',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  transition: 'all 0.2s',
+                  marginRight: '4px',
+                  pointerEvents: 'auto',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = enableSlideshowPanZoom 
+                    ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.25), rgba(0, 150, 255, 0.25))'
+                    : 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
+                  e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.2)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = enableSlideshowPanZoom
+                    ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))'
+                    : 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = enableSlideshowPanZoom ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <Maximize size={11} />
+                <span>Zoom</span>
+              </div>
             </div>
 
             </div>
@@ -772,6 +1161,7 @@ export function ControlBar({
             setShowSettings(false);
             setShowLogs(true);
           }}
+          onForceSetup={onForceSetup}
         />
       )}
 
@@ -787,7 +1177,7 @@ export function ControlBar({
       )}
 
       {showLogs && (
-        <div className="logs-overlay">
+        <div className="logs-overlay" onClick={() => setShowLogs(false)}>
           <div className="logs-modal" onClick={(e) => e.stopPropagation()}>
             <div className="logs-header">
               <h2>COSMO SYMPHONY LOGS</h2>

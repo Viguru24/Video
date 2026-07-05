@@ -3,10 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { 
   X, Play, Pause, Volume2, VolumeX,
   Layers, ChevronLeft, ChevronRight, Plus, 
-  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer, Folder
+  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer, Folder,
+  Crop, Expand
 } from 'lucide-react';
 import type { VideoItem, CollageItem, CollageConfig } from '../types';
-import { isValidPictureExtension } from '../utils/videoUtils';
+import { isValidPictureExtension, toCosmoUrl } from '../utils/videoUtils';
 
 interface CollageWorkspaceProps {
   videos: VideoItem[]; // active grid files
@@ -18,13 +19,11 @@ interface CollageWorkspaceProps {
   addLog: (msg: string) => void;
   snapshotDir: string;
   setSnapshotDir: React.Dispatch<React.SetStateAction<string>>;
+  onAddVideo?: (newVideo: VideoItem) => void;
+  onNavigateToGrid?: () => void;
 }
 
 const BACKGROUND_PRESETS = [
-  { name: 'Polished Wood',   value: 'url(/wood_background.png) center/cover no-repeat',                    type: 'image' },
-  { name: 'Sea Stones',      value: 'url(/sea_stones_background.png) center/cover no-repeat',              type: 'image' },
-  { name: 'Beach Sand',      value: 'url(/sand_background.png) center/cover no-repeat',                    type: 'image' },
-  { name: 'Art Wallpaper',   value: 'url(/wallpaper_background.png) center/cover no-repeat',               type: 'image' },
   { name: 'Void Black',      value: '#09090e',                                                            type: 'color' },
   { name: 'Sleek Charcoal',  value: '#1e1e26',                                                            type: 'color' },
   { name: 'Neon Cyberpunk',  value: 'linear-gradient(135deg, #0d081b 0%, #2a0845 50%, #05020c 100%)',      type: 'gradient' },
@@ -44,7 +43,9 @@ export function CollageWorkspace({
   onDeepFocus,
   addLog,
   snapshotDir,
-  setSnapshotDir
+  setSnapshotDir,
+  onAddVideo,
+  onNavigateToGrid
 }: CollageWorkspaceProps) {
   const [showShelf, setShowShelf] = useState(true);
   const [isBgDropdownOpen, setIsBgDropdownOpen] = useState(false);
@@ -186,6 +187,32 @@ export function CollageWorkspace({
     setCollageItems(prev => prev.filter(x => x.id !== id));
   };
 
+  // Snap item to its original/natural aspect ratio
+  const handleFitAspectRatio = (item: CollageItem) => {
+    if (item.isImage) {
+      const img = new Image();
+      img.onload = () => {
+        const aspect = img.naturalWidth / img.naturalHeight;
+        // Adjust height based on current width to preserve aspect ratio
+        const newHeight = Math.round(item.width / aspect);
+        setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, height: newHeight } : x));
+        addLog(`COLLAGE: Resized "${item.title}" to original aspect ratio (${img.naturalWidth}x${img.naturalHeight})`);
+      };
+      img.src = item.url;
+    } else {
+      const video = document.createElement('video');
+      video.src = item.url;
+      video.onloadedmetadata = () => {
+        if (video.videoWidth && video.videoHeight) {
+          const aspect = video.videoWidth / video.videoHeight;
+          const newHeight = Math.round(item.width / aspect);
+          setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, height: newHeight } : x));
+          addLog(`COLLAGE: Resized video "${item.title}" to original aspect ratio (${video.videoWidth}x${video.videoHeight})`);
+        }
+      };
+    }
+  };
+
   // Trigger sync play/pause
   const handleSyncPlayState = (playing: boolean) => {
     setCollageItems(prev => prev.map(x => ({ ...x, playing })));
@@ -262,6 +289,24 @@ export function CollageWorkspace({
         customDir: snapshotDir
       });
       addLog(`COLLAGE EXPORT: Saved → ${savedPath}`);
+      
+      if (onAddVideo) {
+        onAddVideo({
+          id: `collage-out-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          title: fileName.replace('.png', ''),
+          url: toCosmoUrl(savedPath),
+          realPath: savedPath,
+          currentTime: 0,
+          repeatMode: 'none',
+          playing: false,
+          muted: true
+        });
+      }
+
+      // Navigate back to the media grid so the user can see the new image
+      if (onNavigateToGrid) {
+        setTimeout(() => onNavigateToGrid!(), 300);
+      }
     } catch (e) {
       addLog(`COLLAGE EXPORT ERROR: ${e}`);
     }
@@ -269,12 +314,75 @@ export function CollageWorkspace({
 
   // ── PRINT: open browser print dialog focused on the canvas ──
   const handlePrint = () => {
-    window.print();
-    addLog('COLLAGE: Print dialog opened');
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      canvasRef.current.style.setProperty('--screen-w-num', Math.round(rect.width).toString());
+      canvasRef.current.style.setProperty('--screen-h-num', Math.round(rect.height).toString());
+    }
+    setTimeout(() => {
+      window.print();
+      addLog('COLLAGE: Print dialog opened');
+    }, 50);
   };
 
   return (
     <div style={{ display: 'flex', width: '100%', height: '100%', background: '#09090c', overflow: 'hidden', position: 'relative' }}>
+      <style>{`
+        @media print {
+          /* Hide all application chrome/UI elements */
+          body * {
+            visibility: hidden !important;
+          }
+          
+          /* Show only the collage canvas container and its contents */
+          .collage-print-canvas,
+          .collage-print-canvas * {
+            visibility: visible !important;
+          }
+          
+          /* Target canvas container to fill the print page layout and auto-scale to fit */
+          .collage-print-canvas {
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: calc(var(--screen-w-num, 1200) * 1px) !important;
+            height: calc(var(--screen-h-num, 800) * 1px) !important;
+            transform: scale(calc(100vw / var(--screen-w-num, 1200))) !important;
+            transform-origin: top left !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            z-index: 9999999 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          
+          /* Hide non-printable workspace overlays/interactivity widgets */
+          .collage-print-canvas .collage-resize-handle,
+          .collage-print-canvas .collage-item-header,
+          .collage-print-canvas .collage-inner-btn,
+          .collage-print-canvas .collage-item-title,
+          .collage-print-canvas .collage-rotation-handle-container,
+          .collage-print-canvas [style*="top: -30px"] {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+          }
+          
+          /* Page setup margin constraints removal */
+          @page {
+            margin: 0;
+            size: auto;
+          }
+          
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+        }
+      `}</style>
       
       {/* Side Media Shelf (Collapsible Tray) */}
       <div 
@@ -663,6 +771,7 @@ export function CollageWorkspace({
         {/* DRAGGABLE CANVAS CONTAINER */}
         <div 
           ref={canvasRef}
+          className="collage-print-canvas"
           style={{
             flex: 1,
             position: 'relative',
@@ -695,8 +804,8 @@ export function CollageWorkspace({
                   display: 'flex',
                   flexDirection: 'column',
                   borderRadius: '12px',
-                  background: 'rgba(10, 10, 15, 0.85)',
-                  border: isSelected ? '2px solid var(--accent, #00ff88)' : '1px solid rgba(255, 255, 255, 0.12)',
+                  background: item.isImage ? 'transparent' : 'rgba(10, 10, 15, 0.85)',
+                  border: isSelected ? '2px solid var(--accent, #00ff88)' : (item.isImage ? 'none' : '1px solid rgba(255, 255, 255, 0.12)'),
                   boxShadow: isSelected 
                     ? '0 0 30px rgba(0, 255, 136, 0.35)' 
                     : '0 8px 30px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.1)',
@@ -746,6 +855,28 @@ export function CollageWorkspace({
 
                   <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.15)' }} />
 
+                  {/* Toggle Scaling Fit Mode (Cover vs Contain) */}
+                  <button
+                    onClick={() => {
+                      setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, fitMode: x.fitMode === 'contain' ? 'cover' : 'contain' } : x));
+                    }}
+                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                    title={item.fitMode === 'contain' ? "Scale Mode: Contain (Showing whole). Click to Fill & Crop" : "Scale Mode: Cover (Fill & Crop). Click to Contain (Show whole)"}
+                  >
+                    <Crop size={10} style={{ color: item.fitMode === 'contain' ? 'var(--accent, #00ff88)' : '#fff', opacity: item.fitMode === 'contain' ? 1 : 0.6 }} />
+                  </button>
+
+                  {/* Snap to Original Aspect Ratio */}
+                  <button
+                    onClick={() => handleFitAspectRatio(item)}
+                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                    title="Snap to Original Aspect Ratio"
+                  >
+                    <Expand size={10} style={{ opacity: 0.7 }} />
+                  </button>
+
+                  <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.15)' }} />
+
                   {/* Open Solo focused view */}
                   <button
                     onClick={() => onDeepFocus(item.mediaId)}
@@ -775,6 +906,7 @@ export function CollageWorkspace({
 
                 {/* Rotation Handle Line and Ball (At the top center) */}
                  <div
+                   className="collage-rotation-handle-container"
                    style={{
                      position: 'absolute',
                      top: '-30px',
@@ -790,6 +922,7 @@ export function CollageWorkspace({
                    <div
                      onPointerDown={(e) => {
                        e.stopPropagation();
+                       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                        setActiveAction({
                          itemId: item.id,
                          type: 'rotate',
@@ -832,9 +965,11 @@ export function CollageWorkspace({
                   onPointerDown={(e) => {
                     // Check if resizing/editing control to not conflict dragging
                     const target = e.target as HTMLElement;
-                    if (target.closest('.collage-inner-btn') || target.closest('.resize-handle')) return;
+                    if (target.closest('.collage-inner-btn') || target.closest('.collage-resize-handle')) return;
                     
                     e.stopPropagation();
+                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                    bringToFront(item.id);
                     setActiveAction({
                       itemId: item.id,
                       type: 'drag',
@@ -854,7 +989,7 @@ export function CollageWorkspace({
                     position: 'relative',
                     borderRadius: '11px',
                     overflow: 'hidden',
-                    background: '#000',
+                    background: item.isImage ? 'transparent' : '#000',
                     cursor: 'move'
                   }}
                 >
@@ -862,7 +997,7 @@ export function CollageWorkspace({
                   {item.isImage ? (
                     <img 
                       src={item.url} 
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none', userSelect: 'none' }} 
+                      style={{ width: '100%', height: '100%', objectFit: item.fitMode || 'cover', pointerEvents: 'none', userSelect: 'none' }} 
                       alt="" 
                     />
                   ) : (
@@ -871,7 +1006,7 @@ export function CollageWorkspace({
                       autoPlay
                       loop
                       muted={item.muted}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                      style={{ width: '100%', height: '100%', objectFit: item.fitMode || 'cover', pointerEvents: 'none' }}
                       ref={(el) => {
                         if (el) {
                           if (item.playing) el.play().catch(() => {});
@@ -939,6 +1074,7 @@ export function CollageWorkspace({
 
                   {/* Title overlay in top corner */}
                   <div 
+                    className="collage-item-title"
                     style={{
                       position: 'absolute',
                       top: '8px',
@@ -961,9 +1097,10 @@ export function CollageWorkspace({
 
                 {/* Resize Handle (Bottom Right corner) */}
                 <div
-                  className="resize-handle"
+                  className="collage-resize-handle"
                   onPointerDown={(e) => {
                     e.stopPropagation();
+                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                     setActiveAction({
                       itemId: item.id,
                       type: 'resize',

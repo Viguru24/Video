@@ -53,7 +53,24 @@ foreach ($package in $packages) {
     & $signtool sign /f $certPath /p $password /fd SHA256 $package.FullName
 }
 
+# 4. Copy to root-level CosmoSymphony-Package folder (to mirror CosmoWhisper packaging style)
+Write-Host "`n[4/4] Copying signed packages to root-level CosmoSymphony-Package folder..." -ForegroundColor Yellow
+$targetPkgDir = Join-Path $PSScriptRoot "CosmoSymphony-Package"
+if (!(Test-Path $targetPkgDir)) {
+    New-Item -ItemType Directory -Path $targetPkgDir | Out-Null
+}
+
+# Clean old packages in root folder
+Get-ChildItem -Path $targetPkgDir -Include "*.msix", "*.msixbundle" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+
+# Copy new signed packages
+foreach ($package in $packages) {
+    $dest = Join-Path $targetPkgDir $package.Name
+    Copy-Item -Path $package.FullName -Destination $dest -Force
+    Write-Host "Copied to: $dest" -ForegroundColor Green
+}
+
 Write-Host "`n=============================================" -ForegroundColor Green
 Write-Host " BUILD & SIGNING COMPLETE!" -ForegroundColor Green
-Write-Host " Packages are ready in: $msixDir" -ForegroundColor Green
+Write-Host " Packages are ready in: $targetPkgDir" -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Green

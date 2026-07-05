@@ -2,8 +2,9 @@ import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } fro
 import { ResizeHandles } from './components/ResizeHandles';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { VideoItem, RepeatMode, TelemetryData, CollageItem, CollageConfig } from './types';
+import type { VideoItem, RepeatMode, TelemetryData, CollageItem, CollageConfig, SortOption } from './types';
 import { CollageWorkspace } from './components/CollageWorkspace';
 import { VideoCard } from './components/VideoCard';
 import { SortableVideoCard } from './components/SortableVideoCard';
@@ -16,17 +17,31 @@ import { ContextMenu } from './components/ContextMenu';
 import { ColorAdjustmentPanel } from './components/ColorAdjustmentPanel';
 import { ColorFilterDefs } from './components/ColorFilterDefs';
 import { DEFAULT_COLOR_FILTERS } from './types';
-const SymphonyWorkshop = lazy(() => import('./components/SymphonyWorkshop').then(m => ({ default: m.SymphonyWorkshop })));
 const HelpModal = lazy(() => import('./components/HelpModal').then(m => ({ default: m.HelpModal })));
+
+import { SetupWizard } from './components/SetupWizard';
 
 // Modular Component Imports
 import { ErrorFallback } from './components/ErrorFallback';
 import { ClockDisplayWrapper } from './components/ClockDisplayWrapper';
 import { TelemetrySystem } from './components/TelemetrySystem';
 import { CropOverlay } from './components/CropOverlay';
-import { PopoutPlayer } from './components/PopoutPlayer';
 import { SoloPlayer } from './components/SoloPlayer';
+import { MusicPlayerWidget, isAudioFile } from './components/MusicPlayerWidget';
 import { FileManagementModal } from './components/FileManagementModal';
+import { InAppBrowser } from './components/InAppBrowser';
+import { BgContextMenu } from './components/BgContextMenu';
+import { WifiShareModal } from './components/WifiShareModal';
+import { VolumeRepeatModal } from './components/VolumeRepeatModal';
+import { RenameProtocolModal } from './components/modals/RenameProtocolModal';
+import { CustomPromptModal } from './components/modals/CustomPromptModal';
+import { CustomConfirmModal } from './components/modals/CustomConfirmModal';
+import { SaveCropModal } from './components/modals/SaveCropModal';
+import { SaveUpscaleModal } from './components/modals/SaveUpscaleModal';
+import { ResizeModal } from './components/modals/ResizeModal';
+import { UpscaleStatusPanel } from './components/modals/UpscaleStatusPanel';
+import { AiOfflineModal } from './components/modals/AiOfflineModal';
+import { GenerateStoreLogosModal } from './components/modals/GenerateStoreLogosModal';
 
 import {
   DndContext,
@@ -42,7 +57,7 @@ import {
   sortableKeyboardCoordinates,
   rectSortingStrategy
 } from '@dnd-kit/sortable';
-import { Minimize2, CheckCircle2, Search, LayoutGrid, Zap, Trash2, RotateCcw, RefreshCw, Bookmark, Layers, Monitor, Plus, ListRestart, Gauge, Volume2, Pause, Play, VolumeX, Repeat, Repeat1, Eye, EyeOff, Settings, X, ChevronLeft, ChevronRight, ChevronDown, Camera, Crop, AlertCircle, Sparkles, HelpCircle, Hash, Menu, SkipBack, SkipForward, Sliders, FolderOpen } from 'lucide-react';
+import { Minimize2, CheckCircle2, Search, LayoutGrid, Trash2, RotateCcw, RefreshCw, Bookmark, Layers, Monitor, Plus, ListRestart, Gauge, Volume2, Pause, Play, VolumeX, Repeat, Repeat1, Eye, EyeOff, Settings, X, ChevronLeft, ChevronRight, ChevronDown, Camera, Crop, Sparkles, HelpCircle, Hash, Menu, SkipBack, SkipForward, Sliders, FolderOpen } from 'lucide-react';
 import { useWorkspacePersistence } from './hooks/useWorkspacePersistence';
 import { useWorkspaceControls } from './hooks/useWorkspaceControls';
 import { useIngestion } from './hooks/useIngestion';
@@ -62,14 +77,33 @@ import {
   toCosmoUrl,
   isTauri,
   showConfirm,
-  pathsEqual
+  pathsEqual,
+  requiresConversion,
+  maybeConvertMedia
 } from './utils/videoUtils';
 import { handleError, isAbortError } from './utils/errorHandler';
 
 export default function App() {
-  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus } = useStore();
+  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus, enableOSFullscreen, sortOrder, setSortOrder } = useStore();
   
+  const handleOpenWebsite = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      await invoke('open_external_url', { url: 'https://cosmowhisper.com' });
+    } catch (err) {
+      console.error("Failed to open URL via backend invoke:", err);
+      try {
+        await openUrl('https://cosmowhisper.com');
+      } catch (err2) {
+        console.error("Failed to open URL via Tauri openUrl plugin:", err2);
+        window.open('https://cosmowhisper.com', '_blank');
+      }
+    }
+  };
+
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [forceSetup, setForceSetup] = useState(false);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -159,24 +193,46 @@ export default function App() {
     };
   }, [setAiHardwareStatus]);
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const popoutData = (window as any).__POPOUT_DATA__;
-  
-  // Robust check if current window is a popout
-  let isPopoutWindowByLabel = false;
-  try {
-    if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined) {
-      const label = getCurrentWindow().label;
-      if (label && label.startsWith('pop-')) {
-        isPopoutWindowByLabel = true;
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to check window label:", e);
-  }
+  const [isPopout, setIsPopout] = useState(false);
+  const [popoutUrl, setPopoutUrl] = useState('');
+  const [isPopoutChecking, setIsPopoutChecking] = useState(true);
 
-  const isPopout = popoutData?.popout === true || urlParams.get('popout') === 'true' || isPopoutWindowByLabel;
-  const popoutUrl = popoutData?.url || urlParams.get('url') || localStorage.getItem('cosmo-popout-active-url');
+  useEffect(() => {
+    const label = isTauri() ? getCurrentWindow().label : '';
+    const isPop = label.startsWith('pop-');
+
+    if (isPop) {
+      setIsPopout(true);
+      const cachedUrl = localStorage.getItem('cosmo-popout-active-url') || '';
+      setPopoutUrl(cachedUrl);
+      setIsPopoutChecking(false);
+      return;
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const qPopout = urlParams.get('popout') === 'true';
+    const qUrl = urlParams.get('url');
+
+    if (qPopout && qUrl) {
+      setIsPopout(true);
+      setPopoutUrl(decodeURIComponent(qUrl));
+      setIsPopoutChecking(false);
+      return;
+    }
+
+    invoke<string | null>('get_popout_url')
+      .then(url => {
+        if (url) {
+          setIsPopout(true);
+          setPopoutUrl(url);
+          localStorage.setItem('cosmo-popout-active-url', url);
+        }
+        setIsPopoutChecking(false);
+      })
+      .catch(() => {
+        setIsPopoutChecking(false);
+      });
+  }, []);
 
   const [globalControl, setGlobalControl] = useState<string | null>(null);
 
@@ -187,10 +243,17 @@ export default function App() {
   const [showSaveCropOptions, setShowSaveCropOptions] = useState(false);
   const [showSaveUpscaleOptions, setShowSaveUpscaleOptions] = useState(false);
   const [upscaleTarget, setUpscaleTarget] = useState<VideoItem | null>(null);
+  const [showResizeModal, setShowResizeModal] = useState(false);
+  const [resizeTarget, setResizeTarget] = useState<VideoItem | null>(null);
   const [enhancingVideoId, setEnhancingVideoId] = useState<string | null>(null);
   const isAiEnhancing = enhancingVideoId !== null;
   const [aiServerOffline, setAiServerOffline] = useState(false);
   const [upscaleStatus, setUpscaleStatus] = useState<'idle' | 'enhancing' | 'success' | 'failed'>('idle');
+  // STORE LOGOS CREATOR STATE
+  const [isGeneratingStoreLogos, setIsGeneratingStoreLogos] = useState(false);
+  const [storeLogoImagePath, setStoreLogoImagePath] = useState('');
+  const [upscaleProgressPercent, setUpscaleProgressPercent] = useState<number | null>(null);
+  const [upscaleStage, setUpscaleStage] = useState<string | null>(null);
   const [lastEnhancedTitle, setLastEnhancedTitle] = useState('');
   // Ref used to cancel an in-progress enhancement — set to true to discard result and reset UI
   const enhancementCancelled = useRef(false);
@@ -201,19 +264,22 @@ export default function App() {
   
   const [showLogs, setShowLogs] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [bgMenu, setBgMenu] = useState<{ x: number; y: number } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragFile, setDragFile] = useState(false);
+  const [convertingStatus, setConvertingStatus] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [colorAdjustId, setColorAdjustId] = useState<string | null>(null);
   
   
   const [masterMutedOverride, setMasterMutedOverride] = useState(false);
   
+  // STICKER SYSTEM
+  const [stickerLoadingId, setStickerLoadingId] = useState<string | null>(null);
+  
   
 
   const [showSettings, setShowSettings] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
-  
-  const [showSymphonyWorkshop, setShowSymphonyWorkshop] = useState(false);
 
   // ─── COLLAGE CANVAS STATE ───────────────────────────────────────────────────
   const [showCollageCanvas, setShowCollageCanvas] = useState(false);
@@ -237,18 +303,126 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
-  // Auto-save collage state on change
+  // Auto-save collage state on change with debounce
   useEffect(() => {
     if (collageItems.length === 0) return;
-    invoke('save_persistence', { key: 'cosmo-collage', value: JSON.stringify(collageItems) }).catch(() => {});
+    const timer = setTimeout(() => {
+      const nonImageItems = collageItems.filter(item => !item.isImage);
+      const dataStr = JSON.stringify(nonImageItems);
+      if (isTauri()) {
+        invoke('save_persistence', { key: 'cosmo-collage', data: dataStr }).catch(() => {});
+      }
+      localStorage.setItem('cosmo-collage', dataStr);
+    }, PERSISTENCE_DEBOUNCE);
+    return () => clearTimeout(timer);
   }, [collageItems]);
 
   useEffect(() => {
-    invoke('save_persistence', { key: 'cosmo-collage-cfg', value: JSON.stringify(collageConfig) }).catch(() => {});
+    const timer = setTimeout(() => {
+      let configToSave = collageConfig;
+      if (collageConfig.backgroundType === 'image') {
+        configToSave = {
+          backgroundType: 'gradient',
+          backgroundValue: 'linear-gradient(135deg, #0d081b 0%, #150d2e 50%, #05020c 100%)'
+        };
+      }
+      const dataStr = JSON.stringify(configToSave);
+      if (isTauri()) {
+        invoke('save_persistence', { key: 'cosmo-collage-cfg', data: dataStr }).catch(() => {});
+      }
+      localStorage.setItem('cosmo-collage-cfg', dataStr);
+    }, PERSISTENCE_DEBOUNCE);
+    return () => clearTimeout(timer);
   }, [collageConfig]);
   // ─────────────────────────────────────────────────────────────────────────────
+  const [showIntro, setShowIntro] = useState(!isPopout);
+  const [introStep, setIntroStep] = useState<'whisper' | 'expand' | 'complete'>('whisper');
+
+  useEffect(() => {
+    if (isPopout) {
+      setIntroStep('complete');
+      setShowIntro(false);
+      return;
+    }
+
+    // Play warm sci-fi rising startup sound
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+        
+        // Root oscillator (Sine for deep clean sub-bass)
+        const osc1 = ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(90, now);
+        osc1.frequency.exponentialRampToValueAtTime(360, now + 2.0); // Sweep upwards
+        
+        // Harmonic oscillator (Triangle for rich warm texture)
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(180, now);
+        osc2.frequency.exponentialRampToValueAtTime(720, now + 2.0);
+        
+        // High harmonic sparkle (Sine detuned)
+        const osc3 = ctx.createOscillator();
+        osc3.type = 'sine';
+        osc3.frequency.setValueAtTime(360, now);
+        osc3.frequency.exponentialRampToValueAtTime(1440, now + 2.0);
+
+        // Lowpass filter sweep to give it that cinematic build-up feel
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.Q.setValueAtTime(2, now);
+        filter.frequency.setValueAtTime(150, now);
+        filter.frequency.exponentialRampToValueAtTime(3000, now + 1.8);
+
+        // Gain (volume) envelope
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(0.08, now + 0.4); // quick fade in
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 2.8); // slow decay
+
+        osc1.connect(filter);
+        osc2.connect(filter);
+        osc3.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        osc1.start(now);
+        osc2.start(now);
+        osc3.start(now);
+
+        osc1.stop(now + 3.0);
+        osc2.stop(now + 3.0);
+        osc3.stop(now + 3.0);
+      }
+    } catch (e) {
+      console.warn('Startup sound audio context blocked or unsupported:', e);
+    }
+    
+    // Step 1: Whisper for 2.2 seconds
+    const t1 = setTimeout(() => {
+      setIntroStep('expand');
+    }, 2200);
+    
+    // Step 2: Expand for 1.3 seconds, then complete
+    const t2 = setTimeout(() => {
+      setIntroStep('complete');
+      setTimeout(() => {
+        setShowIntro(false);
+      }, 800);
+    }, 3500);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isPopout]);
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    return localStorage.getItem('sidebar_collapsed') === 'true';
+    const saved = localStorage.getItem('sidebar_collapsed');
+    return saved === null ? true : saved === 'true';
   });
 
   useEffect(() => {
@@ -270,17 +444,15 @@ export default function App() {
       invoke<string>('get_drag_icon_path').then(p => {
         (window as any).__CRAB_DRAG_ICON__ = p;
       }).catch(err => console.error("Failed to get drag icon path:", err));
+
+      invoke<any>('check_dependencies').then(status => {
+        if (!status.python_ok || !status.packages_ok || !status.models_ok) {
+          setNeedsSetup(true);
+        }
+      }).catch(err => console.error("Dependency check failed:", err));
     }
   }, []);
   const [singleRenameTarget, setSingleRenameTarget] = useState<VideoItem | null>(null);
-  const [singleRenameValue, setSingleRenameValue] = useState('');
-
-  const [showSingleRenameDropdown, setShowSingleRenameDropdown] = useState(false);
-  const [singleRenameFiltering, setSingleRenameFiltering] = useState(false);
-  
-  useEffect(() => {
-    localStorage.setItem('show_workshop', showSymphonyWorkshop.toString());
-  }, [showSymphonyWorkshop]);
 
   useEffect(() => {
     localStorage.setItem('cosmo-media-mode', mediaMode);
@@ -311,12 +483,22 @@ export default function App() {
   const [fileManageOpen, setFileManageOpen] = useState(false);
   const [fileManageItems, setFileManageItems] = useState<VideoItem[]>([]);
   const [fileManageMode, setFileManageMode] = useState<'move' | 'copy'>('move');
+  const [wifiShareOpen, setWifiShareOpen] = useState(false);
+  const [volumeRepeatOpen, setVolumeRepeatOpen] = useState(false);
+  const [wifiShareItems, setWifiShareItems] = useState<any[]>([]);
 
   const [customConfirm, setCustomConfirm] = useState<{
     message: string;
     title: string;
     kind?: 'info' | 'warning' | 'error';
     resolve: (value: boolean) => void;
+  } | null>(null);
+
+  const [customPrompt, setCustomPrompt] = useState<{
+    message: string;
+    title: string;
+    defaultValue: string;
+    resolve: (value: string | null) => void;
   } | null>(null);
 
   useEffect(() => {
@@ -330,8 +512,21 @@ export default function App() {
         });
       });
     };
+
+    (window as any).__customPromptHandler = (message: string, defaultValue: string = '', options?: any) => {
+      return new Promise<string | null>((resolve) => {
+        setCustomPrompt({
+          message,
+          defaultValue,
+          title: options?.title || 'INPUT DIRECTIVE',
+          resolve
+        });
+      });
+    };
+
     return () => {
       delete (window as any).__customConfirmHandler;
+      delete (window as any).__customPromptHandler;
     };
   }, []);
 
@@ -384,7 +579,7 @@ export default function App() {
       if (m.includes("Snapshot saved to: ")) {
         const path = m.split("Snapshot saved to: ")[1];
         setToastPath(path);
-        toastMsg = `SUCCESS: Snapshot saved to ${path.split(/[\\/]/).pop()}`;
+        toastMsg = "Snapshot Saved";
       }
       setToast(toastMsg);
       setTimeout(() => {
@@ -402,6 +597,19 @@ export default function App() {
     confirmDeletion, setConfirmDeletion,
     isInitialized, setIsInitialized
   } = useWorkspacePersistence(addLog, isPopout, masterMuted, masterPlaying);
+
+  useEffect(() => {
+    // Prevent stale selected IDs if videos are removed
+    setSelectedIds(prev => {
+      const validIds = new Set(videos.map(v => v.id));
+      const hasStale = Array.from(prev).some(id => !validIds.has(id));
+      if (hasStale) {
+        const next = new Set(Array.from(prev).filter(id => validIds.has(id)));
+        return next;
+      }
+      return prev;
+    });
+  }, [videos, setSelectedIds]);
 
   // Extract all currently loaded folders in the grid
   const activeGridFolders = useMemo(() => {
@@ -446,16 +654,15 @@ export default function App() {
 
           if (isDirectory && folderVids && folderVids.length > 0) {
             folderVids.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-            const folderWithUrls = folderVids.map(v => ({ 
-              ...v, 
-              url: toCosmoUrl(v.url),
-              path: v.url 
-            }));
-
-            const newVids = folderWithUrls.map((file) => ({
+            const convertedVids = await processFolderConversion(folderVids, mediaMode);
+            if (convertedVids.length === 0) {
+              addLog(`Open With: No compatible native or converted files in folder.`);
+              return;
+            }
+            const newVids = convertedVids.map((file) => ({
               id: crypto.randomUUID(), 
-              url: file.url, 
-              realPath: (file as any).path || file.url, 
+              url: toCosmoUrl(file.url), 
+              realPath: file.url, 
               title: file.name, 
               repeatMode: 'none' as RepeatMode, 
               repeatCount: 0, 
@@ -471,11 +678,27 @@ export default function App() {
             const isVideo = isValidMediaExtension(launchPath, 'video');
             const isPicture = isValidMediaExtension(launchPath, 'picture');
             if (isVideo || isPicture) {
-              const filename = getFileNameFromPath(launchPath);
+              const needsConv = requiresConversion(launchPath, isVideo);
+              let finalPath = launchPath;
+              if (needsConv) {
+                const yes = await showConfirm(
+                  `The launch file "${getFileNameFromPath(launchPath)}" cannot be displayed natively and will be converted to ${isVideo ? 'MP4' : 'PNG'}.\n\nConvert now?`,
+                  { title: 'Format Conversion Required', kind: 'warning' }
+                );
+                if (yes) {
+                  setConvertingStatus({ current: 1, total: 1, filename: getFileNameFromPath(launchPath) });
+                  finalPath = await maybeConvertMedia(launchPath, isVideo, addLog);
+                  setConvertingStatus(null);
+                } else {
+                  addLog(`Open With: Launch file conversion skipped.`);
+                  return;
+                }
+              }
+              const filename = getFileNameFromPath(finalPath);
               const newUnit = { 
                 id: crypto.randomUUID(), 
-                url: toCosmoUrl(launchPath), 
-                realPath: launchPath, 
+                url: toCosmoUrl(finalPath), 
+                realPath: finalPath, 
                 title: filename, 
                 repeatMode: 'none' as RepeatMode, 
                 repeatCount: 0, 
@@ -515,6 +738,29 @@ export default function App() {
     jumpToUnit
   } = useWorkspaceControls(addLog);
 
+  const exitSoloMode = useCallback(async () => {
+    if (!isTauri()) {
+      setFocusedId(null);
+      setImmersive(false);
+      return;
+    }
+
+    try {
+      const win = getCurrentWindow();
+      const isAlreadyFS = await win.isFullscreen();
+      if (isAlreadyFS) {
+        await win.setFullscreen(false);
+        setIsFS(false);
+      }
+      setFocusedId(null);
+      setImmersive(false);
+    } catch (err) {
+      console.warn("Error exiting fullscreen/solo mode:", err);
+      setFocusedId(null);
+      setImmersive(false);
+    }
+  }, [setFocusedId, setImmersive, setIsFS]);
+
   const focusedVideo = focusedId ? videos.find(v => v.id === focusedId) : null;
   const focusedEffectivePath = focusedVideo
     ? (focusedVideo.folderFiles && focusedVideo.currentIdx !== undefined)
@@ -526,13 +772,225 @@ export default function App() {
 
   const filtered = useMemo(() => {
     if (!Array.isArray(videos)) return [];
-    const isValid = (v: VideoItem) => v.realPath ? isValidMediaExtension(v.realPath, mediaMode) : true;
-    return videos.filter(v => {
+    const isValid = (v: VideoItem) => {
+      const p = v.realPath || v.url;
+      return p ? isValidMediaExtension(p, mediaMode) : true;
+    };
+    
+    const items = videos.filter(v => {
       const t = v.title || 'Untitled Unit';
       const s = search || '';
       return t.toLowerCase().includes(s.toLowerCase()) && isValid(v);
     });
-  }, [videos, search, mediaMode]);
+
+    if (sortOrder !== 'custom') {
+      items.sort((a, b) => {
+        let diff = 0;
+        switch (sortOrder) {
+          case 'videos-first': {
+            const pathA = a.realPath || a.url || '';
+            const pathB = b.realPath || b.url || '';
+            const isVideoA = isValidVideoExtension(pathA);
+            const isVideoB = isValidVideoExtension(pathB);
+            if (isVideoA && !isVideoB) diff = -1;
+            else if (!isVideoA && isVideoB) diff = 1;
+            else diff = 0;
+            break;
+          }
+          case 'pictures-first': {
+            const pathA = a.realPath || a.url || '';
+            const pathB = b.realPath || b.url || '';
+            const isVideoA = isValidVideoExtension(pathA);
+            const isVideoB = isValidVideoExtension(pathB);
+            if (!isVideoA && isVideoB) diff = -1;
+            else if (isVideoA && !isVideoB) diff = 1;
+            else diff = 0;
+            break;
+          }
+          case 'name-asc':
+            diff = (a.title || '').localeCompare(b.title || '', undefined, { numeric: true, sensitivity: 'base' });
+            break;
+          case 'name-desc':
+            diff = (b.title || '').localeCompare(a.title || '', undefined, { numeric: true, sensitivity: 'base' });
+            break;
+          case 'size-asc':
+            diff = (a.size || 0) - (b.size || 0);
+            break;
+          case 'size-desc':
+            diff = (b.size || 0) - (a.size || 0);
+            break;
+          case 'modified-newest':
+            diff = (b.modified || 0) - (a.modified || 0);
+            break;
+          case 'modified-oldest':
+            diff = (a.modified || 0) - (b.modified || 0);
+            break;
+          case 'created-newest':
+            diff = (b.created || 0) - (a.created || 0);
+            break;
+          case 'created-oldest':
+            diff = (a.created || 0) - (b.created || 0);
+            break;
+          default:
+            diff = 0;
+        }
+        
+        // Stable sort fallback to prevent jumping
+        if (diff === 0) {
+          const nameCompare = (a.title || '').localeCompare(b.title || '', undefined, { numeric: true, sensitivity: 'base' });
+          if (nameCompare === 0) {
+            return a.id.localeCompare(b.id);
+          }
+          return nameCompare;
+        }
+        return diff;
+      });
+    }
+
+    return items;
+  }, [videos, search, mediaMode, sortOrder]);
+
+  const processFolderConversion = async (
+    folderVids: { name: string; url: string; size?: number; modified?: number; created?: number }[],
+    mode: 'all' | 'video' | 'picture'
+  ): Promise<{ name: string; url: string; size?: number; modified?: number; created?: number }[]> => {
+    const resolved: { path: string; name: string; isVideo: boolean; size?: number; modified?: number; created?: number }[] = [];
+    for (const v of folderVids) {
+      const isVideo = isValidMediaExtension(v.url, 'video');
+      const isPicture = isValidMediaExtension(v.url, 'picture');
+      if (isVideo || isPicture) {
+        resolved.push({
+          path: v.url,
+          name: v.name,
+          isVideo,
+          size: v.size,
+          modified: v.modified,
+          created: v.created
+        });
+      }
+    }
+
+    const needConv = resolved.filter(f => requiresConversion(f.path, f.isVideo));
+    let doConvert = false;
+
+    if (needConv.length > 0) {
+      const formats = [
+        ...new Set(
+          needConv.map(f => '.' + (f.path.split('.').pop()?.toLowerCase() ?? '')),
+        ),
+      ].join(', ');
+
+      const allVideo = needConv.every(f => f.isVideo);
+      const allImage = needConv.every(f => !f.isVideo);
+      const targetLabel = allVideo ? 'MP4' : allImage ? 'PNG' : 'MP4 / PNG';
+
+      doConvert = await showConfirm(
+        `${needConv.length} file${needConv.length > 1 ? 's' : ''} (${formats}) inside this folder ` +
+          `cannot be displayed natively and will be converted to ${targetLabel}.\n\n` +
+          `The original${needConv.length > 1 ? 's' : ''} will be permanently replaced. ` +
+          `Convert now?`,
+        { title: 'Format Conversion Required', kind: 'warning' },
+      );
+
+      if (!doConvert) {
+        addLog(`System: Conversion skipped — ${needConv.length} non-native file(s) excluded.`);
+      }
+    }
+
+    const result: { name: string; url: string; size?: number; modified?: number; created?: number }[] = [];
+    let convIdx = 0;
+
+    for (const file of resolved) {
+      const needsConv = requiresConversion(file.path, file.isVideo);
+      if (needsConv && !doConvert) continue;
+
+      let finalPath = file.path;
+      if (needsConv && doConvert) {
+        convIdx++;
+        setConvertingStatus({
+          current: convIdx,
+          total: needConv.length,
+          filename: getFileNameFromPath(file.path),
+        });
+        finalPath = await maybeConvertMedia(file.path, file.isVideo, addLog);
+      }
+
+      result.push({
+        name: getFileNameFromPath(finalPath),
+        url: finalPath,
+        size: file.size,
+        modified: file.modified,
+        created: file.created
+      });
+    }
+
+    setConvertingStatus(null);
+    return result;
+  };
+
+  const loadToastPathFolder = async (path: string) => {
+    try {
+      const cleanPath = path.trim().replace(/^["']|["']$/g, '');
+      const norm = cleanPath.replace(/\\/g, '/');
+      const parts = norm.split('/');
+      
+      // If the last segment has a file extension (like .png or .mp4), it's a file path,
+      // so we pop it to get the parent folder. Otherwise, it's already a folder.
+      const lastSegment = parts[parts.length - 1];
+      if (lastSegment && lastSegment.includes('.')) {
+        parts.pop();
+      }
+      const parentPath = parts.join('/');
+      
+      const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path: parentPath, mode: mediaMode });
+      if (folderVids && folderVids.length > 0) {
+        const sortedVids = [...folderVids].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+        const convertedVids = await processFolderConversion(sortedVids, mediaMode);
+        if (convertedVids.length === 0) {
+          addLog(`System: No compatible files in folder.`);
+          return;
+        }
+        const folderWithUrls = convertedVids.map((v) => ({ 
+          name: v.name,
+          url: toCosmoUrl(v.url),
+          path: v.url,
+          size: v.size,
+          modified: v.modified,
+          created: v.created
+        }));
+        
+        const folderName = parentPath.split('/').pop() || "Snapshots";
+        const newFolderId = crypto.randomUUID();
+        
+        // Add folder unit
+        setVideos((p) => [
+          ...p,
+          {
+            id: newFolderId,
+            url: toCosmoUrl(convertedVids[0].url),
+            realPath: convertedVids[0].url,
+            title: folderName,
+            repeatMode: 'folder',
+            repeatCount: 0,
+            cols: 1,
+            folderFiles: folderWithUrls,
+            currentIdx: 0,
+            activeClean: convertedVids[0].url
+          }
+        ]);
+        
+        // Select and focus the newly loaded folder unit immediately
+        setSelectedIds(new Set([newFolderId]));
+        setFocusedId(newFolderId);
+        
+        addLog(`SYSTEM: Loaded folder "${folderName}" displaying ${convertedVids.length} files`);
+      } else {
+        addLog("System: No files found in folder.");
+      }
+    } catch (err) {
+      addLog(`ERROR: Failed to load folder: ${err}`);
+    }
+  };
 
   const handleSidebarAddFolder = async () => {
     if (isTauri()) {
@@ -541,26 +999,38 @@ export default function App() {
         if (path) {
           const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path, mode: mediaMode });
           if (folderVids && folderVids.length > 0) {
-            const toAssetUrl = (filePath: string) => toCosmoUrl(filePath);
-            const folderWithUrls = folderVids.map((v) => ({ 
-              ...v, 
+            const convertedVids = await processFolderConversion(folderVids, mediaMode);
+            if (convertedVids.length === 0) {
+              addLog(`System: No compatible native or converted files in folder.`);
+              return;
+            }
+            const folderWithUrls = convertedVids.map((v) => ({ 
+              name: v.name,
               url: toCosmoUrl(v.url),
-              path: v.url
+              path: v.url,
+              size: v.size,
+              modified: v.modified,
+              created: v.created
             }));
             setVideos((p) => [
               ...p,
               {
                 id: crypto.randomUUID(),
-                url: toAssetUrl(folderVids[0].url),
-                realPath: folderVids[0].url,
-                title: folderVids[0].name,
+                url: toCosmoUrl(convertedVids[0].url),
+                realPath: convertedVids[0].url,
+                title: convertedVids[0].name,
                 repeatMode: 'folder',
                 repeatCount: 0,
                 cols: 1,
                 folderFiles: folderWithUrls,
+                folderPath: path,
+                folderMode: mediaMode,
                 currentIdx: 0,
                 playing: masterPlaying,
                 muted: masterMuted,
+                size: convertedVids[0].size,
+                modified: convertedVids[0].modified,
+                created: convertedVids[0].created
               },
             ]);
             addLog(`Added folder: ${path}`);
@@ -573,6 +1043,133 @@ export default function App() {
       addLog("Local Ingestion is optimized for Cosmo Symphony Native Desktop.");
     }
   };
+
+  const handleAddMediaFiles = async () => {
+    if (isTauri()) {
+      try {
+        const paths = await invoke<string[] | null>('select_files_cmd');
+        if (paths && paths.length > 0) {
+          await handleIngestPaths(paths);
+        }
+      } catch (e) {
+        addLog(`Ingestion Error: ${e}`);
+      }
+    } else {
+      addLog("Local Ingestion is optimized for Cosmo Symphony Native Desktop.");
+    }
+  };
+
+  const handleIngestPaths = useCallback(async (paths: string[]) => {
+    if (!paths || paths.length === 0) return;
+    
+    // Phase 1: Resolve and identify types
+    const resolved = paths.map(p => {
+      const isVideo = isValidMediaExtension(p, 'video');
+      const isPicture = isValidMediaExtension(p, 'picture');
+      return {
+        path: p,
+        name: getFileNameFromPath(p),
+        url: toCosmoUrl(p),
+        isVideo,
+        isPicture
+      };
+    }).filter(f => f.isVideo || f.isPicture);
+
+    if (resolved.length === 0) return;
+
+    // Phase 2: Check conversion
+    const needConv = resolved.filter(f => requiresConversion(f.path, f.isVideo));
+    let doConvert = false;
+
+    if (needConv.length > 0) {
+      const formats = [
+        ...new Set(
+          needConv.map(f => '.' + (f.path.split('.').pop()?.toLowerCase() ?? '')),
+        ),
+      ].join(', ');
+
+      const allVideo = needConv.every(f => f.isVideo);
+      const allImage = needConv.every(f => !f.isVideo);
+      const targetLabel = allVideo ? 'MP4' : allImage ? 'PNG' : 'MP4 / PNG';
+
+      doConvert = await showConfirm(
+        `${needConv.length} file${needConv.length > 1 ? 's' : ''} (${formats}) ` +
+          `cannot be displayed natively and will be converted to ${targetLabel}.\n\n` +
+          `The original${needConv.length > 1 ? 's' : ''} will be permanently replaced. ` +
+          `Convert now?`,
+        { title: 'Format Conversion Required', kind: 'warning' },
+      );
+
+      if (!doConvert) {
+        addLog(`System: In-app browser import conversion skipped.`);
+      }
+    }
+
+    // Phase 3: Build video items
+    const newItems: VideoItem[] = [];
+    let convIdx = 0;
+    const convFiles = resolved.filter(f => requiresConversion(f.path, f.isVideo) && doConvert);
+
+    setConvertingStatus({ current: 0, total: convFiles.length, filename: '' });
+
+    for (const file of resolved) {
+      try {
+        const needsConv = requiresConversion(file.path, file.isVideo);
+        if (needsConv && !doConvert) continue;
+
+        if (needsConv && doConvert) {
+          convIdx++;
+          setConvertingStatus({
+            current: convIdx,
+            total: convFiles.length,
+            filename: file.name
+          });
+        }
+
+        const finalPath = needsConv && doConvert
+          ? await maybeConvertMedia(file.path, file.isVideo, addLog)
+          : file.path;
+
+        const finalUrl = finalPath !== file.path ? toCosmoUrl(finalPath) : file.url;
+        const finalName = finalPath !== file.path ? getFileNameFromPath(finalPath) : file.name;
+
+        let size = 0, modified = 0, created = 0;
+        try {
+          const stats = await invoke<[number, number, number]>('get_file_stats', { path: file.path });
+          size = stats[0];
+          modified = stats[1];
+          created = stats[2];
+        } catch (e) {
+          console.error('[Ingestion] Failed to get stats for single file:', file.path, e);
+        }
+
+        newItems.push({
+          id: crypto.randomUUID(),
+          url: finalUrl,
+          realPath: finalPath,
+          title: finalName,
+          repeatMode: 'none',
+          repeatCount: 0,
+          cols: 1,
+          currentIdx: 0,
+          playing: masterPlaying,
+          muted: masterMuted,
+          size,
+          modified,
+          created
+        });
+      } catch (err: any) {
+        console.error('Failed to ingest browser path:', file.path, err);
+      }
+    }
+
+    setConvertingStatus(null);
+
+    if (newItems.length > 0) {
+      setVideos(prev => [...prev, ...newItems]);
+      addLog(`System: Ingested ${newItems.length} file(s) from in-app browser.`);
+    }
+  }, [masterPlaying, masterMuted, setVideos, addLog]);
 
   const handleDecommission = useCallback(async (id: string) => {
     if (confirmDeletion) {
@@ -589,22 +1186,67 @@ export default function App() {
         if (nextVideo && nextVideo.id !== id) {
           setFocusedId(nextVideo.id);
         } else {
-          setFocusedId(null);
-          setImmersive(false);
-          getCurrentWindow().setFullscreen(false);
-          setIsFS(false);
+          exitSoloMode();
         }
       } else {
-        setFocusedId(null);
-        setImmersive(false);
-        getCurrentWindow().setFullscreen(false);
-        setIsFS(false);
+        exitSoloMode();
       }
     }
 
     setVideos(p => p.filter(x => x.id !== id));
     addLog("Removed item from grid");
-  }, [setVideos, addLog, confirmDeletion, focusedId, filtered, setFocusedId, setImmersive, setIsFS]);
+  }, [setVideos, addLog, confirmDeletion, focusedId, filtered, exitSoloMode]);
+
+  const handleCreateSticker = async (video: VideoItem) => {
+    const rawPath = (video.folderFiles && video.currentIdx !== undefined)
+      ? (video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url)
+      : video.realPath;
+      
+    if (!rawPath) {
+      addLog("Sticker Error: Native path missing");
+      return;
+    }
+    
+    const targetPath = toRealPath(rawPath) || rawPath;
+    
+    setStickerLoadingId(video.id);
+    addLog(`AI: Extracting subject to create sticker from: ${video.title}...`);
+    
+    try {
+      const newPath = await invoke<string>('extract_subject_on_disk', { path: targetPath });
+      
+      // Add the new sticker image to the grid
+      const filename = getFileNameFromPath(newPath);
+      const newSticker: VideoItem = {
+        id: `sticker-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        title: filename.replace(/\.[^/.]+$/, "") + " (Cutout)",
+        url: toCosmoUrl(newPath),
+        realPath: newPath,
+        repeatMode: 'none',
+        repeatCount: 0,
+        cols: 1,
+        playing: false,
+        muted: true,
+        // Copy parent timestamps (+1ms offset) to preserve sorting placement next to each other
+        created: video.created ? video.created + 1 : Date.now(),
+        modified: video.modified ? video.modified + 1 : Date.now()
+      };
+      setVideos(prev => {
+        const idx = prev.findIndex(x => x.id === video.id);
+        if (idx === -1) return [...prev, newSticker];
+        const next = [...prev];
+        next.splice(idx + 1, 0, newSticker);
+        return next;
+      });
+      setSortOrder('custom');
+      setFocusedId(newSticker.id);
+      addLog(`AI Sticker Success: Cutout generated -> ${filename}`);
+    } catch (err) {
+      addLog(`AI Sticker Error: ${err}`);
+    } finally {
+      setStickerLoadingId(null);
+    }
+  };
 
   const handleAnnihilate = useCallback(async (id: string, bypassConfirm = false) => {
     const video = videos.find(v => v.id === id);
@@ -627,16 +1269,10 @@ export default function App() {
         if (nextVideo && nextVideo.id !== id) {
           setFocusedId(nextVideo.id);
         } else {
-          setFocusedId(null);
-          setImmersive(false);
-          getCurrentWindow().setFullscreen(false);
-          setIsFS(false);
+          exitSoloMode();
         }
       } else {
-        setFocusedId(null);
-        setImmersive(false);
-        getCurrentWindow().setFullscreen(false);
-        setIsFS(false);
+        exitSoloMode();
       }
     }
 
@@ -648,7 +1284,7 @@ export default function App() {
       console.error(e);
       addLog("Annihilation Failed: " + e);
     }
-  }, [videos, setVideos, addLog, confirmDeletion, focusedId, filtered, setFocusedId, setImmersive, setIsFS]);
+  }, [videos, setVideos, addLog, confirmDeletion, focusedId, filtered, exitSoloMode]);
 
   const handleFileManagementSuccess = useCallback((updatedItems: { originalId: string; newPath: string }[]) => {
     if (fileManageMode === 'move') {
@@ -833,30 +1469,67 @@ export default function App() {
     setFocusedId(id);
   }, [setFocusedId]);
 
+
+
   const handleDeepFocus = useCallback((id: string, time?: number) => {
     if (time !== undefined && typeof time === 'number') {
       setVideos(prev => prev.map(v => v.id === id ? { ...v, currentTime: time } : v));
     }
     
-    if (focusedId === id && immersive) {
-      // Exiting Solo Mode via UI button!
+    if (focusedId === id || isSlideshowActive) {
       pendingScrollIdRef.current = id;
       jumpToUnit(id);
-
-      setImmersive(false);
-      setFocusedId(null);
-      getCurrentWindow().setFullscreen(false);
-      setIsFS(false);
-      addLog(`Exited Solo Mode`);
+      exitSoloMode();
     } else {
       setFocusedId(id);
       setImmersive(true);
       if (rotating) setRotating(false);
-      getCurrentWindow().setFullscreen(true);
-      setIsFS(true);
+      if (enableOSFullscreen) {
+        setIsFS(true);
+      }
       addLog(`Deep Focus: Unit ${id.split('-')[0]}`);
     }
-  }, [focusedId, immersive, setVideos, setFocusedId, setImmersive, setIsFS, rotating, setRotating, addLog, jumpToUnit]);
+  }, [focusedId, isSlideshowActive, setVideos, setFocusedId, setImmersive, enableOSFullscreen, setIsFS, rotating, setRotating, addLog, jumpToUnit, exitSoloMode]);
+
+  // Centralized Fullscreen Mode Synchronization Effect
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    if (immersive && enableOSFullscreen) {
+      // Delay OS fullscreen to allow smooth transition animation first
+      timer = setTimeout(async () => {
+        try {
+          const win = getCurrentWindow();
+          const isAlreadyFS = await win.isFullscreen();
+          if (!isAlreadyFS && useStore.getState().immersive) {
+            await win.setFullscreen(true);
+            setIsFS(true);
+            addLog("System Fullscreen activated via deep focus");
+          }
+        } catch (err) {
+          console.warn("Failed to activate OS fullscreen:", err);
+        }
+      }, 400);
+    } else if (!immersive) {
+      getCurrentWindow().isFullscreen().then(async (isAlreadyFS) => {
+        if (isAlreadyFS) {
+          try {
+            await getCurrentWindow().setFullscreen(false);
+            setIsFS(false);
+            addLog("System Fullscreen deactivated");
+          } catch (err) {
+            console.warn("Failed to deactivate OS fullscreen:", err);
+          }
+        }
+      }).catch(() => {});
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [immersive, enableOSFullscreen, setIsFS, addLog]);
 
   const handleNavigateSibling = useCallback((direction: 1 | -1) => {
     if (filtered.length <= 1 || !focusedId) return;
@@ -871,13 +1544,13 @@ export default function App() {
       const nextPath = nextVideo.realPath || nextVideo.url || '';
       if (!isValidPictureExtension(nextPath)) {
         setVideos(prev => prev.map(v =>
-          v.id === nextVideo.id ? { ...v, playing: true, currentTime: 0 } :
-          v.id === focusedId ? { ...v, playing: false } : v
+          v.id === nextVideo.id ? { ...v, playing: true, muted: masterMuted, currentTime: 0 } :
+          v.id === focusedId ? { ...v, playing: false, muted: true } : v
         ));
       }
       addLog(`Folder Navigate [${filtered[currentIdx].title}] → ${nextVideo.title}`);
     }
-  }, [filtered, focusedId, setFocusedId, setVideos, addLog]);
+  }, [filtered, focusedId, masterMuted, setFocusedId, setVideos, addLog]);
 
   // Reset slideshow if exiting Solo mode
   useEffect(() => {
@@ -886,26 +1559,46 @@ export default function App() {
     }
   }, [focusedId]);
 
-  // Exit Solo Mode / go back to grid when slideshow is stopped/paused
-  const prevSlideshowActive = useRef(isSlideshowActive);
+  // Pause other media playing in the background when slideshow starts
   useEffect(() => {
-    if (prevSlideshowActive.current && !isSlideshowActive && focusedId) {
-      pendingScrollIdRef.current = focusedId;
-      jumpToUnit(focusedId);
-      setImmersive(false);
-      setFocusedId(null);
-      getCurrentWindow().setFullscreen(false);
-      setIsFS(false);
-      addLog(`Slideshow stopped. Exiting Solo Mode.`);
+    if (isSlideshowActive) {
+      setVideos(prev => prev.map(v => {
+        if (v.id === focusedId) {
+          const firstPath = v.realPath || v.url || '';
+          if (!isValidPictureExtension(firstPath)) {
+            return { ...v, playing: true };
+          }
+          return v;
+        }
+        return { ...v, playing: false };
+      }));
     }
-    prevSlideshowActive.current = isSlideshowActive;
-  }, [isSlideshowActive, focusedId, jumpToUnit, setImmersive, setFocusedId, setIsFS, addLog]);
+  }, [isSlideshowActive, focusedId, setVideos]);
+
+
+  // Slideshow Notification & Immersive Trigger
+  const wasSlideshowActiveRef = useRef(false);
+  useEffect(() => {
+    if (isSlideshowActive && !wasSlideshowActiveRef.current) {
+      setImmersive(true);
+      setToast("Slideshow started");
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 3000);
+      wasSlideshowActiveRef.current = true;
+      return () => clearTimeout(timer);
+    } else if (!isSlideshowActive && wasSlideshowActiveRef.current) {
+      setImmersive(false);
+      wasSlideshowActiveRef.current = false;
+    }
+  }, [isSlideshowActive, setImmersive, setToast]);
 
   // Slideshow Auto-Focus Trigger: Focuses the first item to enter fullscreen if slideshow is started while in normal grid mode
   useEffect(() => {
     if (isSlideshowActive && !focusedId && filtered.length > 0) {
       const firstItem = filtered[0];
       setFocusedId(firstItem.id);
+      setImmersive(true);
       // Auto-play if the first item is a video (check file extension, not mediaMode)
       const firstPath = firstItem.realPath || firstItem.url || '';
       if (!isValidPictureExtension(firstPath)) {
@@ -913,7 +1606,7 @@ export default function App() {
       }
       addLog(`Slideshow: Starting fullscreen slideshow with [${firstItem.title}]`);
     }
-  }, [isSlideshowActive, focusedId, filtered, setFocusedId, setVideos, addLog]);
+  }, [isSlideshowActive, focusedId, filtered, setFocusedId, setVideos, setImmersive, addLog]);
 
   // Slideshow Timer Effect
   useEffect(() => {
@@ -932,30 +1625,62 @@ export default function App() {
 
   // Pre-Cache Engine: Retrieves URLs for the next 2 and previous 2 images to pre-load them in the browser's memory buffer
   const cachedAssetUrls = useMemo(() => {
-    if (!focusedId || filtered.length <= 1) return [];
+    if (!focusedId) return [];
 
-    const currentIdx = filtered.findIndex(v => v.id === focusedId);
-    if (currentIdx === -1) return [];
+    const focusedVideo = videos.find(v => v.id === focusedId);
+    if (!focusedVideo) return [];
 
-    const indicesToCache = [
-      (currentIdx - 2 + filtered.length) % filtered.length,
-      (currentIdx - 1 + filtered.length) % filtered.length,
-      (currentIdx + 1) % filtered.length,
-      (currentIdx + 2) % filtered.length,
-    ];
+    const urls: string[] = [];
 
-    const urls = indicesToCache
-      .map(idx => filtered[idx])
-      .filter(Boolean)
-      .map(video => {
-        const path = video.realPath || video.url;
-        if (!isValidPictureExtension(path)) return null;
-        return convertToVideoUrl(video);
-      })
-      .filter((url): url is string => !!url);
+    // Case 1: Sibling units (original logic)
+    if (filtered.length > 1) {
+      const currentIdx = filtered.findIndex(v => v.id === focusedId);
+      if (currentIdx !== -1) {
+        const indicesToCache = [
+          (currentIdx - 2 + filtered.length) % filtered.length,
+          (currentIdx - 1 + filtered.length) % filtered.length,
+          (currentIdx + 1) % filtered.length,
+          (currentIdx + 2) % filtered.length,
+        ];
+        indicesToCache.forEach(idx => {
+          const video = filtered[idx];
+          if (video) {
+            const path = video.realPath || video.url;
+            if (isValidPictureExtension(path)) {
+              const url = convertToVideoUrl(video);
+              if (url) urls.push(url);
+            }
+          }
+        });
+      }
+    }
+
+    // Case 2: Sub-files inside the currently focused folder unit (if it's a folder/multi-image unit)
+    if (focusedVideo.folderFiles && focusedVideo.folderFiles.length > 1) {
+      const currentIdx = focusedVideo.currentIdx || 0;
+      const folderFiles = focusedVideo.folderFiles;
+      
+      const subIndicesToCache = [
+        (currentIdx - 2 + folderFiles.length) % folderFiles.length,
+        (currentIdx - 1 + folderFiles.length) % folderFiles.length,
+        (currentIdx + 1) % folderFiles.length,
+        (currentIdx + 2) % folderFiles.length,
+      ];
+      
+      subIndicesToCache.forEach(idx => {
+        const file = folderFiles[idx];
+        if (file) {
+          const path = file.path || file.url;
+          if (isValidPictureExtension(path)) {
+            const url = toCosmoUrl(path);
+            if (url) urls.push(url);
+          }
+        }
+      });
+    }
 
     return Array.from(new Set(urls));
-  }, [focusedId, filtered]);
+  }, [focusedId, filtered, videos]);
 
   const handleContext = useCallback(async (id: string, x: number, y: number) => {
     const video = videos.find(v => v.id === id);
@@ -967,14 +1692,29 @@ export default function App() {
       // Use the currently-displayed file's path instead.
       const effectivePath = (video.folderFiles && video.currentIdx !== undefined)
         ? video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url
-        : video.realPath;
+        : video.realPath || video.url;
 
       if (effectivePath) {
-        try {
-          const data = await invoke('get_video_metadata', { path: effectivePath });
-          setMenuMetadata(data);
-        } catch (e) {
-          console.error("Failed to fetch metadata", e);
+        if (effectivePath.startsWith('/demos/')) {
+          const parts = effectivePath.split('/');
+          const filename = parts[parts.length - 1];
+          const ext = filename.split('.').pop() || '';
+          setMenuMetadata({
+            name: video.title || filename,
+            format: ext.toUpperCase(),
+            width: ext.toLowerCase() === 'webp' ? 1920 : 1920,
+            height: ext.toLowerCase() === 'webp' ? 1080 : 1080,
+            duration: ext.toLowerCase() === 'webp' ? 'Static' : '0:05',
+            size: ext.toLowerCase() === 'webp' ? '110 KB' : '500 KB'
+          });
+        } else {
+          try {
+            const targetPath = toRealPath(effectivePath) || effectivePath;
+            const data = await invoke('get_video_metadata', { path: targetPath });
+            setMenuMetadata(data);
+          } catch (e) {
+            console.error("Failed to fetch metadata", e);
+          }
         }
       }
     }
@@ -999,6 +1739,139 @@ export default function App() {
       return [...prev, newVideo];
     });
   }, [setVideos]);
+
+  const handleLoadDemos = useCallback(() => {
+    const DEMO_ITEMS: VideoItem[] = [
+      {
+        id: 'demo-1',
+        title: 'Work Colleagues',
+        url: '/demos/promo_001.mp4',
+        repeatMode: 'all',
+        repeatCount: 0,
+        playing: true,
+        muted: true
+      },
+      {
+        id: 'demo-2',
+        title: 'Space Command',
+        url: '/demos/promo_002.mp4',
+        repeatMode: 'all',
+        repeatCount: 0,
+        playing: true,
+        muted: true
+      },
+      {
+        id: 'demo-3',
+        title: 'Girl Listening to Music',
+        url: '/demos/promo_003.mp4',
+        repeatMode: 'all',
+        repeatCount: 0,
+        playing: true,
+        muted: true
+      },
+      {
+        id: 'demo-4',
+        title: 'Glowing Flower',
+        url: '/demos/promo_004.mp4',
+        repeatMode: 'all',
+        repeatCount: 0,
+        playing: true,
+        muted: true
+      },
+      {
+        id: 'demo-5',
+        title: 'Sixties Cinematic',
+        url: '/demos/promo_005.mp4',
+        repeatMode: 'all',
+        repeatCount: 0,
+        playing: true,
+        muted: true
+      },
+      {
+        id: 'demo-6',
+        title: 'Rainy City',
+        url: '/demos/promo_006.mp4',
+        repeatMode: 'all',
+        repeatCount: 0,
+        playing: true,
+        muted: true
+      },
+      {
+        id: 'demo-7',
+        title: 'Chameleon in Forest',
+        url: '/demos/chameleon.webp',
+        repeatMode: 'none',
+        repeatCount: 0,
+        playing: false,
+        muted: true
+      },
+      {
+        id: 'demo-8',
+        title: 'Helicopter Waterfall',
+        url: '/demos/promo_008.mp4',
+        repeatMode: 'all',
+        repeatCount: 0,
+        playing: true,
+        muted: true
+      },
+      {
+        id: 'demo-9',
+        title: 'Man with Cat',
+        url: '/demos/man_cat.webp',
+        repeatMode: 'none',
+        repeatCount: 0,
+        playing: false,
+        muted: true
+      },
+      {
+        id: 'demo-10',
+        title: 'Chameleon in Forest (Alt)',
+        url: '/demos/chameleon.webp',
+        repeatMode: 'none',
+        repeatCount: 0,
+        playing: false,
+        muted: true
+      },
+      {
+        id: 'demo-11',
+        title: 'Chinese Lady Drinking Tea',
+        url: '/demos/chinese_lady_tea.webp',
+        repeatMode: 'none',
+        repeatCount: 0,
+        playing: false,
+        muted: true
+      },
+      {
+        id: 'demo-12',
+        title: 'Native American Elder',
+        url: '/demos/abstract_art_1.webp',
+        repeatMode: 'none',
+        repeatCount: 0,
+        playing: false,
+        muted: true
+      },
+      {
+        id: 'demo-13',
+        title: 'Monitor Setup',
+        url: '/demos/abstract_art_2.webp',
+        repeatMode: 'none',
+        repeatCount: 0,
+        playing: false,
+        muted: true
+      },
+      {
+        id: 'demo-14',
+        title: 'Friends Walking',
+        url: '/demos/friends_town.webp',
+        repeatMode: 'none',
+        repeatCount: 0,
+        playing: false,
+        muted: true
+      }
+    ];
+    setVideos(DEMO_ITEMS);
+    addLog("Onboarding: Loaded Cosmo Symphony Demo Workspace");
+  }, [setVideos, addLog]);
 
   const toggleSelect = useCallback((id: string, shiftKey?: boolean, ctrlKey?: boolean) => {
     setSelectedIds(prev => {
@@ -1081,7 +1954,7 @@ export default function App() {
     try {
       if (!focusedId || !focusedVideo) return;
 
-      const originalPath = toRealPath(focusedVideo.realPath || focusedVideo.url);
+      const originalPath = toRealPath(focusedVideo.realPath || focusedVideo.url) || focusedVideo.realPath || focusedVideo.url;
       if (!originalPath) {
         alert('Could not resolve a disk path for this image. Try re-adding the file.');
         return;
@@ -1154,7 +2027,7 @@ export default function App() {
               }
             }
             setEnhancingVideoId(null);
-            setTimeout(() => { setUpscaleStatus(s => s === 'enhancing' ? 'idle' : s); }, 4000);
+            setTimeout(() => { setUpscaleStatus(current => current === 'enhancing' ? 'enhancing' : 'idle'); }, 5000);
           }
 
           if (overwrite) {
@@ -1249,6 +2122,94 @@ export default function App() {
     setShowSaveUpscaleOptions(true);
   }, [addLog]);
 
+  const handleResize = useCallback((v: any) => {
+    const effectiveRealPath = (v.folderFiles && v.currentIdx !== undefined)
+      ? (v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url)
+      : v.realPath;
+    const effectiveTitle = (v.folderFiles && v.currentIdx !== undefined)
+      ? (v.folderFiles[v.currentIdx]?.name || v.title)
+      : v.title;
+
+    if (!effectiveRealPath) {
+      addLog("Resize Error: Native path missing.");
+      return;
+    }
+    setResizeTarget({
+      ...v,
+      parentUnitId: v.id,
+      realPath: effectiveRealPath,
+      title: effectiveTitle,
+      folderIdx: (v.folderFiles && v.currentIdx !== undefined) ? v.currentIdx : undefined
+    });
+    setShowResizeModal(true);
+  }, [addLog]);
+
+  const handleResizeSuccess = useCallback((newPath: string, overwrite: boolean) => {
+    if (!resizeTarget) return;
+    const target = resizeTarget;
+
+    setVideos((prev) => {
+      let current = [...prev];
+      const separator = newPath.includes('\\') ? '\\' : '/';
+      const fileName = newPath.substring(newPath.lastIndexOf(separator) + 1);
+      const cleanTitle = fileName.replace(/\.[^/.]+$/, "");
+
+      if (overwrite) {
+        // Overwrite original file
+        if (target.folderIdx !== undefined && target.folderFiles) {
+          // It was a file inside a folder cycle
+          current = current.map((v) => {
+            if (v.id === target.parentUnitId && v.folderFiles) {
+              const updatedFiles = [...v.folderFiles];
+              updatedFiles[target.folderIdx] = {
+                ...updatedFiles[target.folderIdx],
+                url: toCosmoUrl(newPath) + `?t=${Date.now()}`,
+                path: newPath
+              };
+              return {
+                ...v,
+                folderFiles: updatedFiles,
+                url: v.currentIdx === target.folderIdx ? (toCosmoUrl(newPath) + `?t=${Date.now()}`) : v.url
+              };
+            }
+            return v;
+          });
+        } else {
+          // Individual card
+          current = current.map((v) => {
+            if (v.id === target.parentUnitId) {
+              return {
+                ...v,
+                url: toCosmoUrl(newPath) + `?t=${Date.now()}`,
+                realPath: newPath
+              };
+            }
+            return v;
+          });
+        }
+        setToast(`Original media resized successfully!`);
+      } else {
+        // Save As Copy: Append a new card to grid
+        const newUnit = {
+          id: `resize-${Date.now()}`,
+          title: cleanTitle,
+          url: toCosmoUrl(newPath),
+          realPath: newPath,
+          currentTime: 0,
+          repeatMode: 'none' as any,
+          playing: false,
+          muted: false
+        };
+        current.push(newUnit);
+        setToast(`Resized copy saved: ${cleanTitle}`);
+      }
+      return current;
+    });
+
+    setTimeout(() => setToast(null), 3000);
+    setResizeTarget(null);
+  }, [resizeTarget, setVideos, setToast]);
+
   const executeUpscale = async (overwrite: boolean) => {
     if (!upscaleTarget) return;
     const v = upscaleTarget;
@@ -1256,10 +2217,32 @@ export default function App() {
     setEnhancingVideoId(v.parentUnitId || v.id);
     setUpscaleStatus('enhancing');
     setLastEnhancedTitle(v.title);
+    setUpscaleProgressPercent(null);
+    setUpscaleStage(null);
     enhancementCancelled.current = false;
-    addLog(`Upscaling: ${v.title} (${overwrite ? 'Overwrite' : 'Save As'}) — running local super-resolution...`);
+
+    const isVideo = v.realPath?.toLowerCase().match(/\.(mp4|webm|mov|mkv|avi|ts|mpeg|mpg)$/);
+    let unlistenProgress: (() => void) | undefined;
+
+    addLog(`Upscaling: ${v.title} (${overwrite ? 'Overwrite' : 'Save As'}) — running local ${isVideo ? 'video' : 'image'} super-resolution...`);
     try {
-      const result = await invoke<string>('upscale_image', { path: v.realPath, overwrite });
+      if (isVideo) {
+        const win = getCurrentWindow();
+        unlistenProgress = await win.listen<{ frame: number, total: number, stage: string }>('upscale-progress', (event) => {
+          const { frame, total, stage } = event.payload;
+          setUpscaleStage(stage);
+          if (stage === 'upscaling' && total > 0) {
+            setUpscaleProgressPercent(Math.round((frame / total) * 100));
+          } else if (stage === 'extracting') {
+            setUpscaleProgressPercent(10);
+          } else if (stage === 'assembling') {
+            setUpscaleProgressPercent(95);
+          }
+        });
+      }
+
+      const result = await invoke<string>(isVideo ? 'upscale_video' : 'upscale_image', { path: v.realPath, overwrite });
+      if (unlistenProgress) unlistenProgress();
       if (enhancementCancelled.current) return;
       
       // Check if the backend signals that AI models weren't loaded (fallback resize only)
@@ -1341,9 +2324,10 @@ export default function App() {
         });
         setFocusedId(newUnit.id);
 
-        // Auto-switch to picture mode so it is immediately visible on the grid
-        if (mediaMode !== 'picture') {
-          setMediaMode('picture');
+        // Auto-switch to appropriate tab so it is immediately visible on the grid
+        const targetTab = isVideo ? 'video' : 'picture';
+        if (mediaMode !== targetTab) {
+          setMediaMode(targetTab);
         }
 
         // Toast confirmation
@@ -1355,6 +2339,7 @@ export default function App() {
         }, 4000);
       }
     } catch (err) {
+      if (unlistenProgress) unlistenProgress();
       if (enhancementCancelled.current) return;
       console.error("Upscale failed:", err);
       addLog(`Upscale failed: ${err}`);
@@ -1363,10 +2348,12 @@ export default function App() {
       if (!enhancementCancelled.current) {
         setEnhancingVideoId(null);
         setUpscaleTarget(null);
-        // Automatically clear success/failed state after 4 seconds
+        setUpscaleProgressPercent(null);
+        setUpscaleStage(null);
+        // Automatically clear success/failed state after 5 seconds
         setTimeout(() => {
           setUpscaleStatus(current => current === 'enhancing' ? 'enhancing' : 'idle');
-        }, 4000);
+        }, 5000);
       }
     }
   };
@@ -1376,6 +2363,9 @@ export default function App() {
     setUpscaleStatus('idle');
     setEnhancingVideoId(null);
     setUpscaleTarget(null);
+    setUpscaleProgressPercent(null);
+    setUpscaleStage(null);
+    invoke('cancel_video_upscale').catch(err => console.error("Failed to cancel video upscale:", err));
     addLog('Enhancement cancelled by user.');
   }, [addLog]);
 
@@ -1422,18 +2412,41 @@ export default function App() {
             );
             if (yes) {
               try {
-                const destDir = overItem.realPath || '';
+                const rawDestDir = overItem.realPath || '';
+                const destDir = toRealPath(rawDestDir) || rawDestDir;
                 const movedItems: { originalId: string; newPath: string }[] = [];
 
                 for (const item of targetItems) {
-                  const srcPath = item.realPath || '';
-                  const separator = srcPath.includes('\\') ? '\\' : '/';
+                  const rawSrcPath = item.realPath || '';
+                  const srcPath = toRealPath(rawSrcPath) || rawSrcPath;
+                  const separator = srcPath.includes('/') ? '/' : '\\';
                   const newFileName = srcPath.substring(srcPath.lastIndexOf(separator) + 1);
-                  const newPath = `${destDir}${separator}${newFileName}`;
+                  const destFilePath = `${destDir}${separator}${newFileName}`;
+
+                  const exists = await invoke<boolean>('file_exists', { path: destFilePath });
+                  let overwrite = false;
+                  let renameSibling = false;
+
+                  if (exists) {
+                    const confirmOver = await showConfirm(
+                      `File Collision\n\n"${newFileName}" already exists in the destination folder.\n\nDo you want to overwrite it?\n(Select No/Cancel to keep both files)`,
+                      { title: 'File Collision', kind: 'warning' }
+                    );
+                    if (confirmOver) {
+                      overwrite = true;
+                    } else {
+                      renameSibling = true;
+                    }
+                  }
 
                   // Move file on disk
-                  await invoke('move_file_on_disk', { srcPath, destDir });
-                  movedItems.push({ originalId: item.id, newPath });
+                  const finalPath = await invoke<string>('move_file_on_disk', { 
+                    srcPath, 
+                    destDir,
+                    overwrite,
+                    renameSibling
+                  });
+                  movedItems.push({ originalId: item.id, newPath: finalPath });
                 }
 
                 // Sync workspace grid
@@ -1484,6 +2497,10 @@ export default function App() {
   };
 
   const performStandardReorder = (activeId: string, overId: string) => {
+    if (sortOrder !== 'custom') {
+      setSortOrder('custom');
+      addLog(`System: Reset sorting to custom for manual reordering.`);
+    }
     setVideos((items) => {
       const oldIndex = items.findIndex((v) => v.id === activeId);
       const newIndex = items.findIndex((v) => v.id === overId);
@@ -1497,62 +2514,130 @@ export default function App() {
   };
 
   const handleVideoEnded = useCallback((id: string) => {
-    // If this video is currently focused (solo/fullscreen mode), play the next video card in the grid!
-    if (focusedId && id === focusedId) {
-      const currentIdx = filtered.findIndex(v => v.id === id);
-      if (currentIdx !== -1 && filtered.length > 1) {
-        const nextIdx = (currentIdx + 1) % filtered.length;
-        const nextVideo = filtered[nextIdx];
-        if (nextVideo) {
-          setNavDirection(1);
-          setFocusedId(nextVideo.id);
-          setVideos(prev => prev.map(v => {
-            if (v.id === nextVideo.id) {
-              return { ...v, playing: true, currentTime: 0 };
-            }
-            if (v.id === id) {
-              return { ...v, playing: false };
-            }
-            return v;
-          }));
-          addLog(`Sequence: [${filtered[currentIdx].title}] ended. Playing next sibling [${nextVideo.title}]`);
-          return;
-        }
-      }
+    const endedVideo = filtered.find(v => v.id === id);
+    if (!endedVideo) return;
+    
+    const isEndedAudio = isAudioFile(endedVideo.realPath || endedVideo.url || '');
+    let currentMode = (endedVideo.repeatMode && endedVideo.repeatMode !== 'none')
+      ? endedVideo.repeatMode
+      : globalRepeat;
+
+    // If global loop is ON and the card has playlist folder files, advance to the next file inside the card
+    const hasFolderFiles = endedVideo.folderFiles && endedVideo.folderFiles.length > 0;
+    if (currentMode === 'always' && hasFolderFiles) {
+      currentMode = 'folder';
     }
 
-    setVideos(prev => prev.map(v => {
-      if (v.id !== id) return v;
-      
-      const currentMode = globalRepeat === 'none' ? 'none' : (v.repeatMode !== 'none' ? v.repeatMode : globalRepeat);
-      
-      if (currentMode === 'folder' && v.folderFiles && v.folderFiles.length > 0) {
-        const nextIdx = ((v.currentIdx || 0) + 1) % v.folderFiles.length;
-        const nextFile = v.folderFiles[nextIdx];
-        addLog(`Folder Cycle [${v.title}] -> ${nextFile.name}`);
-        return { 
-          ...v, 
-          currentIdx: nextIdx, 
-          url: nextFile.url, 
-          realPath: nextFile.path, // Maintain path for physical actions
-          title: nextFile.name 
-        };
+    // 1. Repeat Once (or Repeat One/Always)
+    if (currentMode === 'always' || currentMode === 'once') {
+      setVideos(prev => prev.map(v => {
+        if (v.id === id) {
+          const nextCount = currentMode === 'once' ? (v.repeatCount || 0) + 1 : 0;
+          if (currentMode === 'once' && nextCount > 1) {
+            // Finished the single repeat. Stop playing.
+            return { ...v, playing: false, repeatCount: 0 };
+          }
+          return { ...v, playing: true, currentTime: 0, repeatCount: nextCount };
+        }
+        return v;
+      }));
+      return;
+    }
+
+    // 2. Don't Repeat ('none')
+    if (currentMode === 'none') {
+      // Just stop playback of the ended video
+      setVideos(prev => prev.map(v => v.id === id ? { ...v, playing: false, repeatCount: 0 } : v));
+      addLog(`Playback ended: [${endedVideo.title}] (Repeat Mode: None)`);
+      return;
+    }
+
+    // 3. Repeat All ('folder')
+    if (currentMode === 'folder') {
+      // A. If the video card itself contains a folder/playlist of files, cycle to the next file IN THAT CARD
+      const hasFolderFiles = endedVideo.folderFiles && endedVideo.folderFiles.length > 0;
+      if (hasFolderFiles) {
+        setVideos(prev => prev.map(v => {
+          if (v.id !== id) return v;
+          const nextIdx = ((v.currentIdx || 0) + 1) % v.folderFiles.length;
+          const nextFile = v.folderFiles[nextIdx];
+          addLog(`Folder Cycle [${v.title}] -> ${nextFile.name}`);
+          return { 
+            ...v, 
+            currentIdx: nextIdx, 
+            url: nextFile.url, 
+            realPath: nextFile.path, 
+            title: nextFile.name,
+            playing: true,
+            currentTime: 0
+          };
+        }));
+        return;
       }
-      
-      if (currentMode === 'always') {
-        return { ...v, playing: true, repeatCount: 0 };
+
+      // B. If in Solo mode or it is an audio track, go to the next sibling card in the workspace playlist
+      if ((focusedId && id === focusedId) || isEndedAudio) {
+        const currentIdx = filtered.findIndex(v => v.id === id);
+        if (currentIdx !== -1 && filtered.length > 1) {
+          const nextIdx = (currentIdx + 1) % filtered.length;
+          const nextVideo = filtered[nextIdx];
+          if (nextVideo) {
+            if (focusedId && id === focusedId) {
+              setNavDirection(1);
+              setFocusedId(nextVideo.id);
+            }
+            
+            setVideos(prev => prev.map(v => {
+              if (v.id === nextVideo.id) {
+                return { ...v, playing: true, muted: masterMuted, currentTime: 0 };
+              }
+              if (v.id === id) {
+                return { ...v, playing: false, muted: true };
+              }
+              return v;
+            }));
+
+            if (isEndedAudio) {
+              useStore.getState().setCurrentPlayingSongId(nextVideo.id);
+            }
+            
+            addLog(`Sequence (Repeat All): [${filtered[currentIdx].title}] ended. Playing next sibling [${nextVideo.title}]`);
+            return;
+          }
+        }
       }
-      
-       if (currentMode === 'once') {
-         if (!v.repeatCount || v.repeatCount < 1) {
-           return { ...v, playing: true, repeatCount: 1 };
-         }
-         return { ...v, playing: false, repeatCount: 0 };
-       }
-       
-       return { ...v, playing: false, repeatCount: 0 };
-    }));
-  }, [globalRepeat, addLog, setVideos, focusedId, filtered, setFocusedId]);
+
+      // B. Grid mode (on the tile):
+      // - If folder-browsing unit: cycle to the next file in the folder
+      // - If regular video: loop it infinitely
+      setVideos(prev => prev.map(v => {
+        if (v.id !== id) return v;
+        
+        if (v.folderFiles && v.folderFiles.length > 0) {
+          const nextIdx = ((v.currentIdx || 0) + 1) % v.folderFiles.length;
+          const nextFile = v.folderFiles[nextIdx];
+          addLog(`Folder Cycle [${v.title}] -> ${nextFile.name}`);
+          return { 
+            ...v, 
+            currentIdx: nextIdx, 
+            url: nextFile.url, 
+            realPath: nextFile.path, 
+            title: nextFile.name,
+            playing: true,
+            currentTime: 0
+          };
+        } else {
+          // Replay/loop regular video card on the grid
+          const videoEl = document.querySelector(`[data-id="${id}"] video`) as HTMLVideoElement;
+          if (videoEl) {
+            videoEl.currentTime = 0;
+            videoEl.play().catch(() => {});
+          }
+          return { ...v, playing: true, currentTime: 0 };
+        }
+      }));
+    }
+  }, [globalRepeat, addLog, setVideos, focusedId, filtered, setFocusedId, masterMuted]);
 
   const onReorder = useCallback((fromId: string, toId: string) => {
     if (fromId === toId) return;
@@ -1754,6 +2839,32 @@ export default function App() {
     addLog
   });
 
+  // Mute/Unmute audio and pause/play video when entering or exiting solo/big screen mode
+  const prevFocusedIdForMute = useRef(focusedId);
+  useEffect(() => {
+    if (prevFocusedIdForMute.current && !focusedId) {
+      // Exiting solo mode: Muted and paused all media (Panic Reset)
+      setMasterPlaying(false);
+      setMasterMuted(true);
+      setGlobalVolume(0);
+      setVideos(p => p.map(v => ({ ...v, playing: false, muted: true })));
+      addLog("Exiting Solo Mode: Muted and paused all media (Panic Reset)");
+    } else if (!prevFocusedIdForMute.current && focusedId) {
+      // Entering solo mode: play focused, unmute, pause/mute all others
+      setMasterPlaying(true);
+      setMasterMuted(false);
+      setGlobalVolume(1.0); // Full volume for solo focused media
+      setVideos(p => p.map(v => ({
+        ...v,
+        playing: v.id === focusedId,
+        muted: v.id !== focusedId
+      })));
+      const focusedVideo = videos.find(x => x.id === focusedId);
+      addLog(`Entering Solo Mode: Playing [${focusedVideo ? focusedVideo.title : focusedId}] with audio`);
+    }
+    prevFocusedIdForMute.current = focusedId;
+  }, [focusedId, setMasterPlaying, setMasterMuted, setGlobalVolume, setVideos, addLog, videos]);
+
   // KEYBOARD ORCHESTRATION (v4) — Modular Hook
   useKeyboardShortcuts({
     focusedId,
@@ -1766,13 +2877,14 @@ export default function App() {
     showSettings,
     showCollections,
     showLogs,
-    showSymphonyWorkshop,
     showHelp,
     isPopout,
     isSlideshowActive,
     setIsSlideshowActive,
     onUpdateVideo,
     onToggleFocus,
+    exitSoloMode,
+    onSelectAll: handleSelectAll,
     toggleMasterPlay,
     toggleMasterMute,
     setGlobalRepeat: (updater: RepeatMode | ((prev: RepeatMode) => RepeatMode)) => {
@@ -1789,7 +2901,6 @@ export default function App() {
     setShowSettings,
     setShowCollections,
     setShowLogs,
-    setShowSymphonyWorkshop,
     setShowHelp,
     setSelectedIds,
     setSelectionMode,
@@ -1811,6 +2922,7 @@ export default function App() {
     masterPlayingRef,
     masterMutedRef,
     setDragFile,
+    setConvertingStatus,
     isPopout
   });
 
@@ -1826,7 +2938,7 @@ export default function App() {
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       const now = Date.now();
-      if (now - lastSoloWheelTime.current > 350) {
+      if (now - lastSoloWheelTime.current > 180) {
         lastSoloWheelTime.current = now;
         const direction = e.deltaY > 0 ? 1 : -1;
         const video = videos.find(v => v.id === focusedId);
@@ -1883,29 +2995,32 @@ export default function App() {
     };
   }, [focusedId, videos, onUpdateVideo, setGlobalVolume]);
 
+  if (isPopoutChecking) {
+    return <div className="cosmo-boot" style={{ background: '#000' }} />;
+  }
+
   if (fatalError) return <ErrorFallback error={fatalError} />;
 
-  if (isPopout) {
-    return <PopoutPlayer url={popoutUrl || ''} />;
-  }
+
 
   if (!isInitialized) {
     return (
       <div className="cosmo-boot">
         <div className="boot-nebula" />
         <div className="boot-content">
-          <img src="/logo.png" className="boot-logo" alt="Cosmo Elite" />
+          <img src="/logo.png" className="boot-logo" alt="Cosmo Symphony" />
           <div className="boot-text">
             <h2>COSMO SYMPHONY</h2>
+            <div className="boot-loader-bar">
+              <div className="boot-loader-progress" />
+            </div>
             <p>Initializing Symphony Orchestrator...</p>
-            <div style={{ marginTop: '16px', fontSize: '10px', color: 'rgba(255, 255, 255, 0.4)', letterSpacing: '0.5px' }}>
-              Check out my other products at <a href="https://cosmowhisper.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent, #00ff88)', textDecoration: 'none', fontWeight: 600 }}>cosmowhisper.com</a>
+            <div style={{ marginTop: '16px', fontSize: '10.5px', color: 'rgba(255, 255, 255, 0.45)', letterSpacing: '0.5px', WebkitFontSmoothing: 'antialiased' }}>
+              🚀 Discover more professional tools & AI creative suites at <a href="https://cosmowhisper.com" onClick={handleOpenWebsite} style={{ color: 'var(--accent, #00ff88)', textDecoration: 'underline', fontWeight: 600, cursor: 'pointer' }}>cosmowhisper.com</a>
             </div>
             <button 
+              className="boot-bypass-btn"
               onClick={() => setIsInitialized(true)} 
-              style={{ marginTop: '24px', padding: '8px 16px', background: '#222222', border: '1px solid #444444', color: '#666', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', transition: 'all 0.3s' }}
-              onMouseOver={e => e.currentTarget.style.background = '#333333'}
-              onMouseOut={e => e.currentTarget.style.background = '#222222'}
             >
               EMERGENCY BYPASS
             </button>
@@ -1922,8 +3037,29 @@ export default function App() {
       className={`app-root app-container ${immersive ? 'immersive-mode' : ''} ${!showImmersiveUI && immersive ? 'ghost-mode' : ''} ${isWindowMaximized ? 'window-maximized' : ''}`} 
       onClick={() => setMenu(null)}
       onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        const internalPath = e.dataTransfer.getData("application/cosmo-file");
+        if (internalPath) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleIngestPaths([internalPath]);
+        } else {
+          e.preventDefault();
+        }
+      }}
     >
+      {showIntro && (
+        <div className={`cosmo-intro-overlay ${introStep === 'complete' ? 'fadeout' : ''}`}>
+          <div className={`intro-glow-bg ${introStep !== 'whisper' ? 'expanded' : ''}`} />
+          <div className={`intro-logo-content ${introStep !== 'whisper' ? 'expanded' : ''}`}>
+            <span className="intro-title-text">COSMO</span>
+            <span className="intro-subtitle-text">SYMPHONY</span>
+          </div>
+        </div>
+      )}
+      {needsSetup && (
+        <SetupWizard onComplete={() => { setNeedsSetup(false); setForceSetup(false); }} force={forceSetup} />
+      )}
       <ResizeHandles />
       <div className="nebula-bg" />
       <AnimatePresence>
@@ -1935,7 +3071,7 @@ export default function App() {
             className="toast-notification"
             style={{
               position: 'fixed',
-              top: '20px',
+              bottom: '20px',
               right: '20px',
               background: 'rgba(0,0,0,0.85)',
               border: '1px solid var(--accent)',
@@ -1957,7 +3093,9 @@ export default function App() {
             <CheckCircle2 size={16} /> <span>{toast}</span>
             {toastPath && (
               <button 
-                onClick={() => invoke('open_folder', { path: toastPath })}
+                onClick={() => {
+                  loadToastPathFolder(toastPath);
+                }}
                 style={{
                   background: 'var(--accent, #00ff88)',
                   color: '#000',
@@ -2022,6 +3160,17 @@ export default function App() {
       </AnimatePresence>
 
       {dragFile && <div className="drag-overlay"><img src="/logo.png" className="empty-logo-img" /><p>Drop to Add Media</p></div>}
+
+      {convertingStatus && (
+        <div className="converting-overlay">
+          <div className="converting-spinner" />
+          <div className="converting-text">
+            <span className="converting-label">Converting</span>
+            <span className="converting-count">{convertingStatus.current} of {convertingStatus.total}</span>
+            <span className="converting-filename">{convertingStatus.filename}</span>
+          </div>
+        </div>
+      )}
       
       {focusedId && (
         <SoloPlayer
@@ -2052,6 +3201,7 @@ export default function App() {
           handleDeepFocus={handleDeepFocus}
           handleNavigateSibling={handleNavigateSibling}
           handleUpscale={handleUpscale}
+          handleResize={handleResize}
           enhancingVideoId={enhancingVideoId}
           isCropping={isCropping}
           setIsCropping={setIsCropping}
@@ -2074,6 +3224,8 @@ export default function App() {
           stopFrameStep={stopFrameStep}
           setShowSaveCropOptions={setShowSaveCropOptions}
           setMasterMuted={setMasterMuted}
+          isStickerLoading={stickerLoadingId === focusedId}
+          onCreateSticker={handleCreateSticker}
         />
       )}
 
@@ -2098,9 +3250,8 @@ export default function App() {
             <nav className="sidebar-nav-list">
               {/* MEDIA GRID TAB */}
               <div 
-                className={`sidebar-nav-item ${(!showSymphonyWorkshop && !showCollections && !showLogs && !showSettings && !showHelp && !showCollageCanvas) ? 'active' : ''}`}
+                className={`sidebar-nav-item ${(!showCollections && !showLogs && !showSettings && !showHelp && !showCollageCanvas) ? 'active' : ''}`}
                 onClick={() => {
-                  setShowSymphonyWorkshop(false);
                   setShowCollections(false);
                   setShowLogs(false);
                   setShowSettings(false);
@@ -2116,8 +3267,8 @@ export default function App() {
               <div 
                 className={`sidebar-nav-item ${showCollageCanvas ? 'active' : ''}`}
                 onClick={() => {
-                  setShowCollageCanvas(true);
-                  setShowSymphonyWorkshop(false);
+                  const target = !showCollageCanvas;
+                  setShowCollageCanvas(target);
                   setShowCollections(false);
                   setShowLogs(false);
                   setShowSettings(false);
@@ -2128,29 +3279,15 @@ export default function App() {
                 <span className="sidebar-nav-item-label">Collage Canvas</span>
               </div>
 
-              {/* SYMPHONY WORKSHOP TAB */}
-              <div 
-                className={`sidebar-nav-item ${showSymphonyWorkshop ? 'active' : ''}`}
-                onClick={() => {
-                  setShowSymphonyWorkshop(true);
-                  setShowCollageCanvas(false);
-                  setShowCollections(false);
-                  setShowLogs(false);
-                  setShowSettings(false);
-                  setShowHelp(false);
-                }}
-              >
-                <div className="sidebar-nav-item-icon"><Sparkles size={16} /></div>
-                <span className="sidebar-nav-item-label">Workshop</span>
-              </div>
+
 
               {/* SETS/COLLECTIONS TAB */}
               <div 
                 className={`sidebar-nav-item ${showCollections ? 'active' : ''}`}
                 onClick={() => {
-                  setShowCollections(true);
+                  const target = !showCollections;
+                  setShowCollections(target);
                   setShowCollageCanvas(false);
-                  setShowSymphonyWorkshop(false);
                   setShowLogs(false);
                   setShowSettings(false);
                   setShowHelp(false);
@@ -2164,8 +3301,8 @@ export default function App() {
               <div 
                 className={`sidebar-nav-item ${showLogs ? 'active' : ''}`}
                 onClick={() => {
-                  setShowLogs(true);
-                  setShowSymphonyWorkshop(false);
+                  const target = !showLogs;
+                  setShowLogs(target);
                   setShowCollections(false);
                   setShowSettings(false);
                   setShowHelp(false);
@@ -2175,27 +3312,14 @@ export default function App() {
                 <span className="sidebar-nav-item-label">Console Logs</span>
               </div>
 
-              {/* HELP TAB */}
-              <div 
-                className={`sidebar-nav-item ${showHelp ? 'active' : ''}`}
-                onClick={() => {
-                  setShowHelp(true);
-                  setShowSymphonyWorkshop(false);
-                  setShowCollections(false);
-                  setShowLogs(false);
-                  setShowSettings(false);
-                }}
-              >
-                <div className="sidebar-nav-item-icon"><HelpCircle size={16} /></div>
-                <span className="sidebar-nav-item-label">Orchestrator Guide</span>
-              </div>
+
 
               {/* SETTINGS TAB */}
               <div 
                 className={`sidebar-nav-item ${showSettings ? 'active' : ''}`}
                 onClick={() => {
-                  setShowSettings(true);
-                  setShowSymphonyWorkshop(false);
+                  const target = !showSettings;
+                  setShowSettings(target);
                   setShowCollections(false);
                   setShowLogs(false);
                   setShowHelp(false);
@@ -2236,6 +3360,8 @@ export default function App() {
               addLog={addLog}
               snapshotDir={snapshotDir}
               setSnapshotDir={setSnapshotDir}
+              onAddVideo={onAddVideo}
+              onNavigateToGrid={() => setShowCollageCanvas(false)}
             />
           ) : (
             <>
@@ -2276,16 +3402,35 @@ export default function App() {
               isPopout={isPopout}
               showHelp={showHelp}
               setShowHelp={setShowHelp}
-              showSymphonyWorkshop={showSymphonyWorkshop}
-              setShowSymphonyWorkshop={setShowSymphonyWorkshop}
               toggleMasterMute={toggleMasterMute}
               globalControl={globalControl}
-              rotating={rotating}
+          rotating={rotating}
               setRotating={setRotating}
               isSlideshowActive={isSlideshowActive}
               setIsSlideshowActive={setIsSlideshowActive}
               slideshowInterval={slideshowInterval}
               setSlideshowInterval={setSlideshowInterval}
+              setSnapshotDir={setSnapshotDir}
+              onOpenVolumeRepeat={() => setVolumeRepeatOpen(true)}
+              onForceSetup={() => {
+                setForceSetup(true);
+                setNeedsSetup(true);
+              }}
+              onOpenWifiShare={() => {
+                invoke('set_wifi_shared_files', { paths: [] })
+                  .then(() => {
+                    setWifiShareItems([]);
+                    setWifiShareOpen(true);
+                  })
+                  .catch((err) => {
+                    addLog(`Wi-Fi Share ERROR: ${err}`);
+                  });
+              }}
+              onForceSetup={() => {
+                setForceSetup(true);
+                setNeedsSetup(true);
+                setShowSettings(false);
+              }}
             />
           )}
 
@@ -2323,6 +3468,10 @@ export default function App() {
             toggleMasterMute={toggleMasterMute}
             toggleMasterPlay={toggleMasterPlay}
             onContextMenu={handleContext}
+            onBgContextMenu={(x, y) => {
+              setBgMenu({ x, y });
+              setMenu(null);
+            }}
             onDeepFocus={handleDeepFocus}
             onReorder={onReorder}
             onToggleFocus={onToggleFocus}
@@ -2344,6 +3493,9 @@ export default function App() {
               setAspectRatio('free');
             }}
             onAddVideo={onAddVideo}
+            stickerLoadingId={stickerLoadingId}
+            onCreateSticker={handleCreateSticker}
+            onLoadDemos={handleLoadDemos}
           />
 
           {!immersive && (
@@ -2351,6 +3503,12 @@ export default function App() {
               <TelemetrySystem videosCount={videos.length} isPopout={isPopout} />
             </footer>
           )}
+
+          <InAppBrowser 
+            onAddFile={(path) => handleIngestPaths([path])}
+            onAddMultipleFiles={handleIngestPaths}
+            addLog={addLog}
+          />
             </>
           )}
         </div>
@@ -2384,11 +3542,23 @@ export default function App() {
               case 'step-back': setGlobalControl(`stepback-${v.id}-${Date.now()}`); break;
               case 'step-forward': setGlobalControl(`stepforward-${v.id}-${Date.now()}`); break;
               case 'watermark': setGlobalControl(`watermark-${v.id}-${Date.now()}`); break;
+              case 'create_sticker':
+                handleCreateSticker(v);
+                break;
               case 'crop':
                 setFocusedId(v.id);
                 setIsCropping(true);
                 setCropBox({ x: 15, y: 15, w: 70, h: 70 });
                 setAspectRatio('free');
+                break;
+              case 'resize':
+                handleResize(v);
+                break;
+              case 'generate_store_logos':
+                if (effectivePath) {
+                  setStoreLogoImagePath(effectivePath);
+                  setIsGeneratingStoreLogos(true);
+                }
                 break;
               case 'prev-file': handleNavigateSibling(-1); break;
               case 'next-file': handleNavigateSibling(1); break;
@@ -2543,6 +3713,13 @@ export default function App() {
                 break;
               }
               case 'exit-focus': setFocusedId(null); break;
+              case 'select-all': handleSelectAll(); break;
+              case 'deselect-all': {
+                setSelectedIds(new Set());
+                setSelectionMode(false);
+                addLog("SYSTEM: Deselected all items.");
+                break;
+              }
               case 'decommission': {
                 const isBatch = selectedIds.size > 0 && selectedIds.has(v.id);
                 if (isBatch) {
@@ -2836,19 +4013,16 @@ export default function App() {
                    ? v.folderFiles[v.currentIdx]?.path
                    : v.realPath;
                  if (folderEffectivePath) {
-                   invoke('open_folder', { path: folderEffectivePath });
+                   invoke('open_folder', { path: folderEffectivePath })
+                     .then(() => addLog(`SYSTEM: Opened folder displaying "${folderEffectivePath}"`))
+                     .catch(err => addLog(`ERROR: Failed to open folder: ${err}`));
                  } else {
                    addLog("Error: Native path lost for this unit.");
                  }
                  break;
               }
-              case 'popout': {
-                localStorage.setItem('cosmo-popout-active-url', v.url);
-                localStorage.setItem('cosmo-popout-active-title', v.title);
-                invoke('pop_out', { id: v.id, url: v.url, title: v.title });
-                break;
-              }
               case 'upscale': handleUpscale(v); break;
+              case 'resize': handleResize(v); break;
               case 'rename_selected':
                 setGlobalControl(`batch-rename-selected-${Date.now()}`);
                 break;
@@ -2863,11 +4037,7 @@ export default function App() {
 
                 if (effectiveRealPath) {
                   const currentName = effectiveTitle.replace(/\.[^/.]+$/, "");
-                  // Build a modified target so the rename dialog and executor both see the correct path
                   setSingleRenameTarget({ ...v, realPath: effectiveRealPath, title: effectiveTitle });
-                  setSingleRenameValue(currentName);
-                  setSingleRenameFiltering(false); // Show full history on open, not filtered
-                  setShowSingleRenameDropdown(true); // Open history immediately
                 }
                 break;
               }
@@ -2901,7 +4071,8 @@ export default function App() {
                 if (effectivePath) {
                   addLog(`Duplicating unit: ${v.title}...`);
                   try {
-                    const resultPath = await invoke<string>('duplicate_file_on_disk', { srcPath: effectivePath });
+                    const cleanPath = toRealPath(effectivePath) || effectivePath;
+                    const resultPath = await invoke<string>('duplicate_file_on_disk', { srcPath: cleanPath });
                     addLog(`Successfully duplicated: ${resultPath}`);
                     
                     const separator = resultPath.includes('\\') ? '\\' : '/';
@@ -2985,10 +4156,64 @@ export default function App() {
                 setFileManageOpen(true);
                 break;
               }
+              case 'share_file': {
+                const effectiveRealPath = (v.folderFiles && v.currentIdx !== undefined)
+                  ? (v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url)
+                  : v.realPath;
+                const effectiveTitle = (v.folderFiles && v.currentIdx !== undefined)
+                  ? (v.folderFiles[v.currentIdx]?.name || v.title)
+                  : v.title;
+                const itemsToShare = [{ id: v.id, title: effectiveTitle, url: v.url, realPath: effectiveRealPath }];
+                const realPaths = itemsToShare.map(x => x.realPath || '').filter(Boolean);
+                addLog(`Wi-Fi Share: Setting shared file: ${effectiveTitle}`);
+                invoke('set_wifi_shared_files', { paths: realPaths })
+                  .then(() => {
+                    setWifiShareItems(itemsToShare);
+                    setWifiShareOpen(true);
+                  })
+                  .catch((err) => {
+                    addLog(`Wi-Fi Share ERROR: ${err}`);
+                  });
+                break;
+              }
+              case 'share_selected': {
+                const selectedItems = videos.filter(item => selectedIds.has(item.id)).map(item => {
+                  const effectiveRealPath = (item.folderFiles && item.currentIdx !== undefined)
+                    ? (item.folderFiles[item.currentIdx]?.path || item.folderFiles[item.currentIdx]?.url)
+                    : item.realPath;
+                  const effectiveTitle = (item.folderFiles && item.currentIdx !== undefined)
+                    ? (item.folderFiles[item.currentIdx]?.name || item.title)
+                    : item.title;
+                  return { id: item.id, title: effectiveTitle, url: item.url, realPath: effectiveRealPath };
+                });
+                const realPaths = selectedItems.map(x => x.realPath || '').filter(Boolean);
+                addLog(`Wi-Fi Share: Setting shared files list: ${realPaths.length} items`);
+                invoke('set_wifi_shared_files', { paths: realPaths })
+                  .then(() => {
+                    setWifiShareItems(selectedItems);
+                    setWifiShareOpen(true);
+                  })
+                  .catch((err) => {
+                    addLog(`Wi-Fi Share ERROR: ${err}`);
+                  });
+                break;
+              }
             }
             setMenu(null);
             setMenuMetadata(null);
           }}
+        />
+      )}
+
+      {bgMenu && (
+        <BgContextMenu
+          x={bgMenu.x}
+          y={bgMenu.y}
+          onClose={() => setBgMenu(null)}
+          onAddFolder={handleSidebarAddFolder}
+          onAddMedia={handleAddMediaFiles}
+          onPurge={async () => { if (await showConfirm('Purge Workspace? This will clear all cards.', { title: 'Purge Workspace', kind: 'error' })) setVideos([]); }}
+          onSelectAll={handleSelectAll}
         />
       )}
 
@@ -3039,7 +4264,6 @@ export default function App() {
       </div>
 
       <Suspense fallback={null}>
-        {showSymphonyWorkshop && <SymphonyWorkshop onClose={() => setShowSymphonyWorkshop(false)} addLog={addLog} />}
         {showHelp && <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />}
       </Suspense>
 
@@ -3056,804 +4280,110 @@ export default function App() {
       )}
 
       {singleRenameTarget && (
-        <div className="modal-overlay" onClick={() => setSingleRenameTarget(null)}>
-          <div className="modal-content premium-glass" onClick={(e) => e.stopPropagation()} style={{ width: '420px' }}>
-            <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div className="accent-icon-box">
-                  <Bookmark size={20} className="text-accent" />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '16px', letterSpacing: '1px' }}>RENAME PROTOCOL</h2>
-                  <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 800 }}>PHYSICAL ASSET MODIFICATION</span>
-                </div>
-              </div>
-              <button onClick={() => setSingleRenameTarget(null)} className="premium-close-btn">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="settings-section">
-                <div className="setting-item">
-                  <label style={{ color: 'var(--accent)', fontSize: '10px', fontWeight: 900 }}>NEW ASSET NAME</label>
-                  <div style={{ position: 'relative', width: '100%', marginTop: '6px' }}>
-                    <input 
-                      type="text" 
-                      value={singleRenameValue}
-                      autoFocus
-                      onChange={(e) => {
-                        setSingleRenameValue(e.target.value);
-                        setSingleRenameFiltering(true); // User started typing — now filter
-                        setShowSingleRenameDropdown(true);
-                      }}
-                      onFocus={() => {
-                        setSingleRenameFiltering(false); // Show all history on focus
-                        setShowSingleRenameDropdown(true);
-                      }}
-                      onBlur={() => {
-                        setTimeout(() => setShowSingleRenameDropdown(false), 200);
-                      }}
-                      placeholder="Enter new name..."
-                      onMouseDown={e => e.stopPropagation()}
-                      className="premium-input"
-                      style={{ paddingRight: '40px' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowSingleRenameDropdown(!showSingleRenameDropdown)}
-                      style={{
-                        position: 'absolute',
-                        right: '12px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--accent)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        opacity: 0.7,
-                        transition: 'opacity 0.2s',
-                      }}
-                      onMouseDown={e => { e.preventDefault(); e.stopPropagation(); }}
-                    >
-                      <ChevronDown size={16} />
-                    </button>
-                    
-                    {showSingleRenameDropdown && renameHistory.length > 0 && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: 'calc(100% + 4px)',
-                          left: 0,
-                          width: '100%',
-                          maxHeight: '150px',
-                          overflowY: 'auto',
-                          background: 'rgba(15, 15, 15, 0.95)',
-                          backdropFilter: 'blur(10px)',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          borderRadius: '8px',
-                          zIndex: 9999,
-                          boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.5)',
-                        }}
-                      >
-                        {renameHistory
-                          .filter(item => !singleRenameFiltering || !singleRenameValue || item.toLowerCase().includes(singleRenameValue.toLowerCase()))
-                          .map((item, idx) => (
-                            <div
-                              key={idx}
-                              onClick={() => {
-                                setSingleRenameValue(item);
-                                setShowSingleRenameDropdown(false);
-                              }}
-                              style={{
-                                padding: '10px 16px',
-                                fontSize: '12px',
-                                color: '#fff',
-                                cursor: 'pointer',
-                                transition: 'background 0.2s',
-                                borderBottom: idx < renameHistory.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
-                              }}
-                              className="history-item-hover"
-                              onMouseOver={(e) => e.currentTarget.style.background = 'rgba(var(--accent-rgb), 0.15)'}
-                              onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                            >
-                              {item}
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>ORIGINAL:</span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{singleRenameTarget.title}</span>
-                  </div>
-                  <div style={{ fontSize: '10px', color: 'var(--accent)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>TARGET:</span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>
-                      {singleRenameValue || '...'}{singleRenameTarget.title.substring(singleRenameTarget.title.lastIndexOf('.'))}
-                    </span>
-                  </div>
-                </div>
-                
-                <button 
-                  onClick={() => {
-                    const newName = singleRenameValue.trim();
-                    if (newName && newName !== singleRenameTarget.title.replace(/\.[^/.]+$/, "")) {
-                      invoke<string>('rename_video', { oldPath: singleRenameTarget.realPath, newName })
-                        .then((newPath) => {
-                          const extension = singleRenameTarget.title.substring(singleRenameTarget.title.lastIndexOf('.'));
-                          
-                          // Comprehensive update across all video cards and folderFiles
-                          setVideos(prev => {
-                            // Filter out the card representing the overwritten file (unless it's the renamed card itself)
-                            const filtered = prev.filter(vid => vid.id === singleRenameTarget.id || !pathsEqual(vid.realPath, newPath));
-                            
-                            return filtered.map(vid => {
-                              let updated = false;
-                              const newVid = { ...vid };
-                              
-                              if (vid.id === singleRenameTarget.id) {
-                                newVid.realPath = newPath;
-                                newVid.url = toCosmoUrl(newPath);
-                                newVid.title = `${newName}${extension}`;
-                                updated = true;
-                              } else if (pathsEqual(vid.realPath, singleRenameTarget.realPath)) {
-                                newVid.realPath = newPath;
-                                newVid.url = toCosmoUrl(newPath);
-                                newVid.title = `${newName}${extension}`;
-                                updated = true;
-                              }
-                              
-                              if (vid.folderFiles) {
-                                // Filter out the overwritten entry and update the renamed entry inside folderFiles
-                                const hasOverwritten = vid.folderFiles.some(f => pathsEqual(f.path, newPath));
-                                const hasRenamed = vid.folderFiles.some(f => pathsEqual(f.path, singleRenameTarget.realPath));
-                                
-                                if (hasOverwritten || hasRenamed) {
-                                  let newFiles = vid.folderFiles;
-                                  if (hasOverwritten) {
-                                    newFiles = newFiles.filter(f => !pathsEqual(f.path, newPath));
-                                  }
-                                  newVid.folderFiles = newFiles.map(f => {
-                                    if (pathsEqual(f.path, singleRenameTarget.realPath)) {
-                                      return {
-                                        ...f,
-                                        name: `${newName}${extension}`,
-                                        path: newPath,
-                                        url: toCosmoUrl(newPath)
-                                      };
-                                    }
-                                    return f;
-                                  });
-                                  updated = true;
-                                }
-                              }
-                              
-                              return updated ? newVid : vid;
-                            });
-                          });
-                          
-                          addLog(`Unit renamed: ${newName}${extension}`);
-                          
-                          // Add to persistent history (Tauri AppData)
-                          addToRenameHistory(newName);
-                          
-                          setSingleRenameTarget(null);
-                        })
-                        .catch(err => {
-                          console.error("Rename failed:", err);
-                          alert(`Rename failed: ${err}`);
-                        });
-                    }
-                  }}
-                  disabled={!singleRenameValue.trim() || singleRenameValue === singleRenameTarget.title.replace(/\.[^/.]+$/, "")}
-                  className="execute-btn"
-                  style={{ marginTop: '20px' }}
-                >
-                  <Zap size={16} />
-                  <span>APPLY RENAME</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <RenameProtocolModal
+          target={singleRenameTarget}
+          renameHistory={renameHistory}
+          addToRenameHistory={addToRenameHistory}
+          onClose={() => setSingleRenameTarget(null)}
+          setVideos={setVideos}
+          addLog={addLog}
+        />
       )}
 
       {/* Save options and status overlays */}
-      {showSaveCropOptions && (
-        <div
-          className="save-crop-options-overlay"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: 'rgba(5, 5, 8, 0.85)',
-            backdropFilter: 'blur(20px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 300000,
-            userSelect: 'none'
-          }}
-        >
-          <div
-            style={{
-              background: 'rgba(18, 18, 24, 0.75)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '20px',
-              padding: '30px',
-              maxWidth: '500px',
-              width: '90%',
-              boxShadow: '0 30px 60px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '20px'
-            }}
-          >
-            <div style={{ textAlign: 'center' }}>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#fff', letterSpacing: '0.5px' }}>SAVE CROPPED SELECTION</h2>
-              <p style={{ margin: '6px 0 0 0', fontSize: '12px', color: '#888' }}>Select how you want to save your cropped asset.</p>
-            </div>
+      <SaveCropModal
+        isOpen={showSaveCropOptions}
+        onClose={() => setShowSaveCropOptions(false)}
+        onSave={handleSaveCrop}
+      />
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {/* Choice 1: Save as Separate File */}
-              <button
-                onClick={() => handleSaveCrop(false, false)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px'
-                }}
-                onMouseOver={e => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-                  e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-                }}
-                onMouseOut={e => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                  e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.08)';
-                }}
-              >
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>Save as Separate File (Save As)</span>
-                <span style={{ fontSize: '11px', color: '#aaa' }}>Creates a new file using serial increments (e.g. Daisy28.1.png).</span>
-              </button>
+      <GenerateStoreLogosModal
+        isOpen={isGeneratingStoreLogos}
+        onClose={() => setIsGeneratingStoreLogos(false)}
+        imagePath={storeLogoImagePath}
+        onLog={addLog}
+      />
 
-              {/* Choice 2: Overwrite Original */}
-              <button
-                onClick={() => handleSaveCrop(true, false)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px'
-                }}
-                onMouseOver={e => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-                  e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-                }}
-                onMouseOut={e => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                  e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.08)';
-                }}
-              >
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>Overwrite Original</span>
-                <span style={{ fontSize: '11px', color: '#aaa' }}>Replaces the original file physically. Auto-bypasses caching.</span>
-              </button>
+      <SaveUpscaleModal
+        isOpen={showSaveUpscaleOptions && upscaleTarget !== null}
+        onClose={() => {
+          setShowSaveUpscaleOptions(false);
+          setUpscaleTarget(null);
+        }}
+        onExecute={executeUpscale}
+      />
 
-              {/* Choice 3: AI Enhance & Save as Separate File */}
-              <button
-                onClick={() => handleSaveCrop(false, true)}
-                style={{
-                  background: 'rgba(0, 255, 136, 0.03)',
-                  border: '1px solid rgba(0, 255, 136, 0.15)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-                onMouseOver={e => {
-                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.06)';
-                  e.currentTarget.style.border = '1px solid rgba(0, 255, 136, 0.3)';
-                }}
-                onMouseOut={e => {
-                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.03)';
-                  e.currentTarget.style.border = '1px solid rgba(0, 255, 136, 0.15)';
-                }}
-              >
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Zap size={12} fill="currentColor" /> AI Enhance & Save as New File
-                </span>
-                <span style={{ fontSize: '11px', color: '#aaa' }}>Runs 4x GFPGAN/Real-ESRGAN local super-resolution over the crop and saves as a separate file.</span>
-              </button>
+      <ResizeModal
+        isOpen={showResizeModal && resizeTarget !== null}
+        onClose={() => {
+          setShowResizeModal(false);
+          setResizeTarget(null);
+        }}
+        target={resizeTarget}
+        onSuccess={handleResizeSuccess}
+        addLog={addLog}
+      />
 
-              {/* Choice 4: AI Enhance & Overwrite Original */}
-              <button
-                onClick={() => handleSaveCrop(true, true)}
-                style={{
-                  background: 'rgba(0, 255, 136, 0.03)',
-                  border: '1px solid rgba(0, 255, 136, 0.15)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-                onMouseOver={e => {
-                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.06)';
-                  e.currentTarget.style.border = '1px solid rgba(0, 255, 136, 0.3)';
-                }}
-                onMouseOut={e => {
-                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.03)';
-                  e.currentTarget.style.border = '1px solid rgba(0, 255, 136, 0.15)';
-                }}
-              >
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Zap size={12} fill="currentColor" /> AI Enhance & Overwrite Original
-                </span>
-                <span style={{ fontSize: '11px', color: '#aaa' }}>Runs 4x GFPGAN/Real-ESRGAN local super-resolution over the crop and overwrites the original file physically.</span>
-              </button>
-            </div>
+      <UpscaleStatusPanel
+        status={upscaleStatus}
+        progressPercent={upscaleProgressPercent}
+        stage={upscaleStage}
+        title={lastEnhancedTitle}
+        onCancel={cancelEnhancement}
+        onDismiss={() => setUpscaleStatus('idle')}
+      />
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-              <button
-                onClick={() => setShowSaveCropOptions(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#888',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  padding: '8px 16px',
-                  transition: 'color 0.2s'
-                }}
-                onMouseOver={e => e.currentTarget.style.color = '#fff'}
-                onMouseOut={e => e.currentTarget.style.color = '#888'}
-              >
-                CANCEL
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AiOfflineModal
+        isOpen={aiServerOffline}
+        onClose={() => setAiServerOffline(false)}
+        onBack={() => {
+          setAiServerOffline(false);
+          setShowSaveCropOptions(true);
+        }}
+      />
 
-      {showSaveUpscaleOptions && upscaleTarget && (
-        <div
-          className="save-upscale-options-overlay"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: 'rgba(5, 5, 8, 0.85)',
-            backdropFilter: 'blur(20px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 300000,
-            userSelect: 'none'
-          }}
-        >
-          <div
-            style={{
-              background: 'rgba(18, 18, 24, 0.75)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '20px',
-              padding: '30px',
-              maxWidth: '500px',
-              width: '90%',
-              boxShadow: '0 30px 60px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '20px'
-            }}
-          >
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ display: 'inline-flex', padding: '10px', borderRadius: '50%', background: 'rgba(0, 255, 136, 0.1)', color: 'var(--accent)', marginBottom: '12px' }}>
-                <Zap size={24} fill="currentColor" />
-              </div>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#fff', letterSpacing: '0.5px' }}>AI UPSCALE OPTIONS</h2>
-              <p style={{ margin: '6px 0 0 0', fontSize: '12px', color: '#888' }}>Select how you want to save your upscaled high-fidelity image.</p>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {/* Choice 1: Save as Separate File */}
-              <button
-                onClick={() => executeUpscale(false)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px'
-                }}
-                onMouseOver={e => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-                  e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-                }}
-                onMouseOut={e => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                  e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.08)';
-                }}
-              >
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>Save as Separate File (Save As)</span>
-                <span style={{ fontSize: '11px', color: '#aaa' }}>Creates a new file using serial increments (e.g. daisy_upscaled.1.png).</span>
-              </button>
-
-              {/* Choice 2: Overwrite Original */}
-              <button
-                onClick={() => executeUpscale(true)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px'
-                }}
-                onMouseOver={e => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-                  e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-                }}
-                onMouseOut={e => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                  e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.08)';
-                }}
-              >
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>Overwrite Original File</span>
-                <span style={{ fontSize: '11px', color: '#aaa' }}>Replaces the original file physically with 4x resolution. Auto-bypasses caching.</span>
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-              <button
-                onClick={() => {
-                  setShowSaveUpscaleOptions(false);
-                  setUpscaleTarget(null);
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#888',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  padding: '8px 16px',
-                  transition: 'color 0.2s'
-                }}
-                onMouseOver={e => e.currentTarget.style.color = '#fff'}
-                onMouseOut={e => e.currentTarget.style.color = '#888'}
-              >
-                CANCEL
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {upscaleStatus !== 'idle' && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '25px',
-            right: '25px',
-            width: '350px',
-            background: 'rgba(10, 10, 16, 0.85)',
-            backdropFilter: 'blur(16px)',
-            border: upscaleStatus === 'success' 
-              ? '1px solid rgba(0, 255, 136, 0.5)' 
-              : (upscaleStatus === 'failed' ? '1px solid rgba(255, 68, 68, 0.5)' : '1px solid rgba(0, 255, 136, 0.25)'),
-            borderRadius: '16px',
-            boxShadow: upscaleStatus === 'success'
-              ? '0 8px 32px rgba(0, 255, 136, 0.15)'
-              : '0 8px 32px rgba(0, 0, 0, 0.5)',
-            padding: '18px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-            zIndex: 350000,
-            color: '#fff',
-            fontFamily: 'Inter, sans-serif',
-            animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
-          }}
-        >
-          {upscaleStatus === 'enhancing' ? (
-            <div className="spinner" style={{ width: '28px', height: '28px', border: '3px solid rgba(0, 255, 136, 0.1)', borderTop: '3px solid var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
-          ) : (
-            upscaleStatus === 'success' ? (
-              <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(0, 255, 136, 0.15)', border: '1px solid var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, animation: 'bounceIn 0.5s ease' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              </div>
-            ) : (
-              <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255, 68, 68, 0.15)', border: '1px solid #ff4444', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-              </div>
-            )
-          )}
-          <style>{`
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-            @keyframes slideIn {
-              from { transform: translateY(100px); opacity: 0; }
-              to { transform: translateY(0); opacity: 1; }
-            }
-            @keyframes bounceIn {
-              0% { transform: scale(0.3); opacity: 0; }
-              50% { transform: scale(1.1); }
-              70% { transform: scale(0.9); }
-              100% { transform: scale(1); opacity: 1; }
-            }
-          `}</style>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
-            <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', color: upscaleStatus === 'success' ? 'var(--accent)' : (upscaleStatus === 'failed' ? '#ff4444' : '#00d2ff'), letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-              {upscaleStatus === 'enhancing' ? 'AI Super-Resolution Active' : (upscaleStatus === 'success' ? 'Upscale Finished!' : 'Upscale Failed')}
-            </h4>
-            <p style={{ margin: 0, fontSize: '11px', color: '#ccc', lineHeight: '1.4' }}>
-              {upscaleStatus === 'enhancing' 
-                ? (lastEnhancedTitle ? `Processing "${lastEnhancedTitle}"...` : 'Upscaling target...') 
-                : (upscaleStatus === 'success' ? `Hey, your upscale for "${lastEnhancedTitle}" is finished! Enjoy your high-fidelity asset.` : 'An error occurred during upscaling.')}
-            </p>
-            
-            {upscaleStatus === 'enhancing' && (
-              <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden', marginTop: '6px' }}>
-                <div 
-                  style={{ 
-                    height: '100%', 
-                    background: 'linear-gradient(90deg, var(--accent), #00d2ff)', 
-                    width: '75%',
-                    borderRadius: '2px',
-                    animation: 'shimmerBar 40s linear forwards'
-                  }} 
-                />
-                <style>{`
-                  @keyframes shimmerBar {
-                    0% { width: 5%; }
-                    5% { width: 25%; }
-                    20% { width: 45%; }
-                    50% { width: 70%; }
-                    80% { width: 85%; }
-                    95% { width: 92%; }
-                    100% { width: 95%; }
-                  }
-                `}</style>
-              </div>
-            )}
-          </div>
-
-          {upscaleStatus === 'enhancing' && (
-            <button
-              onClick={cancelEnhancement}
-              title="Cancel enhancement"
-              style={{
-                flexShrink: 0,
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                background: 'rgba(255, 68, 68, 0.12)',
-                border: '1px solid rgba(255, 68, 68, 0.4)',
-                color: '#ff4444',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseOver={e => { e.currentTarget.style.background = 'rgba(255, 68, 68, 0.25)'; }}
-              onMouseOut={e => { e.currentTarget.style.background = 'rgba(255, 68, 68, 0.12)'; }}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="#ff4444">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-              </svg>
-            </button>
-          )}
-        </div>
-      )}
-
-      {aiServerOffline && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: 'rgba(5, 5, 8, 0.85)',
-            backdropFilter: 'blur(20px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 360000
-          }}
-        >
-          <div
-            style={{
-              background: 'rgba(24, 18, 18, 0.75)',
-              border: '1px solid rgba(255, 78, 78, 0.15)',
-              borderRadius: '20px',
-              padding: '30px',
-              maxWidth: '450px',
-              width: '90%',
-              boxShadow: '0 30px 60px rgba(0,0,0,0.8)',
-              textAlign: 'center',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '20px'
-            }}
-          >
-            <div style={{ color: '#ff4e4e', display: 'flex', justifyContent: 'center' }}>
-              <AlertCircle size={48} />
-            </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#ff4e4e' }}>AI ENHANCER OFFLINE</h3>
-              <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: '#aaa', lineHeight: 1.5 }}>
-                The local PyTorch/RTX upscaling server at port 12000 is not running or failed to initialize.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-              <button
-                onClick={() => {
-                  setAiServerOffline(false);
-                  setShowSaveCropOptions(true);
-                }}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.08)',
-                  border: 'none',
-                  color: '#fff',
-                  padding: '8px 16px',
-                  borderRadius: '20px',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  transition: 'background 0.2s'
-                }}
-                onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
-                onMouseOut={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
-              >
-                BACK
-              </button>
-              <button
-                onClick={() => setAiServerOffline(false)}
-                style={{
-                  background: '#ff4e4e',
-                  border: 'none',
-                  color: '#fff',
-                  padding: '8px 16px',
-                  borderRadius: '20px',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  transition: 'background 0.2s'
-                }}
-                onMouseOver={e => e.currentTarget.style.background = '#ff6b6b'}
-                onMouseOut={e => e.currentTarget.style.background = '#ff4e4e'}
-              >
-                CLOSE
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {customConfirm && (
-        <div className="modal-overlay" style={{ zIndex: 2000000 }}>
-          <motion.div 
-            initial={{ scale: 0.95, opacity: 0, y: 10 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.95, opacity: 0, y: 10 }}
-            className="modal-content premium-glass"
-            style={{ width: '450px', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '24px' }}
-          >
-            <div className="modal-header" style={{ marginBottom: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div className="accent-icon-box" style={{ 
-                  background: customConfirm.kind === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                  border: `1px solid ${customConfirm.kind === 'error' ? '#ef4444' : '#f59e0b'}`
-                }}>
-                  <AlertCircle size={20} style={{ 
-                    color: customConfirm.kind === 'error' ? '#ef4444' : '#f59e0b' 
-                  }} />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '14px', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text-primary)', margin: 0 }}>
-                    {customConfirm.title}
-                  </h2>
-                  <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 800, letterSpacing: '0.5px' }}>
-                    {customConfirm.kind === 'error' ? 'CRITICAL ACTIONS PROTOCOL' : 'SYSTEM INTERLOCK ACTION'}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="modal-body" style={{ color: 'var(--text-secondary)', fontSize: '11px', lineHeight: '1.6', marginBottom: '24px', whiteSpace: 'pre-line', fontFamily: 'var(--font-mono)' }}>
-              {customConfirm.message}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button 
-                className="premium-btn" 
-                style={{ 
-                  background: 'rgba(255, 255, 255, 0.04)', 
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: 'var(--text-primary)',
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  fontSize: '11px',
-                  letterSpacing: '0.5px'
-                }}
-                onClick={() => {
-                  customConfirm.resolve(false);
-                  setCustomConfirm(null);
-                }}
-              >
-                CANCEL
-              </button>
-              <button 
-                className="premium-btn"
-                style={{ 
-                  background: customConfirm.kind === 'error' ? '#ef4444' : 'var(--accent, #00ff88)',
-                  color: customConfirm.kind === 'error' ? '#ffffff' : '#000000',
-                  border: 'none',
-                  padding: '8px 20px',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: '11px',
-                  letterSpacing: '0.5px',
-                  boxShadow: customConfirm.kind === 'error' ? '0 0 15px rgba(239, 68, 68, 0.35)' : '0 0 15px rgba(0, 255, 136, 0.25)'
-                }}
-                onClick={() => {
-                  customConfirm.resolve(true);
-                  setCustomConfirm(null);
-                }}
-              >
-                PROCEED
-              </button>
-            </div>
-          </motion.div>
-        </div>
+        <CustomConfirmModal
+          title={customConfirm.title}
+          message={customConfirm.message}
+          kind={customConfirm.kind}
+          onResolve={(val) => {
+            customConfirm.resolve(val);
+            setCustomConfirm(null);
+          }}
+        />
       )}
+      {customPrompt && (
+        <CustomPromptModal
+          title={customPrompt.title}
+          message={customPrompt.message}
+          defaultValue={customPrompt.defaultValue}
+          onResolve={(val) => {
+            customPrompt.resolve(val);
+            setCustomPrompt(null);
+          }}
+        />
+      )}
+      <MusicPlayerWidget videos={videos} setVideos={setVideos} />
+      <WifiShareModal
+        isOpen={wifiShareOpen}
+        onClose={() => setWifiShareOpen(false)}
+        sharedFiles={wifiShareItems}
+        onLog={addLog}
+        onAddMultipleFiles={handleIngestPaths}
+      />
+      <VolumeRepeatModal
+        isOpen={volumeRepeatOpen}
+        onClose={() => setVolumeRepeatOpen(false)}
+        globalVolume={globalVolume}
+        setGlobalVolume={setGlobalVolume}
+        masterMuted={masterMuted}
+        toggleMasterMute={toggleMasterMute}
+        globalRepeat={globalRepeat}
+        setGlobalRepeat={setGlobalRepeat}
+        videos={videos}
+        onUpdateVideo={handleUpdate}
+      />
     </main>
   );
 }

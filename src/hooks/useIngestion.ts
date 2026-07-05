@@ -1,26 +1,36 @@
 import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { 
-  toCosmoUrl, 
-  isValidMediaExtension, 
-  getFileNameFromPath 
+import {
+  toCosmoUrl,
+  isValidMediaExtension,
+  getFileNameFromPath,
+  showConfirm,
+  requiresConversion,
+  maybeConvertMedia,
 } from '../utils/videoUtils';
 import type { VideoItem } from '../types';
 
 interface UseIngestionProps {
-  mediaMode: 'video' | 'picture';
+  mediaMode: 'all' | 'video' | 'picture';
   setVideos: React.Dispatch<React.SetStateAction<VideoItem[]>>;
   addLog: (msg: string) => void;
   masterPlayingRef: React.MutableRefObject<boolean>;
   masterMutedRef: React.MutableRefObject<boolean>;
   setDragFile: (dragging: boolean) => void;
+  /** Called with progress during batch conversion, or null when done */
+  setConvertingStatus: (status: { current: number; total: number; filename: string } | null) => void;
   isPopout?: boolean;
 }
 
 /**
  * Custom hook to manage the media ingestion pipeline.
- * Handles OS-level drag-and-drop events and folder expansion.
+ * Handles OS-level drag-and-drop events, folder expansion, and format conversion.
+ *
+ * Pipeline:
+ *   Phase 1 — Resolve: expand folders into individual file records
+ *   Phase 2 — Confirm: show ONE dialog if any files need conversion
+ *   Phase 3 — Process: convert approved files and add all cards to the grid
  */
 export function useIngestion({
   mediaMode,
@@ -29,11 +39,12 @@ export function useIngestion({
   masterPlayingRef,
   masterMutedRef,
   setDragFile,
-  isPopout = false
+  setConvertingStatus,
+  isPopout = false,
 }: UseIngestionProps) {
   const mediaModeRef = useRef(mediaMode);
-  
-  // Keep the ref in sync with the state to avoid re-initializing the listener
+
+  // Keep the ref in sync with state to avoid re-initialising the listener
   useEffect(() => {
     mediaModeRef.current = mediaMode;
   }, [mediaMode]);
@@ -45,130 +56,233 @@ export function useIngestion({
       e.preventDefault();
       e.stopPropagation();
     };
-    
+
     window.addEventListener('dragover', stopDefaults);
     window.addEventListener('drop', stopDefaults);
-    
+
     let unlistenDragDrop: any;
 
     const setupListeners = async () => {
       try {
         const win = getCurrentWindow();
-        
+
         unlistenDragDrop = await win.onDragDropEvent(async (event: any) => {
-          // Debug log for stability verification
           console.log(`[Ingestion] Event: ${event.payload.type}`);
-          
+
           if (event.payload.type === 'over' || event.payload.type === 'enter') {
             setDragFile(true);
             return;
           }
-          
+
           if (event.payload.type !== 'drop') {
             setDragFile(false);
             return;
           }
-          
+
           setDragFile(false);
-          const paths = event.payload.paths ? [...event.payload.paths].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })) : [];
+
+          const paths: string[] = event.payload.paths
+            ? [...event.payload.paths].sort((a, b) =>
+                a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
+              )
+            : [];
           if (paths.length === 0) return;
-          
-          addLog(`System: Intercepting ${paths.length} drop assets...`);
-          
-          const newVids: VideoItem[] = [];
+
+          addLog(`System: Intercepting ${paths.length} drop asset(s)...`);
+
+          // ── Phase 1: Resolve all dropped paths to individual file records ──
+          type ResolvedFile = {
+            path: string;
+            name: string;
+            url: string;
+            isVideo: boolean;
+            size?: number;
+            modified?: number;
+            created?: number;
+          };
+          const resolved: ResolvedFile[] = [];
           const processedFolders = new Set<string>();
-          let videoCount = 0;
-          let pictureCount = 0;
-          
-          for (const path of paths) {
+
+          for (const p of paths) {
             try {
-                // Check if path is a directory (by asking backend for its videos)
-                let folderVids: { name: string, url: string }[] = [];
-                let isDirectory = false;
-                
-                try {
-                  // Always ingest ALL media types — the UI filters by mediaMode automatically
-                  folderVids = await invoke<{ name: string, url: string }[]>('get_folder_videos', { 
-                    path, 
-                    mode: 'all'
-                  });
-                  isDirectory = true;
-                } catch (e) {
-                  isDirectory = false;
-                }
+              let folderVids: { name: string; url: string, size?: number, modified?: number, created?: number }[] = [];
+              let isDirectory = false;
 
-                if (isDirectory && folderVids && folderVids.length > 0) {
-                  if (processedFolders.has(path)) continue;
-                  processedFolders.add(path);
-                  
-                  // Sort directory contents alphabetically using natural numeric sorting
-                  folderVids.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+              try {
+                folderVids = await invoke<{ name: string; url: string, size?: number, modified?: number, created?: number }[]>(
+                  'get_folder_videos',
+                  { path: p, mode: 'all' },
+                );
+                isDirectory = true;
+              } catch {
+                isDirectory = false;
+              }
 
-                  addLog(`Ingesting Folder: ${path} (${folderVids.length} items)`);
-                  const folderWithUrls = folderVids.map(v => ({ 
-                    ...v, 
-                    url: toCosmoUrl(v.url),
-                    path: v.url 
-                  }));
+              if (isDirectory && folderVids.length > 0) {
+                if (processedFolders.has(p)) continue;
+                processedFolders.add(p);
 
-                  // EXPLOSIVE INGESTION: Add every file in the folder as an individual card
-                  folderWithUrls.forEach((file) => {
-                    const isVideo = isValidMediaExtension((file as any).path || file.url, 'video');
-                    if (isVideo) videoCount++; else pictureCount++;
-                    
-                    newVids.push({ 
-                      id: crypto.randomUUID(), 
-                      url: file.url, 
-                      realPath: (file as any).path || file.url, 
-                      title: file.name, 
-                      repeatMode: 'none', 
-                      repeatCount: 0, 
-                      cols: 1, 
-                      currentIdx: 0, 
-                      playing: masterPlayingRef.current, 
-                      muted: masterMutedRef.current 
+                folderVids.sort((a, b) =>
+                  a.name.localeCompare(b.name, undefined, {
+                    numeric: true,
+                    sensitivity: 'base',
+                  }),
+                );
+                addLog(`Ingesting Folder: ${p} (${folderVids.length} items)`);
+
+                for (const v of folderVids) {
+                  const isVideo = isValidMediaExtension(v.url, 'video');
+                  const isPicture = isValidMediaExtension(v.url, 'picture');
+                  if (isVideo || isPicture) {
+                    resolved.push({
+                      path: v.url,
+                      name: v.name,
+                      url: toCosmoUrl(v.url),
+                      isVideo,
+                      size: v.size,
+                      modified: v.modified,
+                      created: v.created
                     });
-                  });
-                  continue;
+                  }
                 }
-                
-                // Individual File Ingestion
-                const isVideo = isValidMediaExtension(path, 'video');
-                const isPicture = isValidMediaExtension(path, 'picture');
+              } else {
+                const isVideo = isValidMediaExtension(p, 'video');
+                const isPicture = isValidMediaExtension(p, 'picture');
                 if (isVideo || isPicture) {
-                  if (isVideo) videoCount++; else pictureCount++;
-                  const filename = getFileNameFromPath(path);
-                  newVids.push({ 
-                    id: crypto.randomUUID(), 
-                    url: toCosmoUrl(path), 
-                    realPath: path, 
-                    title: filename, 
-                    repeatMode: 'none', 
-                    repeatCount: 0, 
-                    cols: 1, 
-                    currentIdx: 0,
-                    playing: masterPlayingRef.current, 
-                    muted: masterMutedRef.current 
+                  let size = 0, modified = 0, created = 0;
+                  try {
+                    const stats = await invoke<[number, number, number]>('get_file_stats', { path: p });
+                    size = stats[0];
+                    modified = stats[1];
+                    created = stats[2];
+                  } catch (e) {
+                    console.error('[Ingestion] Failed to get stats for single file:', p, e);
+                  }
+
+                  resolved.push({
+                    path: p,
+                    name: getFileNameFromPath(p),
+                    url: toCosmoUrl(p),
+                    isVideo,
+                    size,
+                    modified,
+                    created
                   });
                 }
-            } catch (err) { 
-              console.error("[Ingestion] Error processing path:", path, err); 
+              }
+            } catch (err) {
+              console.error('[Ingestion] Error resolving path:', p, err);
             }
           }
-          
+
+          if (resolved.length === 0) return;
+
+          // ── Phase 2: One confirmation if any files need conversion ──────────
+          const needConv = resolved.filter(f => requiresConversion(f.path, f.isVideo));
+          let doConvert = false;
+
+          if (needConv.length > 0) {
+            const formats = [
+              ...new Set(
+                needConv.map(f => '.' + (f.path.split('.').pop()?.toLowerCase() ?? '')),
+              ),
+            ].join(', ');
+
+            const allVideo = needConv.every(f => f.isVideo);
+            const allImage = needConv.every(f => !f.isVideo);
+            const targetLabel = allVideo ? 'MP4' : allImage ? 'PNG' : 'MP4 / PNG';
+
+            doConvert = await showConfirm(
+              `${needConv.length} file${needConv.length > 1 ? 's' : ''} (${formats}) ` +
+                `cannot be displayed natively and will be converted to ${targetLabel}.\n\n` +
+                `The original${needConv.length > 1 ? 's' : ''} will be permanently replaced. ` +
+                `Convert now?`,
+              { title: 'Format Conversion Required', kind: 'warning' },
+            );
+
+            if (!doConvert) {
+              addLog(
+                `System: Conversion skipped — ${needConv.length} non-native file(s) excluded.`,
+              );
+            }
+          }
+
+          // ── Phase 3: Build video cards (converting where approved) ──────────
+          const newVids: VideoItem[] = [];
+          let videoCount = 0;
+          let pictureCount = 0;
+
+          // Count how many files actually need conversion so we can show progress
+          const convFiles = resolved.filter(f => requiresConversion(f.path, f.isVideo) && doConvert);
+          let convIdx = 0;
+
+          for (const file of resolved) {
+            try {
+              const needsConv = requiresConversion(file.path, file.isVideo);
+
+              // Skip non-native files if user declined conversion
+              if (needsConv && !doConvert) continue;
+
+              if (needsConv && doConvert) {
+                convIdx++;
+                setConvertingStatus({
+                  current: convIdx,
+                  total: convFiles.length,
+                  filename: getFileNameFromPath(file.path),
+                });
+              }
+
+              const finalPath =
+                needsConv && doConvert
+                  ? await maybeConvertMedia(file.path, file.isVideo, addLog)
+                  : file.path;
+
+              const finalUrl =
+                finalPath !== file.path ? toCosmoUrl(finalPath) : file.url;
+              const finalName =
+                finalPath !== file.path ? getFileNameFromPath(finalPath) : file.name;
+
+              if (file.isVideo) videoCount++;
+              else pictureCount++;
+
+              newVids.push({
+                id: crypto.randomUUID(),
+                url: finalUrl,
+                realPath: finalPath,
+                title: finalName,
+                repeatMode: 'none',
+                repeatCount: 0,
+                cols: 1,
+                currentIdx: 0,
+                playing: masterPlayingRef.current,
+                muted: masterMutedRef.current,
+                size: file.size,
+                modified: file.modified,
+                created: file.created,
+              });
+            } catch (err) {
+              console.error('[Ingestion] Error processing file:', file.path, err);
+            }
+          }
+
+          // Clear the converting overlay once all files are done
+          setConvertingStatus(null);
+
           if (newVids.length > 0) {
             setVideos(prev => [...prev, ...newVids]);
-            // Show a detailed breakdown if both types were ingested
             if (videoCount > 0 && pictureCount > 0) {
-              addLog(`System: Sorted ${videoCount} videos → Video tab, ${pictureCount} images → Stills tab.`);
+              addLog(
+                `System: Sorted ${videoCount} videos → Video tab, ${pictureCount} images → Stills tab.`,
+              );
             } else {
-              addLog(`System: Successfully ingested ${newVids.length} ${videoCount > 0 ? 'videos' : 'images'}.`);
+              addLog(
+                `System: Successfully ingested ${newVids.length} ${videoCount > 0 ? 'video' : 'image'}${newVids.length > 1 ? 's' : ''}.`,
+              );
             }
           }
         });
-        
-      } catch (err) { 
-        console.error("[Ingestion] Listener Setup Error:", err); 
+      } catch (err) {
+        console.error('[Ingestion] Listener Setup Error:', err);
       }
     };
 
@@ -181,7 +295,7 @@ export function useIngestion({
         // Safe unlisten: handle both Promise and void returns
         const result = unlistenDragDrop();
         if (result instanceof Promise) {
-          result.catch((err: any) => console.error("[Ingestion] Cleanup error:", err));
+          result.catch((err: any) => console.error('[Ingestion] Cleanup error:', err));
         }
       }
     };

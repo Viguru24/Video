@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, HelpCircle, Monitor, Zap, Command, 
@@ -12,6 +12,17 @@ interface HelpModalProps {
 }
 
 export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
   return (
     <AnimatePresence>
       {isOpen && (
@@ -178,7 +189,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <div className="help-footer">
                 <div className="footer-info">
                   <Info size={14} />
-                  <span>COSMO SYMPHONY — v3.4.0 (BETA-ACTIVE)</span>
+                  <span>COSMO SYMPHONY — v1.1.2</span>
                 </div>
                 <div className="footer-status">SYMPHONY SYSTEM STABLE</div>
               </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, Film, Loader2, Music, CheckCircle2, Terminal, Save, ArrowRight, Trash2, AlertTriangle, RotateCw } from 'lucide-react';
+import { showConfirm } from '../utils/videoUtils';
 
 interface SymphonyWorkshopProps {
   onClose: () => void;
@@ -46,7 +47,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
     addLog(msg);
   };
 
-  const API_BASE = 'http://localhost:8000';
+  const API_BASE = 'http://localhost:8005';
 
   // Sync to localStorage
   useEffect(() => {
@@ -140,7 +141,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
   
   const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Permanently delete this project definition?')) return;
+    if (!await showConfirm('Permanently delete this project definition?', { title: 'Delete Project', kind: 'error' })) return;
     try {
       await fetch(`${API_BASE}/api/delete_project/${id}`, { method: 'DELETE' });
       internalLog(`Project Deleted.`);
@@ -151,7 +152,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
   };
   
   const handleDeleteAllProjects = async () => {
-    if (!confirm('CRITICAL: Purge ALL project definitions? This cannot be undone.')) return;
+    if (!await showConfirm('CRITICAL: Purge ALL project definitions? This cannot be undone.', { title: 'Purge Library', kind: 'error' })) return;
     try {
       await fetch(`${API_BASE}/api/delete_all_projects`, { method: 'DELETE' });
       internalLog(`Library Purged.`);
@@ -362,7 +363,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
                 }}
                 placeholder="PROJECT NAME"
               />
-              <div style={{ fontSize: '9px', opacity: 0.5, letterSpacing: '1px', fontWeight: '700' }}>COSMO SYMPHONY v4.0.0 - SOVEREIGN</div>
+              <div style={{ fontSize: '9px', opacity: 0.5, letterSpacing: '1px', fontWeight: '700' }}>COSMO SYMPHONY v1.0.0</div>
             </div>
           </div>
           
@@ -384,10 +385,64 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
               </div>
             </div>
             
-            <div className="window-controls" style={{ display: 'flex', gap: '8px', marginLeft: '10px' }}>
-              <div onClick={onClose} className="workshop-close yellow" title="Minimize" />
-              <div onClick={() => setIsFullscreen(!isFullscreen)} className="workshop-close green" title="Fullscreen" />
-              <div onClick={onClose} className="workshop-close red" title="Close" />
+            <div className="window-controls" style={{ display: 'flex', gap: '8px', marginLeft: '10px', alignItems: 'center' }}>
+              <button 
+                onClick={onClose} 
+                className="win-dot min" 
+                title="Minimize" 
+                style={{ display: 'block', padding: 0, border: 'none' }} 
+              />
+              <button 
+                onClick={() => setIsFullscreen(!isFullscreen)} 
+                className="win-dot max" 
+                title="Fullscreen" 
+                style={{ display: 'block', padding: 0, border: 'none' }} 
+              />
+              <button 
+                onClick={onClose} 
+                className="win-dot close" 
+                title="Close" 
+                style={{ display: 'block', padding: 0, border: 'none', marginRight: '8px' }} 
+              />
+              
+              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)' }} />
+
+              <button 
+                onClick={onClose} 
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: '#fff',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  outline: 'none',
+                  height: '28px',
+                  lineHeight: '1'
+                }}
+                className="workshop-exit-btn"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                  e.currentTarget.style.color = '#ff8888';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.color = '#fff';
+                }}
+              >
+                <X size={12} />
+                Exit
+              </button>
             </div>
           </div>
         </div>
@@ -414,7 +469,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <AlertTriangle size={16} style={{ color: '#ef4444' }} />
               <span>
-                <strong>Local Symphony API Server is Offline</strong> (port 8000). Python script generator, scraping, and renders library are unavailable.
+                <strong>Local Symphony API Server is Offline</strong> (port 8005). Python script generator, scraping, and renders library are unavailable.
               </span>
             </div>
             <button 

@@ -14,6 +14,20 @@ if (typeof window !== 'undefined') {
     const errorMsg = `[Global Unhandled Rejection] Reason: ${event.reason?.message || event.reason}. Stack: ${event.reason?.stack || 'no stack'}`;
     invoke('cosmo_log', { msg: errorMsg }).catch(() => {});
   });
+
+  const originalLog = console.log;
+  console.log = (...args) => {
+    originalLog(...args);
+    const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+    invoke('cosmo_log', { msg: `[Console Log] ${msg}` }).catch(() => {});
+  };
+
+  const originalWarn = console.warn;
+  console.warn = (...args) => {
+    originalWarn(...args);
+    const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+    invoke('cosmo_log', { msg: `[Console Warn] ${msg}` }).catch(() => {});
+  };
 }
 
 

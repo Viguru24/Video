@@ -13,7 +13,6 @@ interface KeyboardShortcutsProps {
   showSettings: boolean;
   showCollections: boolean;
   showLogs: boolean;
-  showSymphonyWorkshop: boolean;
   showHelp: boolean;
   isPopout?: boolean;
   isSlideshowActive?: boolean;
@@ -22,6 +21,8 @@ interface KeyboardShortcutsProps {
   
   onUpdateVideo: (id: string, updates: Partial<VideoItem>) => void;
   onToggleFocus: (id: string | null) => void;
+  exitSoloMode?: () => Promise<void> | void;
+  onSelectAll?: () => void;
   toggleMasterPlay: () => void;
   toggleMasterMute: () => void;
   setGlobalRepeat: (updater: (prev: RepeatMode) => RepeatMode) => void;
@@ -32,7 +33,6 @@ interface KeyboardShortcutsProps {
   setShowSettings: (val: boolean) => void;
   setShowCollections: (val: boolean) => void;
   setShowLogs: (val: boolean) => void;
-  setShowSymphonyWorkshop: (val: boolean) => void;
   setShowHelp: React.Dispatch<React.SetStateAction<boolean>>;
   setSelectedIds: (ids: Set<string>) => void;
   setSelectionMode: (val: boolean) => void;
@@ -60,11 +60,12 @@ export function useKeyboardShortcuts({
   showSettings,
   showCollections,
   showLogs,
-  showSymphonyWorkshop,
   showHelp,
   isPopout = false,
   onUpdateVideo,
   onToggleFocus,
+  exitSoloMode,
+  onSelectAll,
   toggleMasterPlay,
   toggleMasterMute,
   setGlobalRepeat,
@@ -75,7 +76,6 @@ export function useKeyboardShortcuts({
   setShowSettings,
   setShowCollections,
   setShowLogs,
-  setShowSymphonyWorkshop,
   setShowHelp,
   setSelectedIds,
   setSelectionMode,
@@ -106,6 +106,17 @@ export function useKeyboardShortcuts({
           }
         }
 
+        // SELECT ALL SHORTCUT: Toggle selection of all visible items with Ctrl+A
+        if (key === 'a' && (e.ctrlKey || e.metaKey)) {
+          const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+          if (!isInput) {
+            e.preventDefault();
+            e.stopPropagation();
+            onSelectAll?.();
+            return;
+          }
+        }
+
         // GLOBAL ESCAPE ESCORT: Close modals/overlays or exit focus instantly, even when typing
         if (key === 'escape') {
           e.preventDefault();
@@ -116,22 +127,17 @@ export function useKeyboardShortcuts({
           if (showSettings) { setShowSettings(false); triggerGlobalHud?.('SETTINGS', 'CLOSED'); return; }
           if (showCollections) { setShowCollections(false); triggerGlobalHud?.('COLLECTIONS', 'CLOSED'); return; }
           if (showLogs) { setShowLogs(false); triggerGlobalHud?.('LOGS', 'CLOSED'); return; }
-          if (showSymphonyWorkshop) { setShowSymphonyWorkshop(false); triggerGlobalHud?.('WORKSHOP', 'CLOSED'); return; }
           if (menu) { setMenu(null); triggerGlobalHud?.('MENU', 'CLOSED'); return; }
           
-          if (immersive) {
-            if (focusedId && onDeepFocus) {
-              onDeepFocus(focusedId);
-              triggerGlobalHud?.('SOLO VIEW', 'EXITED');
+          if (immersive || focusedId) {
+            if (setIsSlideshowActive) setIsSlideshowActive(false);
+            if (exitSoloMode) {
+              exitSoloMode();
             } else {
               setImmersive(false);
-              triggerGlobalHud?.('IMMERSIVE', 'OFF');
+              onToggleFocus(null);
             }
-            return;
-          }
-          if (focusedId) {
-            if (jumpToUnit) jumpToUnit(focusedId);
-            onToggleFocus(null);
+            if (immersive) triggerGlobalHud?.('IMMERSIVE', 'OFF');
             triggerGlobalHud?.('SOLO VIEW', 'EXITED');
             return;
           }
@@ -171,7 +177,12 @@ export function useKeyboardShortcuts({
           }
           case ' ': {
             e.preventDefault();
-            if (focusedId) {
+            if (isSlideshowActive) {
+              if (setIsSlideshowActive) {
+                setIsSlideshowActive(false);
+                triggerGlobalHud?.('SLIDESHOW', 'PAUSED');
+              }
+            } else if (focusedId) {
               const v = videos.find(x => x.id === focusedId);
               if (v) {
                 const path = (v.folderFiles && v.currentIdx !== undefined)
@@ -180,11 +191,8 @@ export function useKeyboardShortcuts({
                 const isImg = path ? isValidPictureExtension(path) : false;
                 if (isImg) {
                   if (setIsSlideshowActive) {
-                    setIsSlideshowActive(prev => {
-                      const next = !prev;
-                      triggerGlobalHud?.('SLIDESHOW', next ? 'PLAYING' : 'PAUSED');
-                      return next;
-                    });
+                    setIsSlideshowActive(true);
+                    triggerGlobalHud?.('SLIDESHOW', 'PLAYING');
                   }
                 } else {
                   onUpdateVideo(v.id, { playing: !v.playing });
@@ -299,12 +307,12 @@ export function useKeyboardShortcuts({
     return () => window.removeEventListener('keydown', handleKeys, true);
   }, [
     focusedId, filtered, videos, toggleMasterPlay, onUpdateVideo, onToggleFocus, 
-    addLog, showSettings, showCollections, showLogs, showSymphonyWorkshop, showHelp, 
+    addLog, showSettings, showCollections, showLogs, showHelp, 
     menu, setZoom, setGlobalControl, setMenu, toggleMasterMute, setGlobalRepeat, 
     immersive, confirmDeletion, setImmersive, handleDecommission, selectedIds, 
     handleAnnihilate, handleBatchRemove, isPopout, setSelectedIds, setSelectionMode,
     onNavigateSibling, jumpToUnit, onDeepFocus, setShowHelp, setShowSettings, 
-    setShowCollections, setShowLogs, setShowSymphonyWorkshop,
-    isSlideshowActive, setIsSlideshowActive
+    setShowCollections, setShowLogs,
+    isSlideshowActive, setIsSlideshowActive, exitSoloMode, onSelectAll
   ]);
 }
