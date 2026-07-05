@@ -83,10 +83,12 @@ $PyInstallerArgs = @(
     "--hidden-import", "facexlib",
     "--hidden-import", "facexlib.detection",
     "--hidden-import", "facexlib.parsing",
+    "--hidden-import", "rembg",
     "--collect-all", "basicsr",
     "--collect-all", "realesrgan",
     "--collect-all", "gfpgan",
     "--collect-all", "facexlib",
+    "--collect-all", "rembg",
     $PythonScript
 )
 
