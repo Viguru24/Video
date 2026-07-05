@@ -34,6 +34,29 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
   const [errorMsg, setErrorMsg] = useState('');
   const logIdRef = useRef(0);
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const [customPath, setCustomPath] = useState<string>('');
+
+  useEffect(() => {
+    invoke<string | null>('get_custom_install_path').then((path) => {
+      if (path) {
+        setCustomPath(path);
+      }
+    });
+  }, []);
+
+  const handlePickCustomPath = async () => {
+    try {
+      const selected = await invoke<string>('select_folder_cmd');
+      if (selected) {
+        await invoke('set_custom_install_path', { path: selected });
+        setCustomPath(selected);
+      }
+    } catch (e: any) {
+      if (e !== 'Cancelled') {
+        console.error(e);
+      }
+    }
+  };
 
   const addLog = (text: string, isError = false) => {
     const id = logIdRef.current++;
@@ -292,8 +315,43 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
                 </div>
               ))}
 
-              <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 16, marginBottom: 28 }}>
-                Total: ~520 MB · Installed to your AppData folder · Internet connection required
+              <div style={{
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid rgba(255,255,255,0.05)',
+                borderRadius: 10,
+                padding: '12px 14px',
+                marginTop: 16,
+                marginBottom: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, letterSpacing: '0.5px' }}>INSTALLATION TARGET</span>
+                  <button 
+                    onClick={handlePickCustomPath}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--accent, #00ff88)',
+                      fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0
+                    }}
+                  >
+                    Change Folder
+                  </button>
+                </div>
+                <span style={{ 
+                  color: 'rgba(255,255,255,0.8)', 
+                  fontSize: 11, 
+                  fontFamily: 'monospace',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {customPath || 'Default (C:\\Users\\...\\AppData\\Local\\MicroMeadow.CosmoSymphony)'}
+                </span>
+              </div>
+
+              <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginBottom: 28 }}>
+                Total: ~520 MB · Internet connection required
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
