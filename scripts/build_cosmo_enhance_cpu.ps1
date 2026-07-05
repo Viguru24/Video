@@ -70,13 +70,14 @@ Write-Host "[2/6] Installing CPU-only PyTorch (this may take a few minutes)..." 
 if ($LASTEXITCODE -ne 0) { Write-Error "Failed to install CPU torch"; exit 1 }
 
 # Install the rest of the packages
-Write-Host "[3/6] Installing AI packages (numpy, opencv, basicsr, realesrgan, gfpgan)..." -ForegroundColor Green
+Write-Host "[3/6] Installing AI packages (numpy, opencv, basicsr, realesrgan, gfpgan, rembg)..." -ForegroundColor Green
 & $CpuPython -m pip install --quiet `
     numpy "opencv-python-headless" `
     setuptools wheel `
     basicsr --no-build-isolation `
     realesrgan --no-build-isolation `
     gfpgan --no-build-isolation `
+    rembg `
     pyinstaller
 if ($LASTEXITCODE -ne 0) { Write-Error "Failed to install AI packages"; exit 1 }
 
@@ -112,10 +113,12 @@ $PyInstallerArgs = @(
     "--hidden-import", "facexlib",
     "--hidden-import", "facexlib.detection",
     "--hidden-import", "facexlib.parsing",
+    "--hidden-import", "rembg",
     "--collect-all", "basicsr",
     "--collect-all", "realesrgan",
     "--collect-all", "gfpgan",
     "--collect-all", "facexlib",
+    "--collect-all", "rembg",
     $PythonScript
 )
 

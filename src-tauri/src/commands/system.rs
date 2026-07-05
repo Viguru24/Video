@@ -730,6 +730,11 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
     // Segmented Fast Multi-stream Downloader Script
     // Downloads 8 chunks in parallel streams to bypass single-connection speed limits and maximize bandwidth.
     // Use Windows BITS Transfer for fast, multi-threaded background download that automatically manages bandwidth.
+    // Clean any existing incomplete ZIP file to avoid BITS write/overwrite collisions
+    if zip_path.exists() {
+        let _ = std::fs::remove_file(&zip_path);
+    }
+
     let ps_download = format!(
         "Import-Module BitsTransfer; \
          $dir = '{app_dir}'; \
@@ -758,7 +763,7 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
         let ps_check = format!(
             "Import-Module BitsTransfer; \
              (Get-BitsTransfer | Where-Object {{ $_.FileList.RemoteName -like '*{}*' }} | Select-Object -First 1).BytesTransferred",
-            "cosmo_enhance_cpu_win64"
+            "cosmo_enhance"
         );
         let out = new_hidden_command("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &ps_check])
@@ -916,7 +921,11 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
     let zip_str      = zip_path.to_string_lossy().replace('/', "\\\\");
     let app_data_str = app_data.to_string_lossy().replace('/', "\\\\");
 
-    // Use Windows BITS Transfer for fast, multi-threaded background download that automatically manages bandwidth.
+    // Clean any existing incomplete ZIP file to avoid BITS write/overwrite collisions
+    if zip_path.exists() {
+        let _ = std::fs::remove_file(&zip_path);
+    }
+
     let ps_download = format!(
         "Import-Module BitsTransfer; \
          $dir = '{app_dir}'; \
@@ -945,7 +954,7 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
         let ps_check = format!(
             "Import-Module BitsTransfer; \
              (Get-BitsTransfer | Where-Object {{ $_.FileList.RemoteName -like '*{}*' }} | Select-Object -First 1).BytesTransferred",
-            "cosmo_enhance_gpu"
+            "cosmo_enhance"
         );
         let out = new_hidden_command("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &ps_check])
