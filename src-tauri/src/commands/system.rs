@@ -983,14 +983,21 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
     // ── Extract the bundle ───────────────────────────────────────────────────
     emit("extract", "Extracting AI backend...", 72);
 
-    if bundle_dir.exists() {
-        let _ = std::fs::remove_dir_all(&bundle_dir);
-    }
-
+    // To prevent collision with any active processes or locked files,
+    // we extract to a unique temporary directory, then move/rename to cosmo_enhance.
     let ps_extract = format!(
-        "Expand-Archive -Path '{zip}' -DestinationPath '{dest}' -Force",
-        zip  = zip_path_str,
-        dest = app_data_str,
+        "$temp = Join-Path '{app_data}' 'cpu_extract_temp'; \
+         if (Test-Path $temp) {{ Remove-Item -Path $temp -Recurse -Force | Out-Null }}; \
+         New-Item -ItemType Directory -Force -Path $temp | Out-Null; \
+         Expand-Archive -Path '{zip}' -DestinationPath $temp -Force; \
+         $extracted = Join-Path $temp 'cosmo_enhance'; \
+         $final_dest = '{dest_cpu}'; \
+         if (Test-Path $final_dest) {{ Remove-Item -Path $final_dest -Recurse -Force | Out-Null }}; \
+         Move-Item -Path $extracted -Destination $final_dest -Force; \
+         Remove-Item -Path $temp -Recurse -Force | Out-Null",
+        app_data = app_data_str,
+        zip      = zip_path_str,
+        dest_cpu = bundle_dir.to_string_lossy().replace('/', "\\\\")
     );
 
     let out = new_hidden_command("powershell")
@@ -1167,20 +1174,22 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
     }
 
     emit("extract", "Extracting GPU pack...", 72);
-    if bundle_dir.exists() { let _ = std::fs::remove_dir_all(&bundle_dir); }
 
-    let ps_extract = format!(
-        "Expand-Archive -Path '{zip}' -DestinationPath '{dest}' -Force",
-        zip  = zip_str,
-        dest = app_data_str,
-    );
-    // The zip contains a folder called cosmo_enhance/ — rename it to cosmo_enhance_gpu/
-    let temp_dir = app_data.join("cosmo_enhance");
+    // To prevent collision with active CPU cosmo_enhance folder files,
+    // we extract to a unique temporary directory, then move/rename to cosmo_enhance_gpu.
     let ps_extract_and_rename = format!(
-        "{extract}; \
-         if (Test-Path '{temp}') {{ Rename-Item -Path '{temp}' -NewName 'cosmo_enhance_gpu' -Force }}",
-        extract = ps_extract,
-        temp    = temp_dir.to_string_lossy().replace('/', "\\\\"),
+        "$temp = Join-Path '{app_data}' 'gpu_extract_temp'; \
+         if (Test-Path $temp) {{ Remove-Item -Path $temp -Recurse -Force | Out-Null }}; \
+         New-Item -ItemType Directory -Force -Path $temp | Out-Null; \
+         Expand-Archive -Path '{zip}' -DestinationPath $temp -Force; \
+         $extracted = Join-Path $temp 'cosmo_enhance'; \
+         $final_dest = '{dest_gpu}'; \
+         if (Test-Path $final_dest) {{ Remove-Item -Path $final_dest -Recurse -Force | Out-Null }}; \
+         Move-Item -Path $extracted -Destination $final_dest -Force; \
+         Remove-Item -Path $temp -Recurse -Force | Out-Null",
+        app_data = app_data_str,
+        zip      = zip_str,
+        dest_gpu = bundle_dir.to_string_lossy().replace('/', "\\\\")
     );
 
     let out = new_hidden_command("powershell")
