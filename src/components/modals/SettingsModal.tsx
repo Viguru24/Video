@@ -47,6 +47,214 @@ export function SettingsModal({
     enableSlideshowPanZoom,
     setEnableSlideshowPanZoom
   } = useStore();
+  
+  const [customPath, setCustomPath] = useState<string>('');
+  const [isUninstalling, setIsUninstalling] = useState(false);
+  const [uninstallStatus, setUninstallStatus] = useState<string>('');
+  const [showConfirmUninstall, setShowConfirmUninstall] = useState(false);
+
+  useEffect(() => {
+    invoke<string | null>('get_custom_install_path').then((path) => {
+      if (path) {
+        setCustomPath(path);
+      }
+    });
+  }, []);
+
+  const handlePickCustomPath = async () => {
+    try {
+      const selected = await invoke<string>('select_folder_cmd');
+      if (selected) {
+        await invoke('set_custom_install_path', { path: selected });
+        setCustomPath(selected);
+        addLog(`Custom install path set to: ${selected}`);
+      }
+    } catch (e: any) {
+      if (e !== 'Cancelled') {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleClearCustomPath = async () => {
+    try {
+      await invoke('set_custom_install_path', { path: null });
+      setCustomPath('');
+      addLog('Restored default installation folder (AppData/Local)');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleUninstall = async () => {
+    setShowConfirmUninstall(false);
+    setIsUninstalling(true);
+    setUninstallStatus('Uninstalling AI Add-ons...');
+    try {
+      const report = await invoke<string>('uninstall_addons');
+      setUninstallStatus(report);
+    } catch (e: any) {
+      setUninstallStatus(`Uninstall failed: ${e}`);
+    }
+  };
+
+  const CustomInstallDirSetting = () => {
+    return (
+      <>
+        <div className="setting-item" style={{ marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>AI INSTALLATION DRIVE / FOLDER</label>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                  Save heavy AI packages (~3 GB) to an alternate drive (e.g. D:\ or E:\)
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {customPath && (
+                  <button 
+                    onClick={handleClearCustomPath}
+                    className="browse-btn"
+                    style={{ height: '24px', padding: '0 8px', fontSize: '9px', opacity: 0.7 }}
+                  >
+                    Use Default
+                  </button>
+                )}
+                <button 
+                  onClick={handlePickCustomPath}
+                  className="browse-btn"
+                  style={{ height: '24px', padding: '0 10px', fontSize: '9px', fontWeight: 700 }}
+                >
+                  {customPath ? 'Change Path' : 'Select Folder'}
+                </button>
+              </div>
+            </div>
+            
+            <div style={{ 
+              background: 'rgba(0,0,0,0.25)', 
+              border: '1px solid rgba(255,255,255,0.06)', 
+              borderRadius: '4px', 
+              padding: '6px 10px', 
+              fontSize: '9.5px', 
+              color: customPath ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.5)',
+              fontFamily: 'monospace',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              Location: {customPath || 'Default (C:\\Users\\...\\AppData\\Local\\MicroMeadow.CosmoSymphony)'}
+            </div>
+          </div>
+        </div>
+
+          <div className="setting-item" style={{ marginTop: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <label style={{ fontSize: '10px', fontWeight: 900, color: '#ef4444', letterSpacing: '1px' }}>UNINSTALL ADD-ONS</label>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                  Purge all model weights and packages to free up storage space
+                </span>
+              </div>
+              <button 
+                onClick={() => setShowConfirmUninstall(true)}
+                className="browse-btn"
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  height: '28px', 
+                  padding: '0 12px',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: '#ef4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  fontWeight: 700
+                }}
+              >
+                <span>Uninstall AI Add-ons</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Uninstall double-confirmation dialog */}
+          {showConfirmUninstall && (
+            <div style={{
+              marginTop: '12px',
+              padding: '12px',
+              borderRadius: '6px',
+              background: 'rgba(239, 68, 68, 0.05)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}>
+              <div style={{ fontSize: '10.5px', color: '#fff', lineHeight: 1.4 }}>
+                <strong>Are you absolutely sure?</strong> This will permanently delete the AI enhancers, models, and dependencies, reclaiming approximately <strong>2 to 4 GB</strong> of space.
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={handleUninstall}
+                  style={{
+                    background: '#ef4444',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '5px 12px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Yes, Remove All
+                </button>
+                <button 
+                  onClick={() => setShowConfirmUninstall(false)}
+                  style={{
+                    background: 'rgba(255,255,255,0.08)',
+                    color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '4px',
+                    padding: '5px 12px',
+                    fontSize: '10px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Uninstaller Status / Result Report */}
+          {uninstallStatus && (
+            <div style={{
+              marginTop: '12px',
+              padding: '12px',
+              borderRadius: '6px',
+              background: 'rgba(15,20,28,0.95)',
+              border: '1px solid rgba(0, 255, 136, 0.25)',
+              color: '#fff',
+              fontSize: '10.5px',
+              fontFamily: 'monospace',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.4,
+              maxHeight: '160px',
+              overflowY: 'auto'
+            }}>
+              {uninstallStatus}
+              {uninstallStatus.includes('successfully') && (
+                <button 
+                  onClick={() => { setUninstallStatus(''); setIsUninstalling(false); }}
+                  className="browse-btn"
+                  style={{ display: 'block', marginTop: '10px', height: '22px', fontSize: '9px' }}
+                >
+                  Acknowledge Report
+                </button>
+              )}
+            </div>
+          )}
+      </>
+    );
+  };
 
   const addLog = (msg: string) => {
     // Just a placeholder or we can use custom events, but let's just trigger a log if needed
@@ -285,6 +493,9 @@ export function SettingsModal({
                     )}
                   </div>
                 </div>
+
+                {/* AI Custom Installation Drive / Folder Picker */}
+                <CustomInstallDirSetting />
               </div>
 
               <div className="protocol-box" style={{ border: confirmDeletion ? '1px solid rgba(var(--accent-rgb), 0.2)' : '1px solid rgba(239, 68, 68, 0.3)', transition: 'border 0.3s ease', marginTop: '16px' }}>
