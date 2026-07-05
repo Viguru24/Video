@@ -586,7 +586,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
                       addLog('Initializing CUDA parallel chunks transfer...');
                       try {
                         await invoke('install_gpu_pack', { force: false });
-                        setPhase('done');
+                        setPhase('gpu-done');
                         addLog('NVIDIA CUDA GPU acceleration enabled successfully!');
                       } catch (err: any) {
                         setErrorMsg(String(err));
@@ -623,7 +623,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
                       addLog('Initializing AMD DirectML parallel chunks transfer...');
                       try {
                         await invoke('install_gpu_pack', { force: false });
-                        setPhase('done');
+                        setPhase('gpu-done');
                         addLog('AMD DirectML GPU acceleration enabled successfully!');
                       } catch (err: any) {
                         setErrorMsg(String(err));
