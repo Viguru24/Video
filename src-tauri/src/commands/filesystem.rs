@@ -455,7 +455,9 @@ pub async fn rename_video(old_path: String, new_name: String) -> Result<String, 
                 e
             )
         })?;
-        let _ = trash::delete(&old_p);
+        if let Err(_) = trash::delete(&old_p) {
+            let _ = fs::remove_file(&old_p);
+        }
     }
 
     Ok(new_p.to_string_lossy().to_string())
@@ -614,7 +616,7 @@ pub fn clean_local_path(p: &str) -> String {
         clean = clean[..idx].to_string();
     }
 
-    // Resolve relative demo paths
+    // Resolve relative demo paths to AppData directory so they are writable
     if clean.starts_with("/demos/") || clean.starts_with("demos/") {
         let suffix = if clean.starts_with('/') {
             &clean[1..]
@@ -624,19 +626,50 @@ pub fn clean_local_path(p: &str) -> String {
         
         let mut resolved = None;
         
-        // Traverse up from current executable/run path to find public/demos
-        if let Ok(curr) = std::env::current_dir() {
-            let mut p_check = curr.clone();
-            for _ in 0..6 {
-                let test_path = p_check.join("public").join(suffix);
-                if test_path.exists() {
-                    resolved = Some(test_path);
-                    break;
+        let file_name = std::path::Path::new(suffix)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or(suffix);
+
+        // Check Roaming AppData (used by Tauri app_data_dir() on Windows)
+        if let Some(roaming_dir) = dirs::data_dir() {
+            let p_prod = roaming_dir.join("MicroMeadow.CosmoSymphony").join("demos").join(file_name);
+            let p_dev = roaming_dir.join("MicroMeadow.CosmoSymphonyDev").join("demos").join(file_name);
+            if p_prod.exists() {
+                resolved = Some(p_prod);
+            } else if p_dev.exists() {
+                resolved = Some(p_dev);
+            }
+        }
+
+        // Check Local AppData fallback
+        if resolved.is_none() {
+            if let Some(local_dir) = dirs::data_local_dir() {
+                let p_prod = local_dir.join("MicroMeadow.CosmoSymphony").join("demos").join(file_name);
+                let p_dev = local_dir.join("MicroMeadow.CosmoSymphonyDev").join("demos").join(file_name);
+                if p_prod.exists() {
+                    resolved = Some(p_prod);
+                } else if p_dev.exists() {
+                    resolved = Some(p_dev);
                 }
-                if let Some(parent) = p_check.parent() {
-                    p_check = parent.to_path_buf();
-                } else {
-                    break;
+            }
+        }
+        
+        if resolved.is_none() {
+            // Traverse up from current executable/run path to find public/demos
+            if let Ok(curr) = std::env::current_dir() {
+                let mut p_check = curr.clone();
+                for _ in 0..6 {
+                    let test_path = p_check.join("public").join(suffix);
+                    if test_path.exists() {
+                        resolved = Some(test_path);
+                        break;
+                    }
+                    if let Some(parent) = p_check.parent() {
+                        p_check = parent.to_path_buf();
+                    } else {
+                        break;
+                    }
                 }
             }
         }
@@ -657,6 +690,14 @@ pub fn clean_local_path(p: &str) -> String {
 
         if let Some(p_res) = resolved {
             clean = p_res.to_string_lossy().to_string();
+        } else if let Some(local_dir) = dirs::data_local_dir() {
+            // Last resort: point to default AppData directory
+            let file_name = std::path::Path::new(suffix)
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or(suffix);
+            let p_prod = local_dir.join("MicroMeadow.CosmoSymphony").join("demos").join(file_name);
+            clean = p_prod.to_string_lossy().to_string();
         }
     }
 
@@ -712,7 +753,14 @@ pub async fn move_file_on_disk(
         let rename_result = fs::rename(src, &dest_path);
         if rename_result.is_err() {
             fs::copy(src, &dest_path).map_err(|e| format!("Copy fallback failed: {}", e))?;
-            trash::delete(src).map_err(|e| format!("Remove source failed (recycle): {}", e))?;
+            if let Err(recycle_err) = trash::delete(src) {
+                println!("Recycle bin delete failed for source during move: {:?}. Attempting hard delete.", recycle_err);
+                if let Err(remove_err) = fs::remove_file(src) {
+                    // Both recycle and hard delete failed. Rollback the copy!
+                    let _ = fs::remove_file(&dest_path);
+                    return Err(format!("Failed to delete source file: {}. Copy rolled back.", remove_err));
+                }
+            }
         }
         Ok(dest_path.to_string_lossy().to_string())
     }).await.map_err(|e| e.to_string())?
@@ -805,6 +853,152 @@ pub async fn duplicate_file_on_disk(src_path: String) -> Result<String, String> 
     }).await.map_err(|e| e.to_string())?
 }
 
+#[repr(C)]
+struct FILE_LEVEL_TRIM_RANGE {
+    offset: u64,
+    length: u64,
+}
+
+#[repr(C)]
+struct FILE_LEVEL_TRIM_HEADER {
+    key: u32,
+    num_ranges: u32,
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+extern "system" {
+    fn CreateFileW(
+        lpFileName: *const u16,
+        dwDesiredAccess: u32,
+        dwShareMode: u32,
+        lpSecurityAttributes: *const std::ffi::c_void,
+        dwCreationDisposition: u32,
+        dwFlagsAndAttributes: u32,
+        hTemplateFile: *mut std::ffi::c_void,
+    ) -> *mut std::ffi::c_void;
+
+    fn DeviceIoControl(
+        hDevice: *mut std::ffi::c_void,
+        dwIoControlCode: u32,
+        lpInBuffer: *const std::ffi::c_void,
+        nInBufferSize: u32,
+        lpOutBuffer: *mut std::ffi::c_void,
+        nOutBufferSize: u32,
+        lpBytesReturned: *mut u32,
+        lpOverlapped: *mut std::ffi::c_void,
+    ) -> i32;
+
+    fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
+}
+
+#[cfg(target_os = "windows")]
+fn detect_is_ssd(drive_letter: char) -> bool {
+    use std::process::Command;
+    use std::os::windows::process::CommandExt;
+    let cmd = format!("(Get-PhysicalDisk | Where-Object DeviceId -eq (Get-Partition -DriveLetter {}).DiskNumber).MediaType", drive_letter);
+    if let Ok(output) = Command::new("powershell")
+        .args(&["-NoProfile", "-NonInteractive", "-Command", &cmd])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        stdout.trim().to_uppercase() == "SSD"
+    } else {
+        false
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn detect_is_ssd(_drive_letter: char) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn trigger_hardware_trim(drive_letter: char, offset: u64, length: u64) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    
+    let volume_path_str = format!("\\\\.\\{}:", drive_letter);
+    let mut volume_path: Vec<u16> = std::ffi::OsStr::new(&volume_path_str).encode_wide().collect();
+    volume_path.push(0);
+
+    const GENERIC_WRITE: u32 = 0x40000000;
+    const FILE_SHARE_READ: u32 = 0x00000001;
+    const FILE_SHARE_WRITE: u32 = 0x00000002;
+    const OPEN_EXISTING: u32 = 3;
+    const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1i64 as *mut std::ffi::c_void;
+    const FSCTL_FILE_LEVEL_TRIM: u32 = 0x00090310;
+
+    unsafe {
+        let h_volume = CreateFileW(
+            volume_path.as_ptr(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        );
+
+        if h_volume == INVALID_HANDLE_VALUE {
+            return Err("Failed to open volume handle for TRIM".to_string());
+        }
+
+        let header = FILE_LEVEL_TRIM_HEADER {
+            key: 0,
+            num_ranges: 1,
+        };
+
+        let range = FILE_LEVEL_TRIM_RANGE {
+            offset,
+            length,
+        };
+
+        #[repr(C)]
+        struct TrimPayload {
+            header: FILE_LEVEL_TRIM_HEADER,
+            range: FILE_LEVEL_TRIM_RANGE,
+        }
+
+        let payload = TrimPayload { header, range };
+        let mut bytes_returned: u32 = 0;
+
+        let result = DeviceIoControl(
+            h_volume,
+            FSCTL_FILE_LEVEL_TRIM,
+            &payload as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<TrimPayload>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut bytes_returned,
+            std::ptr::null_mut(),
+        );
+
+        CloseHandle(h_volume);
+
+        if result == 0 {
+            return Err("DeviceIoControl TRIM failed".to_string());
+        }
+    }
+
+    // Trigger defrag/retrim asynchronously using powershell to optimize free space — hidden, no console
+    let retrim_cmd = format!("Optimize-Volume -DriveLetter {} -ReTrim", drive_letter);
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("powershell")
+            .args(&["-NoProfile", "-NonInteractive", "-Command", &retrim_cmd])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn();
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn trigger_hardware_trim(_drive_letter: char, _offset: u64, _length: u64) -> Result<(), String> {
+    Err("TRIM is only supported on Windows".to_string())
+}
+
 #[tauri::command]
 pub async fn secure_delete_file(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -820,33 +1014,79 @@ pub async fn secure_delete_file(path: String) -> Result<(), String> {
         
         let file_size = metadata.len();
         
-        for _ in 0..2 {
-            let mut file = fs::OpenOptions::new()
+        // Resolve absolute canonical path to extract drive letter
+        let abs_path = path_obj.canonicalize().map_err(|e| format!("Failed to get absolute path: {}", e))?;
+        let abs_path_str = abs_path.to_string_lossy();
+        let clean_path = if abs_path_str.starts_with(r"\\?\") {
+            &abs_path_str[4..]
+        } else {
+            &abs_path_str
+        };
+        let drive_letter = clean_path
+            .chars()
+            .next()
+            .map(|c| c.to_ascii_uppercase());
+        
+        let is_ssd = if let Some(dl) = drive_letter {
+            detect_is_ssd(dl)
+        } else {
+            false
+        };
+
+        if is_ssd {
+            // Delete path normally and trigger TRIM deallocation
+            fs::remove_file(&path_obj).map_err(|e| format!("Failed to delete file from disk: {}", e))?;
+            if let Some(dl) = drive_letter {
+                let _ = trigger_hardware_trim(dl, 0, file_size);
+            }
+        } else {
+            // Traditional HDD: Overwrite 3 passes with random/zero patterns, truncate, then delete
+            for pass in 0..3 {
+                let mut file = fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path_obj)
+                    .map_err(|e| format!("Failed to open file for overwrite: {}", e))?;
+                
+                use std::io::{Seek, SeekFrom, Write};
+                file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+                
+                // Pass 0: Zero, Pass 1: 0xFF, Pass 2: Random
+                let chunk = match pass {
+                    0 => vec![0u8; 65536],
+                    1 => vec![255u8; 65536],
+                    _ => {
+                        let mut r = vec![0u8; 65536];
+                        use std::time::SystemTime;
+                        let seed = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+                        let mut seed_u64 = (seed & 0xFFFFFFFFFFFFFFFF) as u64;
+                        for i in 0..r.len() {
+                            // Simple LCG pseudo-random generator
+                            seed_u64 = seed_u64.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                            r[i] = (seed_u64 >> 56) as u8;
+                        }
+                        r
+                    }
+                };
+                
+                let mut remaining = file_size;
+                while remaining > 0 {
+                    let write_size = remaining.min(65536) as usize;
+                    file.write_all(&chunk[..write_size])
+                        .map_err(|e| format!("Failed to overwrite file content: {}", e))?;
+                    remaining -= write_size as u64;
+                }
+                file.flush().map_err(|e| format!("Failed to flush file to disk: {}", e))?;
+            }
+            
+            let file = fs::OpenOptions::new()
                 .write(true)
                 .open(&path_obj)
-                .map_err(|e| format!("Failed to open file for overwrite: {}", e))?;
+                .map_err(|e| format!("Failed to open file for truncation: {}", e))?;
+            file.set_len(0).map_err(|e| format!("Failed to truncate file: {}", e))?;
             
-            use std::io::{Seek, SeekFrom, Write};
-            file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-            
-            let chunk = vec![0u8; 65536];
-            let mut remaining = file_size;
-            while remaining > 0 {
-                let write_size = remaining.min(65536) as usize;
-                file.write_all(&chunk[..write_size])
-                    .map_err(|e| format!("Failed to overwrite file content: {}", e))?;
-                remaining -= write_size as u64;
-            }
-            file.flush().map_err(|e| format!("Failed to flush file to disk: {}", e))?;
+            fs::remove_file(&path_obj).map_err(|e| format!("Failed to delete file from disk: {}", e))?;
         }
         
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .open(&path_obj)
-            .map_err(|e| format!("Failed to open file for truncation: {}", e))?;
-        file.set_len(0).map_err(|e| format!("Failed to truncate file: {}", e))?;
-        
-        fs::remove_file(&path_obj).map_err(|e| format!("Failed to delete file from disk: {}", e))?;
         Ok(())
     }).await.map_err(|e| e.to_string())?
 }

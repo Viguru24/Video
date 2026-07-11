@@ -63,9 +63,18 @@ export function toCosmoUrl(absolutePathOrUrl: string): string {
  */
 export function toRealPath(urlOrPath: string): string | null {
   if (!urlOrPath) return null;
-
   const clean = urlOrPath.split('?')[0];
-  if (clean.startsWith('/demos/') || clean.startsWith('demos/')) return null;
+  if (clean.startsWith('/demos/') || clean.startsWith('demos/')) {
+    const appDataDir = localStorage.getItem('cosmo-app-data-dir');
+    if (appDataDir) {
+      const parts = clean.split('/');
+      const filename = parts[parts.length - 1];
+      const isWindows = typeof navigator !== 'undefined' && /win/i.test(navigator.userAgent || '');
+      const separator = isWindows ? '\\' : '/';
+      return `${appDataDir}${separator}demos${separator}${filename}`;
+    }
+    return null;
+  }
 
   if (/^[A-Za-z]:[/\\]/.test(clean) || clean.startsWith('/')) return clean.replace(/\x00/g, '').trim();
 
@@ -284,4 +293,23 @@ export function extractBasePrefix(name: string): string {
     }
   }
   return current;
+}
+
+/**
+ * Trigger popout player window for a given media asset.
+ */
+export async function triggerPopOut(path: string, title: string): Promise<void> {
+  if (!isTauri()) {
+    // Web fallback
+    const encodedUrl = encodeURIComponent(path);
+    const win = window.open(`?popout=true&url=${encodedUrl}`, `pop-${Date.now()}`, 'width=850,height=500,resizable=yes');
+    if (win) {
+      win.focus();
+    }
+    return;
+  }
+  
+  localStorage.setItem('cosmo-popout-active-url', path);
+  localStorage.setItem('cosmo-popout-active-title', title);
+  await invoke('pop_out', { url: path, title });
 }

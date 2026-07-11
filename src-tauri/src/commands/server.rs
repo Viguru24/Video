@@ -723,13 +723,24 @@ pub async fn download_shared_file_to_downloads(
     app: tauri::AppHandle,
     code: String,
     file_id: String,
+    custom_dir: Option<String>,
 ) -> Result<String, String> {
     let (file_path, file_name) = get_file_info(&code, &file_id)
         .ok_or_else(|| "File not found or room expired".to_string())?;
 
-    let download_dir = app.path()
-        .download_dir()
-        .map_err(|e| format!("Failed to resolve downloads directory: {}", e))?;
+    let download_dir = if let Some(ref dir) = custom_dir {
+        if !dir.trim().is_empty() {
+            std::path::PathBuf::from(dir)
+        } else {
+            app.path()
+                .download_dir()
+                .map_err(|e| format!("Failed to resolve downloads directory: {}", e))?
+        }
+    } else {
+        app.path()
+            .download_dir()
+            .map_err(|e| format!("Failed to resolve downloads directory: {}", e))?
+    };
 
     let _ = fs::create_dir_all(&download_dir);
 
@@ -816,7 +827,9 @@ pub fn secure_delete_dir_all<P: AsRef<std::path::Path>>(path: P) -> std::io::Res
 pub fn secure_cleanup_on_exit(app: &tauri::AppHandle) -> std::io::Result<()> {
     // 1. Clean up local Wi-Fi share directory
     let upload_dir = std::env::temp_dir().join("wi-share-files");
-    let _ = secure_delete_dir_all(upload_dir);
+    if upload_dir.exists() {
+        let _ = std::fs::remove_dir_all(upload_dir);
+    }
 
     // 2. Clean up any leftover upscale temp directories in App Data folder
     if let Ok(app_data_dir) = app.path().app_data_dir() {
@@ -828,7 +841,7 @@ pub fn secure_cleanup_on_exit(app: &tauri::AppHandle) -> std::io::Result<()> {
                         if path.is_dir() {
                             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                             if name.starts_with("video_upscale_") {
-                                let _ = secure_delete_dir_all(&path);
+                                let _ = std::fs::remove_dir_all(&path);
                             }
                         }
                     }

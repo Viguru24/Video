@@ -40,3 +40,7 @@ pyinstaller_build_cpu/
 *.pdf
 __pycache__/
 *.pyc
+
+# Backup files
+*.bak
+

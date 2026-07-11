@@ -39,7 +39,29 @@ export function AudioCard({
         playsInline
         loop={((video.repeatMode && video.repeatMode !== 'none') ? video.repeatMode : globalRepeat) === 'always'}
         muted={effectiveMuted}
-        onEnded={onEnded}
+        onEnded={(e) => {
+          const baseMode = video.repeatMode && video.repeatMode !== 'none'
+            ? video.repeatMode
+            : globalRepeat;
+          let currentMode = baseMode;
+          if (currentMode as any === 'all') currentMode = 'folder';
+
+          if (currentMode === 'once') {
+            const vid = e.currentTarget;
+            const count = video.repeatCount || 0;
+            if (count < 1) {
+              vid.currentTime = 0;
+              vid.play().catch(() => {});
+              if (onUpdateVideo) {
+                onUpdateVideo(video.id, { repeatCount: count + 1 });
+              }
+            } else {
+              onEnded();
+            }
+          } else {
+            onEnded();
+          }
+        }}
         onTimeUpdate={handleTimeUpdate}
         data-zoom={zoomScale}
         data-pan-x={panOffset.x}

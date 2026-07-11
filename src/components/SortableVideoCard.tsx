@@ -45,6 +45,7 @@ interface SortableVideoCardProps {
   onAddVideo?: (newVideo: VideoItem) => void;
   isStickerLoading?: boolean;
   onCreateSticker?: (video: VideoItem) => void;
+  onCancelSticker?: () => void;
 }
 
 import { useStore } from '../store/useStore';

@@ -129,21 +129,82 @@ export function ColorAdjustmentPanel({
       const finalG = green * gTint;
       const finalB = blue * bTemp * bTint;
 
-      const resultPath = await invoke<string>('apply_color_adjustments_on_disk', {
-        path: video.realPath,
-        brightness,
-        contrast,
-        saturation,
-        hue: parseFloat(hue.toString()),
-        gamma,
-        finalR,
-        finalG,
-        finalB,
-        alpha,
-        negative,
-        isImage,
-        saveAsCopy
-      });
+      let resultPath = "";
+
+      if (isImage) {
+        if (addLog) {
+          addLog(`Baking image adjustments using canvas rendering for [${video.title}]...`);
+        }
+        
+        let filterId = `${video.id}-grid`;
+        const filterElem = document.querySelector(`filter[id^="filter-${video.id}"]`);
+        if (filterElem) {
+          filterId = filterElem.id;
+        }
+
+        resultPath = await new Promise<string>((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = async () => {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.naturalWidth;
+              canvas.height = img.naturalHeight;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) {
+                reject(new Error("Could not create canvas 2D context"));
+                return;
+              }
+              
+              // Apply the exact same CSS and SVG filters as the preview
+              ctx.filter = `url(#${filterId}) brightness(${brightness}) contrast(${contrast}) saturate(${saturation}) hue-rotate(${hue}deg)`;
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              
+              // Determine format from extension
+              const extension = video.realPath.split('.').pop()?.toLowerCase();
+              let mimeType = "image/jpeg";
+              if (extension === "png") {
+                mimeType = "image/png";
+              } else if (extension === "webp") {
+                mimeType = "image/webp";
+              }
+              
+              const dataUrl = canvas.toDataURL(mimeType, 0.95);
+              const base64Data = dataUrl.split(',')[1];
+              
+              // Write the file to disk using the custom Tauri command
+              const savedPath = await invoke<string>('save_adjusted_image_bytes', {
+                path: video.realPath,
+                base64Data,
+                saveAsCopy
+              });
+              resolve(savedPath);
+            } catch (err) {
+              reject(err);
+            }
+          };
+          img.onerror = (err) => {
+            reject(new Error(`Failed to load source image: ${video.url}`));
+          };
+          img.src = video.url;
+        });
+      } else {
+        resultPath = await invoke<string>('apply_color_adjustments_on_disk', {
+          path: video.realPath,
+          brightness,
+          contrast,
+          saturation,
+          hue: parseFloat(hue.toString()),
+          gamma,
+          finalR,
+          finalG,
+          finalB,
+          alpha,
+          negative,
+          isImage,
+          saveAsCopy
+        });
+      }
 
       setSaveStatus('success');
       if (addLog) {
@@ -477,6 +538,9 @@ export function ColorAdjustmentPanel({
           <p className="overlay-text">
             {isImage ? "Writing updated pixels to image file..." : "Re-encoding video stream with color adjustments... Please wait."}
           </p>
+          <button className="btn-close-overlay" style={{ marginTop: '16px' }} onClick={() => setIsSaving(false)}>
+            Hide (Run in Background)
+          </button>
         </div>
       )}
 

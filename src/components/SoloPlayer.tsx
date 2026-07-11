@@ -1,10 +1,11 @@
 import React, { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Pause, Play, Sliders, Crop, Minimize2, Sparkles, ChevronLeft, ChevronRight, VolumeX, Volume2, Camera, FolderOpen, CheckCircle2, MoreHorizontal, Repeat, Repeat1 } from 'lucide-react';
+import { Pause, Play, Sliders, Crop, Minimize2, Sparkles, ChevronLeft, ChevronRight, VolumeX, Volume2, Camera, FolderOpen, CheckCircle2, MoreHorizontal, Repeat, Repeat1, ExternalLink } from 'lucide-react';
 import { VideoCard } from './VideoCard';
 import { CropOverlay } from './CropOverlay';
 import type { VideoItem, RepeatMode } from '../types';
 import { useStore } from '../store/useStore';
+import { triggerPopOut } from '../utils/videoUtils';
 
 interface SoloPlayerProps {
   focusedId: string;
@@ -59,6 +60,7 @@ interface SoloPlayerProps {
   setMasterMuted: (val: boolean) => void;
   isStickerLoading?: boolean;
   onCreateSticker?: (video: VideoItem) => void;
+  onCancelSticker?: () => void;
 }
 
 export function SoloPlayer({
@@ -113,7 +115,8 @@ export function SoloPlayer({
   setShowSaveCropOptions,
   setMasterMuted,
   isStickerLoading = false,
-  onCreateSticker
+  onCreateSticker,
+  onCancelSticker
 }: SoloPlayerProps) {
   const selectedIds = useStore((state) => state.selectedIds);
   const setSelectedIds = useStore((state) => state.setSelectedIds);
@@ -190,6 +193,7 @@ export function SoloPlayer({
                 onAddVideo={onAddVideo}
                 isStickerLoading={isStickerLoading}
                 onCreateSticker={onCreateSticker}
+                onCancelSticker={onCancelSticker}
                 isSlideshowActive={isSlideshowActive}
                 setIsSlideshowActive={setIsSlideshowActive}
               />
@@ -714,6 +718,40 @@ export function SoloPlayer({
                   title="Save Snapshot"
                 >
                   <Camera size={15} />
+                </button>
+
+                <button 
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const path = focusedVideo.realPath || focusedVideo.url;
+                    await triggerPopOut(path, focusedVideo.title);
+                  }}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                    color: 'var(--accent, #00ff88)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '50%',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseOver={e => {
+                    e.currentTarget.style.background = 'rgba(0, 255, 136, 0.1)';
+                    e.currentTarget.style.borderColor = 'rgba(0, 255, 136, 0.2)';
+                    e.currentTarget.style.transform = 'scale(1.08)';
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }}
+                  title="Pop Out Player"
+                >
+                  <ExternalLink size={15} />
                 </button>
               </>
             )}

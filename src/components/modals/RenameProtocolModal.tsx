@@ -156,7 +156,8 @@ export function RenameProtocolModal({
       })
       .catch((err) => {
         console.error("Rename failed:", err);
-        alert(`Rename failed: ${err}`);
+        addLog(`ERROR: Rename failed — ${err}`);
+        onClose();
       });
   };
 

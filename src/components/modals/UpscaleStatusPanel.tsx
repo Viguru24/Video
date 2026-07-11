@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface UpscaleStatusPanelProps {
-  status: 'idle' | 'enhancing' | 'success' | 'failed';
+  status: 'idle' | 'enhancing' | 'success' | 'failed' | 'fallback';
   progressPercent: number | null;
   stage: string | null;
   title: string;
@@ -30,11 +30,15 @@ export const UpscaleStatusPanel: React.FC<UpscaleStatusPanelProps> = ({
         backdropFilter: 'blur(16px)',
         border: status === 'success' 
           ? '1px solid rgba(0, 255, 136, 0.5)' 
-          : (status === 'failed' ? '1px solid rgba(255, 68, 68, 0.5)' : '1px solid rgba(0, 255, 136, 0.25)'),
+          : (status === 'fallback' 
+              ? '1px solid rgba(255, 170, 0, 0.5)' 
+              : (status === 'failed' ? '1px solid rgba(255, 68, 68, 0.5)' : '1px solid rgba(0, 255, 136, 0.25)')),
         borderRadius: '16px',
         boxShadow: status === 'success'
           ? '0 8px 32px rgba(0, 255, 136, 0.15)'
-          : '0 8px 32px rgba(0, 0, 0, 0.5)',
+          : (status === 'fallback'
+              ? '0 8px 32px rgba(255, 170, 0, 0.15)'
+              : '0 8px 32px rgba(0, 0, 0, 0.5)'),
         padding: '18px',
         display: 'flex',
         alignItems: 'center',
@@ -53,9 +57,15 @@ export const UpscaleStatusPanel: React.FC<UpscaleStatusPanelProps> = ({
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
           </div>
         ) : (
-          <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255, 68, 68, 0.15)', border: '1px solid #ff4444', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </div>
+          status === 'fallback' ? (
+            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255, 170, 0, 0.15)', border: '1px solid #ffaa00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, animation: 'bounceIn 0.5s ease' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffaa00" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            </div>
+          ) : (
+            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255, 68, 68, 0.15)', border: '1px solid #ff4444', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </div>
+          )
         )
       )}
       <style>{`
@@ -76,15 +86,28 @@ export const UpscaleStatusPanel: React.FC<UpscaleStatusPanelProps> = ({
       `}</style>
       
       <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
-        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', color: status === 'success' ? 'var(--accent)' : (status === 'failed' ? '#ff4444' : '#00d2ff'), letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-          {status === 'enhancing' ? 'AI Super-Resolution Active' : (status === 'success' ? 'Upscale Finished!' : 'Upscale Failed')}
+        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', color: status === 'success' ? 'var(--accent)' : (status === 'fallback' ? '#ffaa00' : '#ff4444'), letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+          {status === 'enhancing' 
+            ? 'AI Super-Resolution Active' 
+            : (status === 'success' 
+                ? 'Upscale Finished!' 
+                : (status === 'fallback' ? 'Basic Resize Completed' : 'Upscale Failed'))}
         </h4>
         <p style={{ margin: 0, fontSize: '11px', color: '#ccc', lineHeight: '1.4' }}>
           {status === 'enhancing' 
-            ? (title 
-                ? `Processing "${title}"${progressPercent !== null ? ` (${stage}: ${progressPercent}%)` : '...'}` 
-                : 'Upscaling target...') 
-            : (status === 'success' ? `Hey, your upscale for "${title}" is finished! Enjoy your high-fidelity asset.` : 'An error occurred during upscaling.')}
+            ? (stage === 'loading_vram'
+                ? 'Loading AI model into V-RAM...'
+                : (stage === 'upscaling'
+                    ? `OK now upscaling "${title}"${progressPercent !== null ? ` (${progressPercent}%)` : '...'}`
+                    : `Processing "${title}"${stage ? ` (${stage})` : ''}...`
+                  )
+              )
+            : (status === 'success' 
+                ? `Hey, your upscale for "${title}" is finished! Enjoy your high-fidelity asset.` 
+                : (status === 'fallback'
+                    ? `Completed using high-quality Lanczos3 resize. Place AI models in .cosmo_models for super-resolution.`
+                    : 'An error occurred during upscaling.'))
+          }
         </p>
         
         {status === 'enhancing' && (

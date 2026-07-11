@@ -1,3 +1,36 @@
+# Hotfix for package metadata mismatches (e.g. pymatting metadata not found)
+try:
+    import importlib.metadata
+    _orig_metadata = importlib.metadata.metadata
+    def _mock_metadata(package_name):
+        try:
+            return _orig_metadata(package_name)
+        except Exception:
+            from email.message import Message
+            m = Message()
+            m.add_header('Version', '1.0.0')
+            m.add_header('Name', package_name)
+            return m
+    importlib.metadata.metadata = _mock_metadata
+except Exception:
+    pass
+
+try:
+    import importlib_metadata
+    _orig_metadata_alt = importlib_metadata.metadata
+    def _mock_metadata_alt(package_name):
+        try:
+            return _orig_metadata_alt(package_name)
+        except Exception:
+            from email.message import Message
+            m = Message()
+            m.add_header('Version', '1.0.0')
+            m.add_header('Name', package_name)
+            return m
+    importlib_metadata.metadata = _mock_metadata_alt
+except Exception:
+    pass
+
 import os
 import sys
 import time
@@ -464,6 +497,13 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                         params = [cv2.IMWRITE_WEBP_QUALITY, 80]
 
                     success, encoded_img = cv2.imencode(ext_lower, enhanced_img, params)
+                    if not success and ext_lower == '.webp':
+                        print("WebP encoding failed. Falling back to PNG format...", file=sys.stderr)
+                        ext_lower = '.png'
+                        out_path = os.path.splitext(out_path)[0] + '.png'
+                        params = [cv2.IMWRITE_PNG_COMPRESSION, 6]
+                        success, encoded_img = cv2.imencode(ext_lower, enhanced_img, params)
+
                     if not success:
                         raise ValueError("Failed to encode upscaled image for saving")
                         
@@ -617,6 +657,18 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({'status': 'success', 'image': out_b64}).encode('utf-8'))
                 
             except Exception as e:
+                try:
+                    import traceback
+                    app_data = os.getenv('APPDATA')
+                    if app_data:
+                        log_dir = os.path.join(app_data, "com.cosmo.symphony")
+                        log_file = os.path.join(log_dir, "cosmo_enhance_server.log")
+                        with open(log_file, 'a', encoding='utf-8') as lf:
+                            lf.write("\n=== REQUEST EXCEPTION TRACEBACK ===\n")
+                            traceback.print_exc(file=lf)
+                            lf.write("===================================\n")
+                except Exception:
+                    pass
                 self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -687,6 +739,18 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({'status': 'success', 'path': out_path}).encode('utf-8'))
                 
             except Exception as e:
+                try:
+                    import traceback
+                    app_data = os.getenv('APPDATA')
+                    if app_data:
+                        log_dir = os.path.join(app_data, "com.cosmo.symphony")
+                        log_file = os.path.join(log_dir, "cosmo_enhance_server.log")
+                        with open(log_file, 'a', encoding='utf-8') as lf:
+                            lf.write("\n=== REQUEST EXCEPTION TRACEBACK ===\n")
+                            traceback.print_exc(file=lf)
+                            lf.write("===================================\n")
+                except Exception:
+                    pass
                 self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -816,6 +880,13 @@ if __name__ == '__main__':
                 params = [cv2.IMWRITE_WEBP_QUALITY, 80]
                 
             success, encoded_img = cv2.imencode(ext_lower, enhanced, params)
+            if not success and ext_lower == '.webp':
+                print("WebP encoding failed. Falling back to PNG format...", file=sys.stderr)
+                ext_lower = '.png'
+                output_path = os.path.splitext(output_path)[0] + '.png'
+                params = [cv2.IMWRITE_PNG_COMPRESSION, 6]
+                success, encoded_img = cv2.imencode(ext_lower, enhanced, params)
+
             if not success:
                 raise ValueError("Failed to encode upscaled image")
             encoded_img.tofile(output_path)

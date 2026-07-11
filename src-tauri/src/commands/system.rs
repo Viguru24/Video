@@ -142,7 +142,7 @@ pub async fn set_always_on_top(app: AppHandle, flag: bool) {
 }
 
 #[tauri::command]
-pub async fn pop_out(app: AppHandle, _url: String, title: String) -> Result<(), String> {
+pub async fn pop_out(app: AppHandle, url: String, title: String) -> Result<(), String> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -159,8 +159,26 @@ pub async fn pop_out(app: AppHandle, _url: String, title: String) -> Result<(), 
         }
     }
 
-    println!("Creating dynamic pop-out window with label: {}", label);
-    let parsed_url = WebviewUrl::App("index.html".into());
+    println!("Creating dynamic pop-out window with label: {} for URL: {}", label, url);
+    let mut parsed_url = WebviewUrl::App("index.html".into());
+    
+    if let Some(main_win) = app.get_webview_window("main") {
+        if let Ok(main_url) = main_win.url() {
+            let scheme = main_url.scheme();
+            let host = main_url.host_str().unwrap_or("");
+            let port = main_url.port();
+            
+            if (scheme == "http" || scheme == "https") 
+               && (host == "localhost" || host == "127.0.0.1") 
+               && port.is_some() 
+            {
+                if let Ok(popout_url) = main_url.join("index.html") {
+                    println!("Development server detected, loading popout from: {}", popout_url);
+                    parsed_url = WebviewUrl::External(popout_url);
+                }
+            }
+        }
+    }
     
     let win_builder = WebviewWindowBuilder::new(&app, &label, parsed_url)
         .title(&title)
@@ -168,8 +186,7 @@ pub async fn pop_out(app: AppHandle, _url: String, title: String) -> Result<(), 
         .resizable(true)
         .decorations(false)
         .maximized(false)
-        .fullscreen(false)
-        .additional_browser_args("--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist --enable-features=SharedArrayBuffer --autoplay-policy=no-user-gesture-required");
+        .fullscreen(false);
 
     match win_builder.build() {
         Ok(window) => {
@@ -794,7 +811,7 @@ pub async fn check_dependencies(app: AppHandle) -> Result<DepsStatus, String> {
     // python_ok / packages_ok: report based on whichever bundle is present
     let python_ok   = base_bundle_ok || gpu_pack_ok || venv_python.exists();
     let packages_ok = base_bundle_ok || gpu_pack_ok || (python_ok && {
-        let result = std::process::Command::new(&venv_python)
+        let result = new_hidden_command(&venv_python)
             .args([
                 "-c",
                 "import sys, types; \
@@ -1338,3 +1355,56 @@ pub async fn download_models(app: AppHandle) -> Result<(), String> {
 
     Ok(())
 }
+
+pub fn copy_demo_files_to_app_data(app: &AppHandle) -> Result<(), String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let dest_demos_dir = app_data_dir.join("demos");
+    if !dest_demos_dir.exists() {
+        std::fs::create_dir_all(&dest_demos_dir).map_err(|e| e.to_string())?;
+    }
+
+    let resource_dir = app.path().resource_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    // Check multiple potential source paths for demos directory
+    let src_candidates = [
+        resource_dir.join("public").join("demos"),
+        resource_dir.join("resources").join("public").join("demos"),
+        resource_dir.join("demos"),
+        PathBuf::from("public").join("demos"),
+        PathBuf::from("..").join("public").join("demos"),
+    ];
+
+    let mut src_demos_dir = None;
+    for cand in &src_candidates {
+        if cand.exists() && cand.is_dir() {
+            src_demos_dir = Some(cand);
+            break;
+        }
+    }
+
+    if let Some(src_dir) = src_demos_dir {
+        println!("Copying demo files from {:?} to {:?}", src_dir, dest_demos_dir);
+        if let Ok(entries) = std::fs::read_dir(src_dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(file_name) = path.file_name() {
+                            let dest_file = dest_demos_dir.join(file_name);
+                            if !dest_file.exists() {
+                                if let Err(e) = std::fs::copy(&path, &dest_file) {
+                                    eprintln!("Failed to copy demo file {:?}: {:?}", file_name, e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        eprintln!("Could not find demo files source directory in candidate paths: {:?}", src_candidates);
+    }
+
+    Ok(())
+}
+

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { 
   FolderOpen, Plus, Trash2, Palette, ArrowUpDown, ChevronRight,
-  Check, Grid3X3
+  Check, Grid3X3, RefreshCw
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import type { SortOption } from '../types';
@@ -14,9 +14,10 @@ interface BgContextMenuProps {
   onAddMedia: () => void;
   onPurge: () => void;
   onSelectAll?: () => void;
+  onRefreshTiles?: () => void;
 }
 
-export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge, onSelectAll }: BgContextMenuProps) {
+export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge, onSelectAll, onRefreshTiles }: BgContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLDivElement>(null);
   const columnsTriggerRef = useRef<HTMLDivElement>(null);
@@ -194,6 +195,13 @@ export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge,
           <div className="context-menu-item" onClick={() => { onSelectAll(); onClose(); }}>
             <Check size={13} />
             <span>Select All Items</span>
+          </div>
+        )}
+
+        {onRefreshTiles && (
+          <div className="context-menu-item" onClick={() => { onRefreshTiles(); onClose(); }}>
+            <RefreshCw size={13} />
+            <span>Refresh Tiles</span>
           </div>
         )}
 

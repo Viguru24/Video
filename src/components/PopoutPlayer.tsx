@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Sliders, Crop, Sparkles, Pause, Play, RefreshCw } from 'lucide-react';
+import { Sliders, Crop, Sparkles, Pause, Play, RefreshCw, Volume2, VolumeX } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { DEFAULT_COLOR_FILTERS } from '../types';
 import { 
@@ -10,7 +11,8 @@ import {
   getFileNameFromPath, 
   convertToVideoUrl,
   pathsEqual,
-  extractBasePrefix
+  extractBasePrefix,
+  isTauri
 } from '../utils/videoUtils';
 import { ColorFilterDefs } from './ColorFilterDefs';
 import { CropOverlay } from './CropOverlay';
@@ -40,6 +42,15 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const [duration, setDuration] = useState(0);
   const [videoPlaying, setVideoPlaying] = useState(true);
   const isScrubbing = useRef(false);
+  const popoutVolumeContainerRef = useRef<HTMLDivElement>(null);
+  const [volume, setVolume] = useState(() => {
+    const saved = localStorage.getItem('cosmo-volume');
+    return saved ? parseFloat(saved) : 0.8;
+  });
+  const [muted, setMuted] = useState(() => {
+    const saved = localStorage.getItem('cosmo-muted');
+    return saved === 'true';
+  });
 
   // Slideshow state
   const [isSlideshowActive, setIsSlideshowActive] = useState(false);
@@ -67,65 +78,109 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const uiTimeoutRef = useRef<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  // Speed and HUD states
+  const [speed, setSpeed] = useState(1.0);
+  const [hudData, setHudData] = useState<{ title: string; value: string } | null>(null);
+  const hudTimerRef = useRef<number | null>(null);
+
+  const showHudNotification = (title: string, value: string) => {
+    setHudData({ title, value });
+    if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
+    hudTimerRef.current = window.setTimeout(() => {
+      setHudData(null);
+    }, 1000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
+    };
+  }, []);
+
   // Loader for playlist
   useEffect(() => {
-    let initialized = false;
-    const raw = localStorage.getItem('cosmo-v2');
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPlaylist(parsed);
-          const cleanInitialUrl = toCosmoUrl(url);
-          const found = parsed.find(v => 
-            pathsEqual(v.url, url) || 
-            pathsEqual(v.realPath, url) ||
-            pathsEqual(v.url, cleanInitialUrl) || 
-            pathsEqual(v.realPath, cleanInitialUrl)
-          );
-          if (found) {
-            setActiveVideo(found);
-            initialized = true;
-          }
+    let active = true;
+    const initPlaylist = async () => {
+      let raw: string | null = null;
+      if (isTauri()) {
+        try {
+          raw = await invoke<string | null>('load_persistence', { key: 'cosmo-v2' });
+        } catch (e) {
+          console.error("Failed to load workspace persistence in popout:", e);
         }
-      } catch (e) {
-        console.error("Failed to parse playlist in popout load:", e);
       }
-    }
+      if (!raw) {
+        raw = localStorage.getItem('cosmo-v2');
+      }
 
-    if (!initialized) {
-      const cleanInitialUrl = toCosmoUrl(url);
-      const tempVid: VideoItem = {
-        id: 'temp-popout',
-        title: localStorage.getItem('cosmo-popout-active-title') || getFileNameFromPath(url) || 'Popped Out Media',
-        url: cleanInitialUrl,
-        realPath: url,
-        currentTime: 0,
-        playing: true,
-        muted: false,
-        repeatMode: 'none',
-        repeatCount: 0,
-        cols: 1
-      };
-      setActiveVideo(tempVid);
-    }
+      if (!active) return;
+
+      let initialized = false;
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPlaylist(parsed);
+            const cleanInitialUrl = toCosmoUrl(url);
+            const found = parsed.find(v => 
+              pathsEqual(v.url, url) || 
+              pathsEqual(v.realPath, url) ||
+              pathsEqual(v.url, cleanInitialUrl) || 
+              pathsEqual(v.realPath, cleanInitialUrl)
+            );
+            if (found) {
+              setActiveVideo(found);
+              initialized = true;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to parse playlist in popout load:", e);
+        }
+      }
+
+      if (!initialized && active) {
+        const cleanInitialUrl = toCosmoUrl(url);
+        const tempVid: VideoItem = {
+          id: 'temp-popout',
+          title: localStorage.getItem('cosmo-popout-active-title') || getFileNameFromPath(url) || 'Popped Out Media',
+          url: cleanInitialUrl,
+          realPath: url,
+          currentTime: 0,
+          playing: true,
+          muted: false,
+          repeatMode: 'none',
+          repeatCount: 0,
+          cols: 1
+        };
+        setActiveVideo(tempVid);
+      }
+    };
+
+    initPlaylist();
+    return () => {
+      active = false;
+    };
   }, [url]);
 
-  // Listen to external workspace changes
+  // Listen to external workspace changes (both localstorage and Tauri event bus)
   useEffect(() => {
+    const updatePlaylist = (parsed: any[]) => {
+      setPlaylist(parsed);
+      if (activeVideo) {
+        const currentId = activeVideo.id;
+        const fresh = parsed.find(x => x.id === currentId);
+        if (fresh) {
+          setActiveVideo(fresh);
+        }
+      }
+    };
+
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'cosmo-v2' && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
           if (Array.isArray(parsed)) {
-            setPlaylist(parsed);
-            if (activeVideo) {
-              const currentId = activeVideo.id;
-              const fresh = parsed.find(x => x.id === currentId);
-              if (fresh) {
-                setActiveVideo(fresh);
-              }
-            }
+            updatePlaylist(parsed);
           }
         } catch (err) {
           console.error(err);
@@ -133,7 +188,28 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
       }
     };
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+
+    let unlisten: (() => void) | undefined;
+    if (isTauri()) {
+      listen<any>('workspace-changed', (event) => {
+        const { key, data } = event.payload;
+        if (key === 'cosmo-v2' && data) {
+          try {
+            const parsed = JSON.parse(data);
+            if (Array.isArray(parsed)) {
+              updatePlaylist(parsed);
+            }
+          } catch (err) {
+            console.error("Failed to parse workspace-changed event payload:", err);
+          }
+        }
+      }).then(fn => { unlisten = fn; });
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      if (unlisten) unlisten();
+    };
   }, [activeVideo]);
 
   // Video Item Updates
@@ -175,13 +251,43 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     const activeClean = toCosmoUrl(activeVideo?.url || '');
     const activeIsImage = isValidPictureExtension((activeClean || '').split('?')[0]);
     if (activeVideo && !activeIsImage && videoRef.current) {
+      videoRef.current.playbackRate = speed;
       if (videoPlaying) {
         videoRef.current.play().catch(() => {});
       } else {
         videoRef.current.pause();
       }
     }
-  }, [videoPlaying, activeVideo]);
+  }, [videoPlaying, activeVideo, speed]);
+
+  // Sync volume and muted
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = volume;
+      videoRef.current.muted = muted;
+    }
+    localStorage.setItem('cosmo-volume', volume.toString());
+    localStorage.setItem('cosmo-muted', muted.toString());
+  }, [volume, muted, activeVideo]);
+
+  // Handle wheel events on volume container
+  useEffect(() => {
+    const el = popoutVolumeContainerRef.current;
+    if (!el) return;
+
+    const handleContainerWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const change = e.deltaY < 0 ? 0.05 : -0.05;
+      setVolume(prev => Math.max(0, Math.min(1, prev + change)));
+      setMuted(false);
+    };
+
+    el.addEventListener('wheel', handleContainerWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleContainerWheel);
+    };
+  }, []);
 
   // Navigation Logic
   const navigate = useCallback((direction: 1 | -1) => {
@@ -256,6 +362,22 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const lastScrollTime = useRef(0);
   const handleWheel = (e: React.WheelEvent) => {
     if (isCropping || colorAdjustId || showSaveCropOptions || showSaveUpscaleOptions) return;
+    
+    const activeClean = toCosmoUrl(activeVideo?.url || '');
+    const activeIsImage = isValidPictureExtension((activeClean || '').split('?')[0]);
+
+    if (e.ctrlKey && !activeIsImage) {
+      e.preventDefault();
+      e.stopPropagation();
+      const change = e.deltaY < 0 ? 0.05 : -0.05;
+      setSpeed(prev => {
+        const next = Math.max(0.05, Math.min(16.0, parseFloat((prev + change).toFixed(2))));
+        showHudNotification('SPEED', `${next.toFixed(2)}x`);
+        return next;
+      });
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation();
     const now = Date.now();
@@ -332,6 +454,10 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   };
 
   const handleTitlebarMouseDown = async (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) {
+      return;
+    }
     if (e.button === 0) {
       try {
         const win = getCurrentWindow();
@@ -388,6 +514,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
 
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     setDuration(e.currentTarget.duration);
+    e.currentTarget.playbackRate = speed;
   };
 
   // Image Cropping & Upscale Actions
@@ -755,7 +882,6 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
       {/* Subtle title bar region for dragging and maximizing */}
       <div 
         className="popout-titlebar"
-        data-tauri-drag-region
         onMouseDown={handleTitlebarMouseDown}
         onDoubleClick={toggleMaximize}
         style={{ 
@@ -913,7 +1039,33 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             autoPlay 
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
-            onEnded={() => navigate(1)}
+            onEnded={() => {
+              const globalRepeat = localStorage.getItem('cosmo-repeat') || 'folder';
+              let currentMode = (activeVideo && activeVideo.repeatMode && activeVideo.repeatMode !== 'none')
+                ? activeVideo.repeatMode
+                : globalRepeat;
+              
+              if (currentMode as any === 'all') {
+                currentMode = 'folder';
+              }
+
+              if (currentMode === 'always' || (currentMode === 'folder' && playlist.length <= 1)) {
+                if (videoRef.current) {
+                  videoRef.current.currentTime = 0;
+                  videoRef.current.play().catch(() => {});
+                }
+              } else if (currentMode === 'once') {
+                if (videoRef.current) {
+                  videoRef.current.pause();
+                }
+              } else if (currentMode === 'none') {
+                if (videoRef.current) {
+                  videoRef.current.pause();
+                }
+              } else {
+                navigate(1);
+              }
+            }}
             style={{ 
               width: '100%', 
               height: '100%', 
@@ -1091,6 +1243,64 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             )}
           </button>
 
+          {!isImage && (
+            <div 
+              ref={popoutVolumeContainerRef}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <button 
+                onClick={() => setMuted(prev => !prev)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '6px',
+                  borderRadius: '50%',
+                  transition: 'background 0.2s, transform 0.1s'
+                }}
+                onMouseOver={e => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                  e.currentTarget.style.transform = 'scale(1.05)';
+                }}
+                onMouseOut={e => {
+                  e.currentTarget.style.background = 'none';
+                  e.currentTarget.style.transform = 'scale(1)';
+                }}
+                title={muted ? "Unmute" : "Mute"}
+              >
+                {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              </button>
+              <input 
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={muted ? 0 : volume}
+                onChange={(e) => {
+                  setVolume(parseFloat(e.target.value));
+                  if (muted) {
+                    setMuted(false);
+                  }
+                }}
+                style={{
+                  width: '50px',
+                  height: '3px',
+                  borderRadius: '2px',
+                  background: `linear-gradient(to right, var(--accent, #00ff88) ${(muted ? 0 : volume) * 100}%, rgba(255, 255, 255, 0.2) ${(muted ? 0 : volume) * 100}%)`,
+                  outline: 'none',
+                  cursor: 'pointer',
+                  WebkitAppearance: 'none',
+                  transition: 'all 0.2s'
+                }}
+                title={`Volume: ${Math.round((muted ? 0 : volume) * 100)}% - Scroll to adjust`}
+              />
+            </div>
+          )}
+
           <button 
             onClick={() => setColorAdjustId(activeVideo.id)}
             style={{
@@ -1234,6 +1444,32 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
           }}
         >
           {toast}
+        </div>
+      )}
+
+      {/* Floating HUD notification */}
+      {hudData && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '90px',
+            background: 'rgba(22, 17, 12, 0.85)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(0, 255, 136, 0.25)',
+            borderRadius: '24px',
+            padding: '8px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            zIndex: 999999,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.6), 0 0 15px rgba(0,255,136,0.15)',
+            letterSpacing: '0.5px',
+            pointerEvents: 'none'
+          }}
+        >
+          <span style={{ fontSize: '9px', fontWeight: '900', color: '#00ff88', textTransform: 'uppercase' }}>{hudData.title}</span>
+          <div style={{ width: '1px', height: '12px', background: 'rgba(255, 255, 255, 0.15)' }} />
+          <span style={{ fontSize: '11px', fontWeight: '800', color: '#fff', textTransform: 'uppercase' }}>{hudData.value}</span>
         </div>
       )}
 

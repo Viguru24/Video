@@ -28,6 +28,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
       : (video.realPath || video.url)
     : '';
   const isImage = effectivePath ? isValidPictureExtension(effectivePath) : false;
+  const isDemo = false;
   const [coords, setCoords] = useState<{ top: number; left: number; measured: boolean }>({
     top: y,
     left: x,
@@ -92,7 +93,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
               <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Name</span>
-              <strong style={{ fontSize: '9.5px', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right', color: '#fff' }}>{metadata.name || 'Unknown'}</strong>
+              <strong style={{ fontSize: '9.5px', maxWidth: '160px', wordBreak: 'break-word', whiteSpace: 'normal', textAlign: 'right', color: '#fff', lineHeight: '1.3' }}>{metadata.name || 'Unknown'}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
               <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Format</span>
@@ -199,13 +200,13 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                       style={{ 
                         fontSize: '9px', 
                         color: 'rgba(255,255,255,0.6)', 
-                        maxWidth: '140px', 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis', 
-                        whiteSpace: 'nowrap', 
+                        maxWidth: '160px', 
+                        wordBreak: 'break-all', 
+                        whiteSpace: 'normal', 
                         textAlign: 'right',
                         cursor: 'text',
-                        userSelect: 'text'
+                        userSelect: 'text',
+                        lineHeight: '1.3'
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -277,18 +278,27 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                 {video.muted ? <Volume2 size={14} /> : <VolumeX size={14} />}
                 <span>{video.muted ? 'Unmute' : 'Mute'}</span>
               </div>
-              <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-                <Sparkles size={14} />
-                <span>AI Upscale</span>
-              </div>
               <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
                 <Sliders size={14} />
                 <span>Color adjustment</span>
               </div>
-              <div className="context-menu-item" onClick={() => onAction('snapshot')}>
-                <Camera size={14} />
-                <span>Save Snapshot</span>
-              </div>
+              {!isDemo ? (
+                <>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
+                    <Sparkles size={14} />
+                    <span>AI Upscale</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('snapshot')}>
+                    <Camera size={14} />
+                    <span>Save Snapshot</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
+                  <ShieldAlert size={12} />
+                  <span>Demo video — upscale/snapshot disabled</span>
+                </div>
+              )}
               <div className="context-menu-separator"></div>
             </>
           )}
@@ -296,38 +306,47 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
           {isImage && (
             <>
               <div className="context-menu-section-header">Image Editing</div>
-              <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-                <Sparkles size={14} />
-                <span>AI Upscale</span>
-              </div>
-              <div className="context-menu-item accent-text" onClick={() => onAction('create_sticker')} style={{ fontWeight: 'bold' }}>
-                <Sparkles size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span>Create Sticker (Cutout)</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
-                <Sliders size={14} />
-                <span>Color adjustment</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('mirror-horizontal')}>
-                <Repeat size={14} />
-                <span>Mirror Horizontally</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('watermark')}>
-                <Eraser size={14} />
-                <span>Erase Watermark</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('crop')}>
-                <Crop size={14} />
-                <span>Crop Image</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('resize')}>
-                <Minimize2 size={14} />
-                <span>Rescale / Resize</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('generate_store_logos')}>
-                <Layout size={14} />
-                <span>Store Logo Creator</span>
-              </div>
+              {isDemo ? (
+                <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
+                  <ShieldAlert size={12} />
+                  <span>Demo file — drag in your own image to edit</span>
+                </div>
+              ) : (
+                <>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
+                    <Sparkles size={14} />
+                    <span>AI Upscale</span>
+                  </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('create_sticker')} style={{ fontWeight: 'bold' }}>
+                    <Sparkles size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Create Sticker (Cutout)</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
+                    <Sliders size={14} />
+                    <span>Color adjustment</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('mirror-horizontal')}>
+                    <Repeat size={14} />
+                    <span>Mirror Horizontally</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('watermark')}>
+                    <Eraser size={14} />
+                    <span>Erase Watermark</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('crop')}>
+                    <Crop size={14} />
+                    <span>Crop Image</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('resize')}>
+                    <Minimize2 size={14} />
+                    <span>Rescale / Resize</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('generate_store_logos')}>
+                    <Layout size={14} />
+                    <span>App Icon Generator</span>
+                  </div>
+                </>
+              )}
               <div className="context-menu-separator"></div>
             </>
           )}
@@ -345,6 +364,10 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               </div>
             </>
           )}
+          <div className="context-menu-item" onClick={() => onAction('pop_out')}>
+            <ExternalLink size={14} />
+            <span>Pop Out Player</span>
+          </div>
 
           {isTauri() && (
             <>
@@ -409,18 +432,27 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                 {video.muted ? <Volume2 size={14} /> : <VolumeX size={14} />}
                 <span>{video.muted ? 'Unmute' : 'Mute'}</span>
               </div>
-              <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-                <Sparkles size={14} />
-                <span>AI Upscale</span>
-              </div>
               <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
                 <Sliders size={14} />
                 <span>Color adjustment</span>
               </div>
-              <div className="context-menu-item" onClick={() => onAction('snapshot')}>
-                <Camera size={14} />
-                <span>Save Snapshot</span>
-              </div>
+              {!isDemo ? (
+                <>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
+                    <Sparkles size={14} />
+                    <span>AI Upscale</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('snapshot')}>
+                    <Camera size={14} />
+                    <span>Save Snapshot</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
+                  <ShieldAlert size={12} />
+                  <span>Demo video — upscale/snapshot disabled</span>
+                </div>
+              )}
               <div className="context-menu-separator"></div>
             </>
           )}
@@ -428,38 +460,47 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
           {isImage && (
             <>
               <div className="context-menu-section-header">Image Editing</div>
-              <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-                <Sparkles size={14} />
-                <span>AI Upscale</span>
-              </div>
-              <div className="context-menu-item accent-text" onClick={() => onAction('create_sticker')} style={{ fontWeight: 'bold' }}>
-                <Sparkles size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span>Create Sticker (Cutout)</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
-                <Sliders size={14} />
-                <span>Color adjustment</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('mirror-horizontal')}>
-                <Repeat size={14} />
-                <span>Mirror Horizontally</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('watermark')}>
-                <Eraser size={14} />
-                <span>Erase Watermark</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('crop')}>
-                <Crop size={14} />
-                <span>Crop Image</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('resize')}>
-                <Minimize2 size={14} />
-                <span>Rescale / Resize</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('generate_store_logos')}>
-                <Layout size={14} />
-                <span>Store Logo Creator</span>
-              </div>
+              {isDemo ? (
+                <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
+                  <ShieldAlert size={12} />
+                  <span>Demo file — drag in your own image to edit</span>
+                </div>
+              ) : (
+                <>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
+                    <Sparkles size={14} />
+                    <span>AI Upscale</span>
+                  </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('create_sticker')} style={{ fontWeight: 'bold' }}>
+                    <Sparkles size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Create Sticker (Cutout)</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
+                    <Sliders size={14} />
+                    <span>Color adjustment</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('mirror-horizontal')}>
+                    <Repeat size={14} />
+                    <span>Mirror Horizontally</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('watermark')}>
+                    <Eraser size={14} />
+                    <span>Erase Watermark</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('crop')}>
+                    <Crop size={14} />
+                    <span>Crop Image</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('resize')}>
+                    <Minimize2 size={14} />
+                    <span>Rescale / Resize</span>
+                  </div>
+                  <div className="context-menu-item" onClick={() => onAction('generate_store_logos')}>
+                    <Layout size={14} />
+                    <span>App Icon Generator</span>
+                  </div>
+                </>
+              )}
               <div className="context-menu-separator"></div>
             </>
           )}
@@ -489,6 +530,10 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               </div>
             </>
           )}
+          <div className="context-menu-item" onClick={() => onAction('pop_out')}>
+            <ExternalLink size={14} />
+            <span>Pop Out Player</span>
+          </div>
 
           {isTauri() && (
             <>

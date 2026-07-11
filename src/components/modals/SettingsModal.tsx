@@ -672,7 +672,7 @@ export function SettingsModal({
           <div className="settings-footer" style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.6, fontSize: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
               <Info size={12} />
-              <span>COSMO SYMPHONY v1.1.1</span>
+              <span>COSMO SYMPHONY v1.1.9</span>
             </div>
             <span>SYSTEM STABLE</span>
           </div>
