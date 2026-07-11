@@ -1,0 +1,18 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --font: 'Inter', -apple-system, sans-serif;
+  --header-height: 86px;
+  --footer-height: 28px;
+  --version: "v4.0.0";
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 24px 48px #000000;
+  --transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+

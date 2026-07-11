@@ -27,7 +27,7 @@ fn spawn_symphony_backend() {
             return;
         }
 
-        // 2. Kill any zombie python process holding port 8005 from a previous unclean shutdown.
+        // 2. Kill any zombie python process holding port 8005 or 12000 from a previous unclean shutdown.
         //    This prevents Errno 10048 "address already in use" on next startup.
         #[cfg(target_os = "windows")]
         {
@@ -35,7 +35,7 @@ fn spawn_symphony_backend() {
             let kill_result = std::process::Command::new("powershell.exe")
                 .args(&[
                     "-NoProfile", "-Command",
-                    "Get-NetTCPConnection -LocalPort 8005 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+                    "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
                 ])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .output();
@@ -411,6 +411,7 @@ fn main() {
             commands::media::rotate_media_on_disk,
             commands::media::mirror_media_on_disk,
             commands::media::apply_color_adjustments_on_disk,
+            commands::media::save_adjusted_image_bytes,
             commands::media::get_drag_icon_path,
             commands::media::extract_subject_on_disk,
             commands::media::upscale_image,
@@ -576,6 +577,12 @@ fn main() {
                 let _ = commands::system::AI_HARDWARE_MODE.set(mode_str);
             });
 
+            // Copy demo files to AppData directory in a background thread so the window shows immediately
+            let app_handle_clone = app.handle().clone();
+            std::thread::spawn(move || {
+                let _ = commands::system::copy_demo_files_to_app_data(&app_handle_clone);
+            });
+
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -590,6 +597,19 @@ fn main() {
         if let tauri::RunEvent::Exit = event {
             println!("Cosmo Symphony: Running secure forensic cleanup of temp files...");
             let _ = commands::server::secure_cleanup_on_exit(app_handle);
+            
+            // Terminate background Python servers (ports 8005 and 12000) to release file locks
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                let _ = std::process::Command::new("powershell.exe")
+                    .args(&[
+                        "-NoProfile", "-Command",
+                        "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+                    ])
+                    .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                    .spawn();
+            }
             std::process::exit(0);
         }
     });

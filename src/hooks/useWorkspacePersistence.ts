@@ -19,6 +19,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { emit } from '@tauri-apps/api/event';
 import type { VideoItem, RepeatMode } from '../types';
 import { PERSISTENCE_DEBOUNCE } from '../constants';
 import {
@@ -176,6 +177,14 @@ export function useWorkspacePersistence(
         let cd: string | null = null;
 
         if (isTauri()) {
+          try {
+            const { appDataDir } = await import('@tauri-apps/api/path');
+            const dir = await appDataDir();
+            localStorage.setItem('cosmo-app-data-dir', dir);
+          } catch (err) {
+            console.error("Failed to pre-resolve appDataDir:", err);
+          }
+
           v = await invoke<string | null>('load_persistence', { key: 'cosmo-v2' });
           if (!v) v = await invoke<string | null>('load_persistence', { key: 'cosmo-video-v2' });
           if (!v) v = await invoke<string | null>('load_persistence', { key: 'cosmo-video' });
@@ -390,6 +399,14 @@ export function useWorkspacePersistence(
           }
         }
 
+        if (initialVids.length === 0) {
+          initialVids = defaultDemoItems.map(item => ({
+            ...item,
+            muted: masterMuted,
+            playing: masterPlaying,
+          }));
+        }
+
         if (!mounted) return;
 
         setVideos(initialVids);
@@ -453,7 +470,10 @@ export function useWorkspacePersistence(
     if (!isInitialized || isPopout || !readyToSaveRef.current) return;
     const timer = setTimeout(() => {
       const dataStr = JSON.stringify(cleanVideosForPersistence(videos));
-      if (isTauri()) invoke('save_persistence', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
+      if (isTauri()) {
+        invoke('save_persistence', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
+        emit('workspace-changed', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
+      }
       localStorage.setItem('cosmo-v2', dataStr);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);

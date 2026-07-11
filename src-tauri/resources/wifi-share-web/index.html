@@ -3,12 +3,731 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
-    <script type="module" crossorigin src="/assets/index-Cv2izXj_.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-yARO6XNq.css">
+    <title>Cosmo Symphony — Wi-Fi Share Protocol</title>
+    <style>
+      :root {
+        --bg: #09090d;
+        --card-bg: rgba(20, 20, 28, 0.7);
+        --accent: #00ff88;
+        --accent-hover: #00e676;
+        --danger: #ff4d4d;
+        --text: #ffffff;
+        --text-secondary: rgba(255, 255, 255, 0.6);
+        --border: rgba(0, 255, 136, 0.15);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background-color: var(--bg);
+        background-image: 
+          radial-gradient(circle at 10% 20%, rgba(0, 255, 136, 0.05) 0%, transparent 40%),
+          radial-gradient(circle at 90% 80%, rgba(0, 229, 255, 0.05) 0%, transparent 40%);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 20px;
+        overflow-x: hidden;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 600px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        margin-top: 10px;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 0;
+      }
+
+      .logo-icon {
+        color: var(--accent);
+        animation: pulse 2s infinite alternate;
+      }
+
+      h1 {
+        font-size: 1.3rem;
+        font-weight: 900;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.7) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .card {
+        background: var(--card-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 16px rgba(0, 255, 136, 0.03);
+        transition: border-color 0.3s, box-shadow 0.3s;
+      }
+
+      .card:hover {
+        border-color: rgba(0, 255, 136, 0.3);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(0, 255, 136, 0.06);
+      }
+
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        padding-bottom: 10px;
+      }
+
+      .card-title {
+        font-size: 0.85rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        padding: 4px 10px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .status-badge.connected {
+        background: rgba(0, 255, 136, 0.08);
+        border-color: rgba(0, 255, 136, 0.25);
+        color: var(--accent);
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      /* Buttons */
+      .btn {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: var(--text);
+        font-weight: 700;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: background 0.2s, border-color 0.2s, transform 0.1s;
+      }
+
+      .btn:active {
+        transform: scale(0.98);
+      }
+
+      .btn-primary {
+        background: rgba(0, 255, 136, 0.1);
+        border-color: rgba(0, 255, 136, 0.3);
+        color: var(--accent);
+      }
+
+      .btn-primary:hover {
+        background: rgba(0, 255, 136, 0.18);
+        border-color: var(--accent);
+      }
+
+      .btn-danger {
+        background: rgba(255, 77, 77, 0.1);
+        border-color: rgba(255, 77, 77, 0.3);
+        color: var(--danger);
+      }
+
+      .btn-danger:hover {
+        background: rgba(255, 77, 77, 0.18);
+        border-color: var(--danger);
+      }
+
+      .btn-small {
+        padding: 6px 12px;
+        font-size: 0.75rem;
+        border-radius: 6px;
+      }
+
+      /* File Lists */
+      .file-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 320px;
+        overflow-y: auto;
+      }
+
+      .file-item {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .file-info {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+        flex: 1;
+      }
+
+      .file-name {
+        font-size: 0.85rem;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: #f3f4f6;
+      }
+
+      .file-meta {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        display: flex;
+        gap: 10px;
+      }
+
+      /* Drag & Drop Upload Area */
+      .upload-area {
+        border: 2px dashed rgba(0, 255, 136, 0.25);
+        border-radius: 12px;
+        padding: 30px 20px;
+        text-align: center;
+        background: rgba(0, 0, 0, 0.15);
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        transition: border-color 0.2s, background-color 0.2s;
+      }
+
+      .upload-area.dragover {
+        border-color: var(--accent);
+        background: rgba(0, 255, 136, 0.04);
+      }
+
+      .upload-icon {
+        color: var(--accent);
+        opacity: 0.7;
+        transition: transform 0.2s;
+      }
+
+      .upload-area:hover .upload-icon {
+        transform: translateY(-2px);
+        opacity: 1;
+      }
+
+      .upload-text {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        font-weight: 500;
+      }
+
+      .upload-subtext {
+        font-size: 0.7rem;
+        color: rgba(255, 255, 255, 0.35);
+      }
+
+      #file-input {
+        display: none;
+      }
+
+      /* Progress Bars */
+      .upload-progress-container {
+        margin-top: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .progress-header {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+      }
+
+      .progress-bar-bg {
+        background: rgba(255, 255, 255, 0.05);
+        height: 6px;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+
+      .progress-bar-fill {
+        background: var(--accent);
+        height: 100%;
+        width: 0%;
+        border-radius: 3px;
+        transition: width 0.1s;
+      }
+
+      /* Utilities */
+      .empty-state {
+        text-align: center;
+        padding: 30px 20px;
+        color: rgba(255, 255, 255, 0.35);
+        font-size: 0.8rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .empty-state svg {
+        opacity: 0.5;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      /* Animations */
+      @keyframes pulse {
+        0% { transform: scale(0.97); opacity: 0.85; }
+        100% { transform: scale(1.03); opacity: 1; }
+      }
+
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      .spin {
+        animation: spin 1s linear infinite;
+      }
+
+      /* Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 255, 136, 0.3);
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div class="container">
+      <header>
+        <svg class="logo-icon animate-pulse" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12a10 10 0 0 1 10-10zm0 3a7 7 0 0 0-7 7c0 3.866 3.134 7 7 7s7-3.134 7-7a7 7 0 0 0-7-7z"/>
+          <path d="M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/>
+        </svg>
+        <h1>Cosmo Share</h1>
+        <div id="connection-status" class="status-badge connected" style="margin-left: auto;">
+          <div class="status-dot"></div>
+          <span>Active Session</span>
+        </div>
+      </header>
+
+      <!-- 1. Shared From PC Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+            Shared From PC
+          </div>
+          <button id="download-all-btn" class="btn btn-primary btn-small hidden" onclick="downloadAllFiles()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download All
+          </button>
+        </div>
+
+        <div id="pc-files-list" class="file-list">
+          <div class="empty-state">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span>No files shared from PC yet</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Phone Upload Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+              <line x1="12" y1="18" x2="12.01" y2="18"/>
+            </svg>
+            Upload From Phone
+          </div>
+        </div>
+
+        <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()">
+          <svg class="upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span class="upload-text">Tap to select files to send to PC</span>
+          <span class="upload-subtext">Supports images, videos, music, and documents</span>
+          <input type="file" id="file-input" multiple onchange="handleFileSelect(event)" />
+        </div>
+
+        <div id="upload-progress" class="upload-progress-container hidden">
+          <div class="progress-header">
+            <span id="progress-status">Uploading files...</span>
+            <span id="progress-percentage">0%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="progress-fill" class="progress-bar-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Uploaded From This Phone Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            Uploaded From Phone
+          </div>
+        </div>
+
+        <div id="phone-files-list" class="file-list">
+          <div class="empty-state">
+            <span>No uploads from this phone in this session</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const roomCode = 'local';
+      let currentFiles = [];
+
+      // Format size to human readable
+      function formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+      }
+
+      // Format timestamp to relative time or time string
+      function formatTime(timestamp) {
+        const date = new Date(timestamp);
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+
+      // Connect / Join Room on start
+      async function joinRoom() {
+        try {
+          await fetch(`/api/rooms/${roomCode}/join`, { method: 'POST' });
+        } catch (e) {
+          console.warn('Failed to join share session:', e);
+        }
+      }
+
+      // Poll room status
+      async function pollRoom() {
+        try {
+          const res = await fetch(`/api/rooms/${roomCode}/status?role=receiver`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.room) {
+              updateUI(data.room.files || []);
+            }
+          }
+        } catch (e) {
+          console.error('Polling failed:', e);
+          document.getElementById('connection-status').classList.remove('connected');
+          document.getElementById('connection-status').querySelector('span').innerText = 'Offline';
+        }
+      }
+
+      // Update UI with file lists
+      function updateUI(files) {
+        currentFiles = files;
+        
+        document.getElementById('connection-status').classList.add('connected');
+        document.getElementById('connection-status').querySelector('span').innerText = 'Active Session';
+
+        // 1. Files Shared from PC (isPhoneUpload === false)
+        const pcFiles = files.filter(f => !f.isPhoneUpload);
+        const pcList = document.getElementById('pc-files-list');
+        const downloadAllBtn = document.getElementById('download-all-btn');
+
+        if (pcFiles.length > 0) {
+          downloadAllBtn.classList.remove('hidden');
+          pcList.innerHTML = pcFiles.map(file => `
+            <div class="file-item">
+              <div class="file-info">
+                <span class="file-name" title="${file.name}">${file.name}</span>
+                <div class="file-meta">
+                  <span>${formatBytes(file.size)}</span>
+                  <span>•</span>
+                  <span>PC Shared</span>
+                </div>
+              </div>
+              <a href="/api/rooms/${roomCode}/files/${file.id}" download="${file.name}" class="btn btn-primary btn-small">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Get
+              </a>
+            </div>
+          `).join('');
+        } else {
+          downloadAllBtn.classList.add('hidden');
+          pcList.innerHTML = `
+            <div class="empty-state">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span>No files shared from PC yet</span>
+            </div>
+          `;
+        }
+
+        // 2. Files uploaded from Phone (isPhoneUpload === true)
+        const phoneFiles = files.filter(f => f.isPhoneUpload);
+        const phoneList = document.getElementById('phone-files-list');
+
+        if (phoneFiles.length > 0) {
+          phoneList.innerHTML = phoneFiles.map(file => `
+            <div class="file-item">
+              <div class="file-info">
+                <span class="file-name" title="${file.name}">${file.name}</span>
+                <div class="file-meta">
+                  <span>${formatBytes(file.size)}</span>
+                  <span>•</span>
+                  <span>Uploaded ${formatTime(file.uploadedAt)}</span>
+                </div>
+              </div>
+              <button onclick="deleteFile('${file.id}')" class="btn btn-danger btn-small">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  <line x1="10" y1="11" x2="10" y2="17"/>
+                  <line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+                Remove
+              </button>
+            </div>
+          `).join('');
+        } else {
+          phoneList.innerHTML = `
+            <div class="empty-state">
+              <span>No uploads in this session</span>
+            </div>
+          `;
+        }
+      }
+
+      // Download all PC shared files sequentially
+      async function downloadAllFiles() {
+        const pcFiles = currentFiles.filter(f => !f.isPhoneUpload);
+        if (pcFiles.length === 0) return;
+
+        const btn = document.getElementById('download-all-btn');
+        const origContent = btn.innerHTML;
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        btn.innerHTML = `
+          <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="2" x2="12" y2="6"/>
+            <line x1="12" y1="18" x2="12" y2="22"/>
+            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/>
+            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/>
+            <line x1="2" y1="12" x2="6" y2="12"/>
+            <line x1="18" y1="12" x2="22" y2="12"/>
+            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/>
+            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>
+          </svg>
+          Downloading...
+        `;
+
+        try {
+          for (let i = 0; i < pcFiles.length; i++) {
+            const file = pcFiles[i];
+            const link = document.createElement('a');
+            link.href = `/api/rooms/${roomCode}/files/${file.id}`;
+            link.download = file.name;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Wait 1 second between downloads to prevent mobile browsers from blockading multiple downloads
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (e) {
+          console.error('Download All failed:', e);
+        } finally {
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.innerHTML = origContent;
+        }
+      }
+
+      // Delete a file
+      async function deleteFile(fileId) {
+        try {
+          const res = await fetch(`/api/rooms/${roomCode}/files/${fileId}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            pollRoom();
+          }
+        } catch (e) {
+          console.error('Delete failed:', e);
+        }
+      }
+
+      // Handle file uploads from phone
+      async function handleFileSelect(event) {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+
+        const uploadProgress = document.getElementById('upload-progress');
+        const progressFill = document.getElementById('progress-fill');
+        const progressStatus = document.getElementById('progress-status');
+        const progressPercentage = document.getElementById('progress-percentage');
+
+        uploadProgress.classList.remove('hidden');
+        progressFill.style.width = '0%';
+        progressPercentage.innerText = '0%';
+        progressStatus.innerText = `Preparing ${files.length} file(s)...`;
+
+        const formData = new FormData();
+        for (let i = 0; i < files.length; i++) {
+          formData.append('files', files[i]);
+        }
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/api/rooms/${roomCode}/upload`, true);
+
+        xhr.upload.onprogress = function(e) {
+          if (e.lengthComputable) {
+            const percentComplete = Math.round((e.loaded / e.total) * 100);
+            progressFill.style.width = percentComplete + '%';
+            progressPercentage.innerText = percentComplete + '%';
+            progressStatus.innerText = `Uploading: ${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
+          }
+        };
+
+        xhr.onload = function() {
+          if (xhr.status === 200) {
+            progressStatus.innerText = 'Upload complete!';
+            progressFill.style.width = '100%';
+            progressPercentage.innerText = '100%';
+            setTimeout(() => {
+              uploadProgress.classList.add('hidden');
+            }, 3000);
+            pollRoom();
+          } else {
+            progressStatus.innerText = 'Upload failed.';
+            progressFill.style.background = 'var(--danger)';
+          }
+        };
+
+        xhr.onerror = function() {
+          progressStatus.innerText = 'Network error during upload.';
+          progressFill.style.background = 'var(--danger)';
+        };
+
+        xhr.send(formData);
+      }
+
+      // Drag & Drop event handlers
+      const dropZone = document.getElementById('drop-zone');
+      
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, e => {
+          e.preventDefault();
+          dropZone.classList.add('dragover');
+        }, false);
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, e => {
+          e.preventDefault();
+          dropZone.classList.remove('dragover');
+        }, false);
+      });
+
+      dropZone.addEventListener('drop', e => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files && files.length > 0) {
+          const fileInput = document.getElementById('file-input');
+          fileInput.files = files;
+          handleFileSelect({ target: { files } });
+        }
+      });
+
+      // Start connection
+      joinRoom();
+      pollRoom();
+      setInterval(pollRoom, 2000);
+    </script>
   </body>
 </html>
-

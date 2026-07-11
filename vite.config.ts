@@ -5,6 +5,11 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: './',
+  // Inline empty PostCSS config to prevent Vite 8 from searching the filesystem
+  // for a postcss config file and accidentally picking up a non-JS JSON file.
+  css: {
+    postcss: {},
+  },
   server: {
     port: 55174,
     strictPort: true,

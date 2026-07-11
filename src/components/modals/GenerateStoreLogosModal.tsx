@@ -44,7 +44,7 @@ export const GenerateStoreLogosModal: React.FC<GenerateStoreLogosModalProps> = (
     setSuccessPath(null);
 
     if (onLog) {
-      onLog(`Generating Microsoft Store logos for ${imagePath}...`);
+      onLog(`Generating app icons for ${imagePath}...`);
     }
 
     try {
@@ -54,12 +54,12 @@ export const GenerateStoreLogosModal: React.FC<GenerateStoreLogosModalProps> = (
       });
       setSuccessPath(result);
       if (onLog) {
-        onLog(`Successfully generated Store logos in: ${result}`);
+        onLog(`Successfully generated app icons in: ${result}`);
       }
     } catch (err: any) {
       setErrorMsg(err.toString());
       if (onLog) {
-        onLog(`Store logo generation failed: ${err}`);
+        onLog(`App icon generation failed: ${err}`);
       }
     } finally {
       setIsGenerating(false);
@@ -136,7 +136,7 @@ export const GenerateStoreLogosModal: React.FC<GenerateStoreLogosModalProps> = (
             <Layout size={24} />
           </div>
           <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#fff', letterSpacing: '0.5px' }}>
-            STORE LOGO CREATOR
+            APP ICON GENERATOR
           </h2>
           <p style={{ margin: '6px 0 0 0', fontSize: '12px', color: '#aaa', padding: '0 10px', lineHeight: 1.4 }}>
             Generate all mandatory Microsoft Partner Center asset sizes:
@@ -168,11 +168,11 @@ export const GenerateStoreLogosModal: React.FC<GenerateStoreLogosModalProps> = (
             <strong>300 × 300 px</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>• 1:1 Medium Store Logo</span>
+            <span>• 1:1 Medium App Icon</span>
             <strong>150 × 150 px</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>• 1:1 Small Store Logo</span>
+            <span>• 1:1 Small App Icon</span>
             <strong>71 × 71 px</strong>
           </div>
         </div>
@@ -247,7 +247,7 @@ export const GenerateStoreLogosModal: React.FC<GenerateStoreLogosModalProps> = (
             gap: '12px'
           }}>
             <span style={{ color: '#00ff88', fontSize: '12px', fontWeight: 'bold' }}>
-              All 5 Microsoft Store logos generated successfully!
+              All 5 app icons generated successfully!
             </span>
             <button
               onClick={handleOpenFolder}

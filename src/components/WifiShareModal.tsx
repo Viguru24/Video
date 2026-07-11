@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Wifi, ShieldCheck, Download, FolderOpen, RefreshCw, Smartphone, Monitor } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 
 interface WifiShareModalProps {
   isOpen: boolean;
@@ -17,6 +18,27 @@ export function WifiShareModal({ isOpen, onClose, sharedFiles, onLog, onAddMulti
   const [roomFiles, setRoomFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [customDownloadDir, setCustomDownloadDir] = useState<string>(() => {
+    return localStorage.getItem('cosmo-wifi-download-dir') || '';
+  });
+
+  const selectDownloadDir = async () => {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        defaultPath: customDownloadDir || undefined
+      });
+      if (selected && typeof selected === 'string') {
+        setCustomDownloadDir(selected);
+        localStorage.setItem('cosmo-wifi-download-dir', selected);
+        onLog(`Wi-Fi Share: Custom download directory set to "${selected}"`);
+      }
+    } catch (err) {
+      console.error('Failed to open directory picker:', err);
+    }
+  };
 
   // 1. Initialise the sharing room on mount or when modal opens
   useEffect(() => {
@@ -91,8 +113,13 @@ export function WifiShareModal({ isOpen, onClose, sharedFiles, onLog, onAddMulti
 
   // Import uploaded files to workspace
   const handleImportUploaded = (fileId: string, name: string) => {
-    onLog(`Wi-Fi Share: Downloading phone upload "${name}" to Downloads...`);
-    invoke<string>('download_shared_file_to_downloads', { code: 'local', fileId })
+    const dest = customDownloadDir ? `"${customDownloadDir}"` : 'Downloads';
+    onLog(`Wi-Fi Share: Downloading phone upload "${name}" to ${dest}...`);
+    invoke<string>('download_shared_file_to_downloads', { 
+      code: 'local', 
+      fileId,
+      custom_dir: customDownloadDir || null
+    })
       .then((downloadedPath) => {
         onLog(`Wi-Fi Share: Download complete. Path: ${downloadedPath}`);
         onAddMultipleFiles([downloadedPath]);
@@ -273,6 +300,72 @@ export function WifiShareModal({ isOpen, onClose, sharedFiles, onLog, onAddMulti
                     </span>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* Download Folder Settings */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px' }}>
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>
+                Download Destination Folder
+              </span>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{
+                  flex: 1,
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '6px',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  color: customDownloadDir ? '#ffffff' : 'rgba(255, 255, 255, 0.4)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {customDownloadDir || 'Default (System Downloads Folder)'}
+                </div>
+                <button
+                  onClick={selectDownloadDir}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.06)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#ffffff',
+                    borderRadius: '6px',
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'}
+                >
+                  <FolderOpen size={14} />
+                  Choose
+                </button>
+                {customDownloadDir && (
+                  <button
+                    onClick={() => {
+                      setCustomDownloadDir('');
+                      localStorage.removeItem('cosmo-wifi-download-dir');
+                    }}
+                    style={{
+                      background: 'rgba(255, 77, 77, 0.1)',
+                      border: '1px solid rgba(255, 77, 77, 0.3)',
+                      color: '#ff4d4d',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s'
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 77, 77, 0.2)'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255, 77, 77, 0.1)'}
+                  >
+                    Reset
+                  </button>
+                )}
               </div>
             </div>
 

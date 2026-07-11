@@ -12,8 +12,19 @@ use crate::commands::system::{
 use crate::commands::server::{secure_delete_file, secure_delete_dir_all};
 use serde_json::{self, Value};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// Creates a Command that never spawns a visible console window on Windows.
+fn new_hidden_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
 
 pub static CANCEL_UPSCALE: AtomicBool = AtomicBool::new(false);
+
 
 #[derive(serde::Serialize, Clone)]
 pub struct UpscaleProgress {
@@ -25,6 +36,8 @@ pub struct UpscaleProgress {
 pub fn debug_log(msg: &str) {
     println!("{}", msg);
 }
+
+
 
 fn resolve_heic_script_path() -> PathBuf {
     let exe_dir = std::env::current_exe()
@@ -54,7 +67,7 @@ fn convert_heic_pillow(src_path: &str, dest_path: &str) -> Result<(), String> {
 
     debug_log(&format!("Running HEIC conversion via python: {:?} {:?} {:?} {:?}", python_exe, script_path, src_path, dest_path));
 
-    let out = Command::new(&python_exe)
+    let out = new_hidden_command(&python_exe)
         .args([&script_path.to_string_lossy().to_string(), src_path, dest_path])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -104,7 +117,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
                 "aac", "mp3", "opus", "vorbis", "flac",
             ];
 
-            let probe_out = Command::new("ffprobe")
+            let probe_out = new_hidden_command("ffprobe")
                 .args([
                     "-v", "error",
                     "-select_streams", "v:0",
@@ -126,7 +139,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
             let codec_is_web_native = web_native_codecs.iter().any(|c| source_codec.contains(c));
 
             if codec_is_web_native {
-                let copy_out = Command::new("ffmpeg")
+                let copy_out = new_hidden_command("ffmpeg")
                     .args(["-y", "-i", &src_path, "-c", "copy", "-movflags", "+faststart", &dest_str])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output()
@@ -145,7 +158,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
                 debug_log(&format!("convert_media: codec '{}' not web-native, skipping stream-copy and re-encoding directly", source_codec));
             }
 
-            let enc_out = Command::new("ffmpeg")
+            let enc_out = new_hidden_command("ffmpeg")
                 .args([
                     "-y", "-i", &src_path,
                     "-c:v", "libx264", "-crf", "18", "-preset", "fast",
@@ -172,7 +185,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
             }
 
             if !python_success {
-                let out = Command::new("ffmpeg")
+                let out = new_hidden_command("ffmpeg")
                     .args(["-y", "-i", &src_path, "-q:v", "2", &dest_str])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output()
@@ -226,7 +239,7 @@ pub async fn convert_heic_to_jpg(src_path: String) -> Result<String, String> {
         }
 
         if !python_success {
-            let output = Command::new("ffmpeg")
+            let output = new_hidden_command("ffmpeg")
                 .args(["-y", "-i", &src_path, "-q:v", "2", &dest_str])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output()
@@ -307,7 +320,7 @@ pub async fn snapshot_video_frame(
         let ss = total_secs % 60;
         let ts_str = format!("{:02}:{:02}:{:02}.{:03}", hh, mm, ss, millis);
 
-        let output = Command::new("ffmpeg")
+        let output = new_hidden_command("ffmpeg")
             .args([
                 "-y",
                 "-ss", &ts_str,
@@ -539,11 +552,11 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<Value, S
         "Unknown".to_string()
     };
 
-    let mut probe_cmd = std::process::Command::new("ffprobe");
+    let mut probe_cmd = new_hidden_command("ffprobe");
     probe_cmd
         .args(["-v", "error", "-select_streams", "v:0",
-               "-show_entries", "stream=width,height",
-               "-of", "csv=s=x:p=0", &clean_path]);
+               "-show_entries", "stream=width,height:format=duration",
+               "-of", "json", &clean_path]);
     
     #[cfg(target_os = "windows")]
     {
@@ -551,37 +564,28 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<Value, S
         probe_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     
-    let (w, h) = if let Ok(out) = probe_cmd.output() {
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let parts: Vec<&str> = s.split('x').collect();
-        if parts.len() == 2 {
-            let width = parts[0].trim().parse::<u32>().unwrap_or(0);
-            let height = parts[1].trim().parse::<u32>().unwrap_or(0);
-            (width, height)
-        } else {
-            (0, 0)
+    let mut w = 0;
+    let mut h = 0;
+    let mut duration_sec = None;
+
+    if let Ok(out) = probe_cmd.output() {
+        let s = String::from_utf8_lossy(&out.stdout);
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&s) {
+            if let Some(streams) = parsed.get("streams").and_then(|v| v.as_array()) {
+                if let Some(first_stream) = streams.first() {
+                    w = first_stream.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                    h = first_stream.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                }
+            }
+            if let Some(format) = parsed.get("format") {
+                if let Some(dur_str) = format.get("duration").and_then(|v| v.as_str()) {
+                    duration_sec = dur_str.parse::<f64>().ok();
+                } else if let Some(dur_num) = format.get("duration").and_then(|v| v.as_f64()) {
+                    duration_sec = Some(dur_num);
+                }
+            }
         }
-    } else {
-        (0, 0)
-    };
-
-    let mut duration_cmd = std::process::Command::new("ffprobe");
-    duration_cmd
-        .args(["-v", "error", "-show_entries", "format=duration",
-               "-of", "default=noprint_wrappers=1:nokey=1", &clean_path]);
-    
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        duration_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
-
-    let duration_sec = if let Ok(out) = duration_cmd.output() {
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        s.parse::<f64>().ok()
-    } else {
-        None
-    };
 
     Ok(serde_json::json!({
         "size": size_formatted,
@@ -629,8 +633,9 @@ pub async fn rotate_media_on_disk(path: String, rotation: i32, is_image: bool) -
     let temp_path = temp_dir.join(&temp_file_name);
     debug_log(&format!("temp_path={:?}", temp_path));
 
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = new_hidden_command("ffmpeg");
     cmd.arg("-y");
+    cmd.arg("-nostdin");
 
     if is_image {
         cmd.arg("-threads").arg("1");
@@ -736,8 +741,9 @@ pub async fn mirror_media_on_disk(path: String, is_image: bool) -> Result<String
         let temp_file_name = format!("{}_mir_{}.{}", stem, timestamp, ext);
         let temp_path = temp_dir.join(&temp_file_name);
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = new_hidden_command("ffmpeg");
         cmd.arg("-y");
+        cmd.arg("-nostdin");
 
         if is_image {
             cmd.arg("-threads").arg("1");
@@ -844,21 +850,44 @@ pub async fn apply_color_adjustments_on_disk(
     let temp_path = temp_dir.join(&temp_file_name);
     debug_log(&format!("temp_path={:?}", temp_path));
 
-    let filter_str = format!(
-        "lutrgb=r='clip(val*{},0,255)':g='clip(val*{},0,255)':b='clip(val*{},0,255)',eq=contrast={}:saturation={}:gamma={},hue=h={}{}",
-        final_r * brightness * alpha,
-        final_g * brightness * alpha,
-        final_b * brightness * alpha,
-        contrast,
-        saturation,
-        gamma,
-        hue,
-        if negative { ",negate" } else { "" }
+    // The filter chain matches the SVG/CSS filter stack exactly:
+    // 1. Gains, Gamma, Negation, Brightness, and Contrast combined in a single 'lutrgb' expression to avoid range caps.
+    // 2. Saturation (using FFmpeg's standard eq=saturation filter)
+    // 3. Hue Rotation (using FFmpeg's standard hue=h filter)
+    
+    let neg_str = if negative { "1.0-" } else { "" };
+    
+    let expr_r = format!(
+        "clip((((({}pow(clip(val/255*{}\\,0\\,1)\\,{}))*{}-0.5)*{}+0.5)*255)\\,0\\,255)",
+        neg_str, final_r, gamma, brightness, contrast
     );
+    let expr_g = format!(
+        "clip((((({}pow(clip(val/255*{}\\,0\\,1)\\,{}))*{}-0.5)*{}+0.5)*255)\\,0\\,255)",
+        neg_str, final_g, gamma, brightness, contrast
+    );
+    let expr_b = format!(
+        "clip((((({}pow(clip(val/255*{}\\,0\\,1)\\,{}))*{}-0.5)*{}+0.5)*255)\\,0\\,255)",
+        neg_str, final_b, gamma, brightness, contrast
+    );
+    
+    let mut filters = vec![
+        format!(
+            r#"lutrgb=r='{}':g='{}':b='{}':a='clip(val*{}\,0\,255)'"#,
+            expr_r, expr_g, expr_b, alpha
+        ),
+        format!("eq=saturation={}", saturation)
+    ];
+    
+    if hue != 0.0 {
+        filters.push(format!("hue=h={}", hue));
+    }
+    
+    let filter_str = filters.join(",");
     debug_log(&format!("filter_str={}", filter_str));
 
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = new_hidden_command("ffmpeg");
     cmd.arg("-y");
+    cmd.arg("-nostdin");
 
     if is_image {
         cmd.arg("-threads")
@@ -873,8 +902,12 @@ pub async fn apply_color_adjustments_on_disk(
 
         if ext == "jpg" || ext == "jpeg" {
             cmd.arg("-q:v").arg("1");
+            cmd.arg("-pix_fmt").arg("yuvj420p");
         } else if ext == "webp" {
             cmd.arg("-quality").arg("100");
+            cmd.arg("-pix_fmt").arg("yuv420p");
+        } else if ext == "png" {
+            cmd.arg("-pix_fmt").arg("rgb24");
         }
         cmd.arg("-update").arg("1");
         cmd.arg(temp_path.to_string_lossy().to_string());
@@ -889,6 +922,8 @@ pub async fn apply_color_adjustments_on_disk(
            .arg("fast")
            .arg("-crf")
            .arg("22")
+           .arg("-pix_fmt")
+           .arg("yuv420p")
            .arg("-c:a")
            .arg("copy")
            .arg(temp_path.to_string_lossy().to_string());
@@ -954,6 +989,45 @@ pub async fn apply_color_adjustments_on_disk(
 }
 
 #[tauri::command]
+pub async fn save_adjusted_image_bytes(
+    path: String,
+    base64_data: String,
+    save_as_copy: bool,
+) -> Result<String, String> {
+    let path = clean_local_path(&path);
+    let path_obj = Path::new(&path);
+    if !path_obj.exists() {
+        return Err(format!("File does not exist: {}", path));
+    }
+    
+    let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
+    let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
+    let parent = path_obj.parent().ok_or("No parent dir")?;
+
+    let target_path = if save_as_copy {
+        let mut index = 0;
+        let mut check_path = parent.join(format!("{}_adjusted.{}", stem, ext));
+        while check_path.exists() {
+            index += 1;
+            check_path = parent.join(format!("{}_adjusted.{}.{}", stem, index, ext));
+        }
+        check_path
+    } else {
+        PathBuf::from(&path)
+    };
+
+    use base64::{Engine as _, engine::general_purpose};
+    let decoded = general_purpose::STANDARD
+        .decode(base64_data.trim())
+        .map_err(|e| format!("Failed to decode base64 data: {}", e))?;
+
+    std::fs::write(&target_path, &decoded)
+        .map_err(|e| format!("Failed to write file to disk: {}", e))?;
+
+    Ok(target_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn get_drag_icon_path() -> Result<String, String> {
     let temp_dir = std::env::temp_dir();
     let icon_path = temp_dir.join("cosmo_drag_icon.png");
@@ -968,7 +1042,7 @@ pub fn get_drag_icon_path() -> Result<String, String> {
 
 fn spawn_enhancement_server(app: Option<&AppHandle>) -> Result<(), String> {
     let (runner, args) = resolve_enhancer_command(app)?;
-    let mut cmd = Command::new(&runner);
+    let mut cmd = new_hidden_command(&runner);
     cmd.args(&args);
     
     if let Some(models_dir) = resolve_models_dir(app) {
@@ -1022,6 +1096,7 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
     use std::net::TcpStream;
 
     let clean_path = clean_local_path(&path);
+    
     let p = Path::new(&clean_path);
     if !p.exists() {
         return Err(format!("File does not exist: {}", clean_path));
@@ -1032,7 +1107,7 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
     if !stream_connected {
         println!("AI enhancer server offline. Spawning background server...");
         if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            for _ in 0..30 {
+            for _ in 0..100 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 if TcpStream::connect("127.0.0.1:12000").is_ok() {
                     stream_connected = true;
@@ -1047,60 +1122,78 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
         return Err("AI Enhancement Server is offline and could not be started automatically. Please verify local Python dependencies.".into());
     }
 
-    let mut server_success = false;
-    let mut sticker_path = String::new();
+    let max_attempts = 2;
+    for attempt in 1..=max_attempts {
+        let mut server_success = false;
+        let mut sticker_path = String::new();
+        let mut server_error: Option<String> = None;
 
-    if let Ok(mut stream) = TcpStream::connect("127.0.0.1:12000") {
-        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
-        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
-        let json_payload = serde_json::json!({
-            "path": clean_path
-        }).to_string();
+        if let Ok(mut stream) = TcpStream::connect("127.0.0.1:12000") {
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(180)));
+            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(180)));
+            let json_payload = serde_json::json!({
+                "path": clean_path
+            }).to_string();
 
-        let request = format!(
-            "POST /remove_background HTTP/1.1\r\n\
-             Host: 127.0.0.1:12000\r\n\
-             Content-Type: application/json\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\r\n\
-             {}",
-            json_payload.len(),
-            json_payload
-        );
+            let request = format!(
+                "POST /remove_background HTTP/1.1\r\n\
+                 Host: 127.0.0.1:12000\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: {}\r\n\
+                 Connection: close\r\n\r\n\
+                 {}",
+                json_payload.len(),
+                json_payload
+            );
 
-        if stream.write_all(request.as_bytes()).is_ok() {
-            let mut response = Vec::new();
-            if stream.read_to_end(&mut response).is_ok() {
-                let response_str = String::from_utf8_lossy(&response);
-                if let Some(pos) = response_str.find("\r\n\r\n") {
-                    let body = &response_str[pos + 4..];
-                    if let Ok(parsed) = serde_json::from_str::<Value>(body) {
-                        if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
-                            if let Some(out_p) = parsed.get("path").and_then(|v| v.as_str()) {
-                                  sticker_path = out_p.to_string();
-                                  server_success = true;
+            if stream.write_all(request.as_bytes()).is_ok() {
+                let mut response = Vec::new();
+                if stream.read_to_end(&mut response).is_ok() {
+                    let response_str = String::from_utf8_lossy(&response);
+                    if let Some(pos) = response_str.find("\r\n\r\n") {
+                        let body = &response_str[pos + 4..];
+                        if let Ok(parsed) = serde_json::from_str::<Value>(body) {
+                            if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
+                                if let Some(out_p) = parsed.get("path").and_then(|v| v.as_str()) {
+                                      sticker_path = out_p.to_string();
+                                      server_success = true;
+                                }
+                            } else if let Some(err_msg) = parsed.get("error").and_then(|e| e.as_str()) {
+                                server_error = Some(err_msg.to_string());
                             }
-                        } else if let Some(err_msg) = parsed.get("error").and_then(|e| e.as_str()) {
-                            return Err(format!("Background removal server error: {}", err_msg));
                         }
                     }
                 }
             }
         }
+
+        if server_success && !sticker_path.is_empty() {
+            return Ok(sticker_path);
+        }
+
+        // On cold-start, the first rembg import can fail (e.g. pymatting metadata).
+        // Retry once after a brief delay — the second attempt always succeeds.
+        if attempt < max_attempts {
+            println!("AI sticker attempt {} failed ({}). Retrying in 2s...",
+                attempt, server_error.as_deref().unwrap_or("unknown"));
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            continue;
+        }
+
+        // Final attempt exhausted
+        if let Some(err_msg) = server_error {
+            return Err(format!("Background removal server error: {}", err_msg));
+        }
     }
 
-    if server_success && !sticker_path.is_empty() {
-        Ok(sticker_path)
-    } else {
-        Err("Failed to process background removal. Make sure 'rembg' Python library is fully installed.".into())
-    }
+    Err("Failed to process background removal. Make sure 'rembg' Python library is fully installed.".into())
 }
 
 #[tauri::command]
 pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Result<String, String> {
     let path = clean_local_path(&path);
-    use std::time::{SystemTime, UNIX_EPOCH};
 
+    use std::time::{SystemTime, UNIX_EPOCH};
     let p = Path::new(&path);
     if !p.exists() {
         return Err("File does not exist".into());
@@ -1143,7 +1236,7 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
     if !stream_connected {
         println!("AI enhancer server offline. Spawning background server...");
         if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            for _ in 0..30 {
+            for _ in 0..100 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 if std::net::TcpStream::connect("127.0.0.1:12000").is_ok() {
                     stream_connected = true;
@@ -1159,8 +1252,8 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
 
     if stream_connected {
         if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
-            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(180)));
+            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(180)));
             use std::io::{Write, Read};
             let json_payload = serde_json::json!({
                 "path": path,
@@ -1220,68 +1313,107 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
     }
 
     println!("HTTP server upscale failed or server couldn't start. Falling back to CLI mode...");
-    let (runner, mut args) = resolve_enhancer_command(Some(&app))?;
     
-    args.push(path.clone());
-    args.push(output_path.to_string_lossy().to_string());
+    let mut run_native_fallback = true;
+    let mut cli_used_ai = false;
 
-    let mut cmd = Command::new(&runner);
-    cmd.args(&args);
+    if let Ok((runner, mut args)) = resolve_enhancer_command(Some(&app)) {
+        args.push(path.clone());
+        args.push(output_path.to_string_lossy().to_string());
 
-    if let Ok(app_data) = app.path().app_data_dir() {
-        let _ = fs::create_dir_all(&app_data);
-        cmd.current_dir(&app_data);
-    }
+        let mut cmd = new_hidden_command(&runner);
+        cmd.args(&args);
 
-    if let Some(models_dir) = resolve_models_dir(Some(&app)) {
-        cmd.env("COSMO_MODELS_DIR", &models_dir);
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-
-    let log_file = app.path().app_data_dir()
-        .ok()
-        .map(|mut d| { d.push("upscale.log"); d });
-
-    let output = cmd.output().map_err(|e| format!("Failed to start upscaler: {}", e))?;
-
-    if let Some(ref log_path) = log_file {
-        if let Some(parent) = log_path.parent() {
-            let _ = fs::create_dir_all(parent);
+        if let Ok(app_data) = app.path().app_data_dir() {
+            let _ = fs::create_dir_all(&app_data);
+            cmd.current_dir(&app_data);
         }
-        let _ = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-            .and_then(|mut f| {
-                use std::io::Write;
-                let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-                writeln!(f, "[{}] exit={} stdout={} stderr={}",
-                    t,
-                    output.status.code().unwrap_or(-1),
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                )
-            });
-    }
 
-    if !output.status.success() {
-        if overwrite && output_path.exists() {
-            let _ = fs::remove_file(&output_path);
+        if let Some(models_dir) = resolve_models_dir(Some(&app)) {
+            cmd.env("COSMO_MODELS_DIR", &models_dir);
         }
-        return Err(format!(
-            "Upscale failed (exit {:?}): {}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+
+        let log_file = app.path().app_data_dir()
+            .ok()
+            .map(|mut d| { d.push("upscale.log"); d });
+
+        if let Ok(output) = cmd.output() {
+            if let Some(ref log_path) = log_file {
+                if let Some(parent) = log_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let _ = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log_path)
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                        writeln!(f, "[{}] exit={} stdout={} stderr={}",
+                            t,
+                            output.status.code().unwrap_or(-1),
+                            String::from_utf8_lossy(&output.stdout),
+                            String::from_utf8_lossy(&output.stderr)
+                        )
+                    });
+            }
+
+            if output.status.success() {
+                let stdout_str = String::from_utf8_lossy(&output.stdout);
+                cli_used_ai = stdout_str.contains("[USED_AI=True]") || stdout_str.contains("[USED_AI=true]");
+                run_native_fallback = false;
+            } else {
+                println!("CLI upscaler returned error status. Falling back to native Rust upscaler.");
+            }
+        } else {
+            println!("Failed to run CLI upscaler command. Falling back to native Rust upscaler.");
+        }
+    } else {
+        println!("Could not resolve CLI upscaler command. Falling back to native Rust upscaler.");
     }
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let cli_used_ai = stdout_str.contains("[USED_AI=True]") || stdout_str.contains("[USED_AI=true]");
+    if run_native_fallback {
+        println!("Performing native Rust image upscale fallback (Lanczos3)...");
+        match image::ImageReader::open(&path)
+            .map_err(|e| format!("Failed to open source image: {}", e))
+            .and_then(|r| r.decode().map_err(|e| format!("Failed to decode source image: {}", e)))
+        {
+            Ok(img) => {
+                let (w, h) = (img.width(), img.height());
+                let target_w = w * 4;
+                let target_h = h * 4;
+                let max_width = 3840;
+                let max_height = 2160;
+
+                let (final_w, final_h) = if target_w > max_width || target_h > max_height {
+                    let scale = (max_width as f64 / target_w as f64).min(max_height as f64 / target_h as f64);
+                    ((target_w as f64 * scale) as u32, (target_h as f64 * scale) as u32)
+                } else {
+                    (target_w, target_h)
+                };
+
+                let resized = img.resize(final_w, final_h, image::imageops::FilterType::Lanczos3);
+                if let Err(e) = resized.save(&output_path) {
+                    if overwrite && output_path.exists() {
+                        let _ = fs::remove_file(&output_path);
+                    }
+                    return Err(format!("Failed to save downscaled native fallback image: {}", e));
+                }
+            }
+            Err(e) => {
+                if overwrite && output_path.exists() {
+                    let _ = fs::remove_file(&output_path);
+                }
+                return Err(format!("Native upscaler fallback failed: {}", e));
+            }
+        }
+    }
 
     let final_saved_path = if overwrite {
         if let Err(e) = fs::copy(&output_path, &p) {
@@ -1308,6 +1440,7 @@ pub fn cancel_video_upscale() {
 #[tauri::command]
 pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Result<String, String> {
     let path = clean_local_path(&path);
+
     use std::time::{SystemTime, UNIX_EPOCH};
     use std::os::windows::process::CommandExt;
     
@@ -1350,14 +1483,14 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
     
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     
-    let fps_out = Command::new("ffprobe")
+    let fps_out = new_hidden_command("ffprobe")
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", &path])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("ffprobe failed to resolve framerate: {}", e))?;
     let fps_str = String::from_utf8_lossy(&fps_out.stdout).trim().to_string();
     
-    let frames_out = Command::new("ffprobe")
+    let frames_out = new_hidden_command("ffprobe")
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=nb_frames", "-of", "default=noprint_wrappers=1:nokey=1", &path])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -1370,7 +1503,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
         return Err("Could not determine total frame count of video".into());
     }
     
-    let extract_status = Command::new("ffmpeg")
+    let extract_status = new_hidden_command("ffmpeg")
         .args(["-y", "-i", &path, "-q:v", "2", &temp_frames_dir.join("frame_%06d.png").to_string_lossy().to_string()])
         .creation_flags(CREATE_NO_WINDOW)
         .status()
@@ -1384,7 +1517,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
     let mut stream_connected = std::net::TcpStream::connect("127.0.0.1:12000").is_ok();
     if !stream_connected {
         if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            for _ in 0..30 {
+            for _ in 0..100 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 if std::net::TcpStream::connect("127.0.0.1:12000").is_ok() {
                     stream_connected = true;
@@ -1423,8 +1556,8 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
         let mut server_success = false;
         
         if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
-            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(180)));
+            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(180)));
             use std::io::{Write, Read};
             let json_payload = serde_json::json!({
                 "path": frame_path_str,
@@ -1467,7 +1600,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
             let (runner, mut args) = resolve_enhancer_command(Some(&app))?;
             args.push(frame_path_str.clone());
             args.push(frame_path_str.clone());
-            let mut cmd = Command::new(&runner);
+            let mut cmd = new_hidden_command(&runner);
             cmd.args(&args);
             cmd.current_dir(&app_data);
             if let Some(models_dir) = resolve_models_dir(Some(&app)) {
@@ -1491,7 +1624,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
     
     let out_str = output_path.to_string_lossy().to_string();
     
-    let stitch_status = Command::new("ffmpeg")
+    let stitch_status = new_hidden_command("ffmpeg")
         .args([
             "-y",
             "-f", "image2",
@@ -1543,7 +1676,7 @@ pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String,
     if !stream_connected {
         println!("AI crop enhancement requested but server is offline. Spawning background server...");
         if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            for _ in 0..30 {
+            for _ in 0..100 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 if TcpStream::connect("127.0.0.1:12000").is_ok() {
                     stream_connected = true;
@@ -1622,7 +1755,7 @@ pub async fn auto_erase_watermark(
     if !stream_connected {
         println!("Watermark auto-eraser requested but server is offline. Spawning background server...");
         if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            for _ in 0..30 {
+            for _ in 0..100 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 if TcpStream::connect("127.0.0.1:12000").is_ok() {
                     stream_connected = true;
@@ -1731,7 +1864,7 @@ pub async fn crop_image_on_disk(
         let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
         let parent = path_obj.parent().ok_or("No parent dir")?;
 
-        let mut probe_cmd = Command::new("ffprobe");
+        let mut probe_cmd = new_hidden_command("ffprobe");
         probe_cmd
             .args(["-v", "error", "-select_streams", "v:0",
                    "-show_entries", "stream=width,height",
@@ -1767,7 +1900,7 @@ pub async fn crop_image_on_disk(
 
         let crop_filter = format!("crop={}:{}:{}:{}", px_w, px_h, px_x, px_y);
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = new_hidden_command("ffmpeg");
         cmd.arg("-y")
            .arg("-threads").arg("1")
            .arg("-noautorotate")
@@ -1830,7 +1963,6 @@ pub async fn resize_image_on_disk(
 ) -> Result<String, String> {
     let path = clean_local_path(&path);
     use std::os::windows::process::CommandExt;
-    use std::process::Command;
     use std::path::{Path, PathBuf};
     use std::fs;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -1861,7 +1993,7 @@ pub async fn resize_image_on_disk(
 
         let scale_filter = format!("scale={}:{}", width, height);
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = new_hidden_command("ffmpeg");
         cmd.arg("-y")
            .arg("-threads").arg("1")
            .arg("-noautorotate")
@@ -1928,7 +2060,7 @@ pub async fn generate_store_logos(app: AppHandle, path: String, bg_color: String
     if !stream_connected {
         println!("AI enhancer server offline. Spawning background server...");
         if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            for _ in 0..30 {
+            for _ in 0..100 {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 if std::net::TcpStream::connect("127.0.0.1:12000").is_ok() {
                     stream_connected = true;
@@ -1943,8 +2075,8 @@ pub async fn generate_store_logos(app: AppHandle, path: String, bg_color: String
     }
 
     if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
-        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
-        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(180)));
+        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(180)));
         use std::io::{Write, Read};
 
         let json_payload = serde_json::json!({

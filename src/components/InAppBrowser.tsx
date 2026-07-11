@@ -156,12 +156,24 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
   const [isCollapsed, setIsCollapsed] = useState(false);
   
   const loadedPathsRef = React.useRef<Set<string>>(new Set());
+  const pendingPathsRef = React.useRef<Set<string>>(new Set());
+  const activeTimeoutsRef = React.useRef<NodeJS.Timeout[]>([]);
 
   // Reset the path memory and limit when directory path changes
   useEffect(() => {
     loadedPathsRef.current = new Set();
+    activeTimeoutsRef.current.forEach(clearTimeout);
+    activeTimeoutsRef.current = [];
+    pendingPathsRef.current.clear();
     setLimit(100);
   }, [inAppBrowserPath]);
+
+  // Clean up timeouts on unmount
+  useEffect(() => {
+    return () => {
+      activeTimeoutsRef.current.forEach(clearTimeout);
+    };
+  }, []);
 
   const sortedItems = useMemo(() => {
     // Keep directories first, then sort files
@@ -204,8 +216,23 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
         const newMediaFiles = filtered.filter(item => !item.is_dir && item.is_media && !loadedPathsRef.current.has(item.path));
         if (newMediaFiles.length > 0) {
           const newPaths = newMediaFiles.map(x => x.path);
-          addLog(`Auto-detected and adding ${newPaths.length} new files to workspace.`);
-          onAddMultipleFiles(newPaths);
+          const pathsToQueue = newPaths.filter(p => !pendingPathsRef.current.has(p));
+          
+          pathsToQueue.forEach(p => {
+            pendingPathsRef.current.add(p);
+            const filename = p.split(/[\\/]/).pop();
+            addLog(`Auto-detected new file: [${filename}]. Queueing import in 10 seconds...`);
+            
+            const timeoutId = setTimeout(() => {
+              if (pendingPathsRef.current.has(p)) {
+                addLog(`Importing auto-detected file: [${filename}]`);
+                onAddMultipleFiles([p]);
+                pendingPathsRef.current.delete(p);
+              }
+              activeTimeoutsRef.current = activeTimeoutsRef.current.filter(t => t !== timeoutId);
+            }, 10000);
+            activeTimeoutsRef.current.push(timeoutId);
+          });
         }
       }
       

@@ -1,8 +1,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Play, Pause, RefreshCw, Camera, Volume2, VolumeX, GripVertical, Minimize2, FolderOpen, X, AlertCircle, ChevronLeft, ChevronRight, Maximize, CheckCircle2, Trash2, Eraser, Sliders, Crop, Sparkles } from 'lucide-react';
+import { Play, Pause, RefreshCw, Camera, Volume2, VolumeX, GripVertical, Minimize2, FolderOpen, X, AlertCircle, ChevronLeft, ChevronRight, Maximize, CheckCircle2, Trash2, Eraser, Sliders, Crop, Sparkles, ExternalLink } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store/useStore';
+import { triggerPopOut } from '../../utils/videoUtils';
 import { useVideoCard } from './useVideoCard';
 import type { UseVideoCardProps } from './useVideoCard';
 import { AudioCard } from './AudioCard';
@@ -26,11 +27,21 @@ function VideoCardInternal(props: VideoCardProps) {
   const currentMode = (() => {
     // Unit loop settings explicitly override the global settings
     if (props.video.repeatMode && props.video.repeatMode !== 'none') {
-      return props.video.repeatMode;
+      let m = props.video.repeatMode;
+      if (m as any === 'all') m = 'folder';
+      return m;
     }
     // Otherwise fallback to global
     const baseMode = props.globalRepeat;
     if (baseMode === 'none') return 'none';
+    let normMode = baseMode;
+    if (normMode as any === 'all') normMode = 'folder';
+    
+    // In solo/focused mode, 'folder' repeat mode should play sequentially across workspace siblings
+    if (props.isFocused && normMode === 'folder') {
+      return 'folder';
+    }
+    
     return isSingleVideo ? 'always' : 'folder';
   })();
 
@@ -172,6 +183,25 @@ function VideoCardInternal(props: VideoCardProps) {
                     });
                   }, 50);
                 });
+              } else if (currentMode === 'once') {
+                const vid = e.currentTarget;
+                const count = props.video.repeatCount || 0;
+                if (count < 1) {
+                  vid.currentTime = 0;
+                  vid.play().catch((err) => {
+                    if (props.onLog) props.onLog(`SYSTEM: Local loop play failed: ${err}. Retrying in 50ms...`);
+                    setTimeout(() => {
+                      vid.play().catch((err2) => {
+                        if (props.onLog) props.onLog(`SYSTEM: Local loop play retry failed: ${err2}`);
+                      });
+                    }, 50);
+                  });
+                  if (props.onUpdateVideo) {
+                    props.onUpdateVideo(props.video.id, { repeatCount: count + 1 });
+                  }
+                } else {
+                  props.onEnded();
+                }
               } else {
                 props.onEnded();
               }
@@ -451,7 +481,16 @@ function VideoCardInternal(props: VideoCardProps) {
         )}
 
         {!props.isFocused && (
-          <div className="overlay-header" style={{ background: 'transparent', backdropFilter: 'none', borderBottom: 'none', padding: '8px' }}>
+          <div className="overlay-header" style={{ 
+            background: 'transparent', 
+            backdropFilter: 'none', 
+            borderBottom: 'none', 
+            padding: '8px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            width: '100%'
+          }}>
             <div 
               className="drag-handle-mini" 
               {...props.dragListeners} 
@@ -465,6 +504,54 @@ function VideoCardInternal(props: VideoCardProps) {
             >
               <GripVertical size={16} />
             </div>
+
+            {/* Pop Out Window Button */}
+            <button
+              className="mini-btn popout-btn"
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  const effectivePath = (props.video.folderFiles && props.video.currentIdx !== undefined)
+                    ? (props.video.folderFiles[props.video.currentIdx]?.path || props.video.folderFiles[props.video.currentIdx]?.url)
+                    : props.video.realPath || props.video.url;
+                  await triggerPopOut(effectivePath, props.video.title);
+                  if (props.onLog) {
+                    props.onLog(`SYSTEM: Popped out asset "${props.video.title}"`);
+                  }
+                } catch (err) {
+                  console.error("Popout failed:", err);
+                }
+              }}
+              data-tooltip="Pop Out Player"
+              style={{
+                pointerEvents: 'auto',
+                background: 'rgba(10, 10, 12, 0.45)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: 'rgba(255, 255, 255, 0.7)',
+                borderRadius: '6px',
+                width: '26px',
+                height: '26px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                opacity: state.showControls ? 1 : 0
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#fff';
+                e.currentTarget.style.background = 'rgba(10, 10, 12, 0.8)';
+                e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+                e.currentTarget.style.background = 'rgba(10, 10, 12, 0.45)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+              }}
+            >
+              <ExternalLink size={12} />
+            </button>
           </div>
         )}
 
@@ -833,6 +920,31 @@ function VideoCardInternal(props: VideoCardProps) {
           <span style={{ fontSize: '9px', fontWeight: 900, color: 'var(--accent, #00ff88)', letterSpacing: '1px', textTransform: 'uppercase' }}>
             CREATING STICKER...
           </span>
+          {props.onCancelSticker && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onCancelSticker();
+              }}
+              style={{
+                marginTop: '4px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: '#fff',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                padding: '4px 10px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                transition: 'background 0.2s',
+                pointerEvents: 'auto'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+            >
+              Cancel
+            </button>
+          )}
         </div>
       )}
     </motion.div>

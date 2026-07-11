@@ -63,6 +63,7 @@ interface VideoGridProps {
   onAddVideo?: (newVideo: VideoItem) => void;
   stickerLoadingId?: string | null;
   onCreateSticker?: (video: VideoItem) => void;
+  onCancelSticker?: () => void;
   onBgContextMenu: (x: number, y: number) => void;
   onLoadDemos: () => void;
 }
@@ -119,6 +120,7 @@ export function VideoGrid({
   onAddVideo,
   stickerLoadingId,
   onCreateSticker,
+  onCancelSticker,
   onBgContextMenu,
   onLoadDemos
 }: VideoGridProps) {
@@ -479,6 +481,7 @@ export function VideoGrid({
                       onAddVideo={onAddVideo}
                       isStickerLoading={stickerLoadingId === v.id}
                       onCreateSticker={onCreateSticker}
+                      onCancelSticker={onCancelSticker}
                     />
                   </div>
                 ))}

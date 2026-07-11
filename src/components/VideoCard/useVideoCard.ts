@@ -50,6 +50,7 @@ export interface UseVideoCardProps {
   onAddVideo?: (newVideo: VideoItem) => void;
   isStickerLoading?: boolean;
   onCreateSticker?: (video: VideoItem) => void;
+  onCancelSticker?: () => void;
   quality?: 'low' | 'high';
 }
 
@@ -1279,7 +1280,16 @@ export function useVideoCard({
     if (!el) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (e.shiftKey) {
+      if (e.ctrlKey && isFocused && !isImage) {
+        e.preventDefault();
+        e.stopPropagation();
+        const change = e.deltaY < 0 ? 0.05 : -0.05;
+        setSpeed((prev) => {
+          const next = Math.max(0.05, Math.min(16.0, parseFloat((prev + change).toFixed(2))));
+          showHudNotification('SPEED', `${next.toFixed(2)}x`);
+          return next;
+        });
+      } else if (e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
         const direction = e.deltaY > 0 ? 90 : -90;
@@ -1324,6 +1334,11 @@ export function useVideoCard({
         if (now - lastWheelNav.current > 180) {
           lastWheelNav.current = now;
           const direction = e.deltaY > 0 ? 1 : -1;
+          // Reset zoom/pan before navigating so the next image appears at 100%
+          if (zoomScale > 1) {
+            setZoomScale(1);
+            setPanOffset({ x: 0, y: 0 });
+          }
           if (video.folderFiles && video.folderFiles.length > 1) {
             navigateImageFolder(direction);
           } else if (onNavigateSibling) {
@@ -1345,11 +1360,13 @@ export function useVideoCard({
     isFocused,
     isImage,
     panOffset,
+    zoomScale,
     onUpdateVideo,
     onLog,
     onNavigateSibling,
     navigateImageFolder,
-    selectedIds
+    selectedIds,
+    setSpeed
   ]);
 
   return {
@@ -1366,6 +1383,7 @@ export function useVideoCard({
     focusedScrubContainerRef,
     focusedTrackRef,
     lastTime,
+    isScrubbing,
     // states
     isHoldingToCutout,
     reloadKey,

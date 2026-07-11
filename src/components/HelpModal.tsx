@@ -104,7 +104,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                   </div>
                   <div className="help-shortcut-item">
                     <div className="keys"><kbd>L</kbd></div>
-                    <div className="desc">Cycle Loop Mode (None ➔ Once ➔ Always ➔ Folder)</div>
+                    <div className="desc">Cycle Loop Mode (None âž” Once âž” Always âž” Folder)</div>
                   </div>
                   <div className="help-shortcut-item">
                     <div className="keys"><kbd>F</kbd></div>
@@ -115,15 +115,15 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                     <div className="desc">Close Active Overlay / Exit Enlarge Mode</div>
                   </div>
                   <div className="help-shortcut-item">
-                    <div className="keys"><kbd>▲</kbd> / <kbd>▼</kbd></div>
+                    <div className="keys"><kbd>â–²</kbd> / <kbd>â–¼</kbd></div>
                     <div className="desc">Navigate Previous / Next Unit (Enlarge/Immersive)</div>
                   </div>
                   <div className="help-shortcut-item">
-                    <div className="keys"><kbd>◀</kbd> / <kbd>▶</kbd></div>
-                    <div className="desc">Rotate Focused Video (-90° / +90°)</div>
+                    <div className="keys"><kbd>â—€</kbd> / <kbd>â–¶</kbd></div>
+                    <div className="desc">Rotate Focused Video (-90Â° / +90Â°)</div>
                   </div>
                   <div className="help-shortcut-item">
-                    <div className="keys"><kbd>1</kbd> — <kbd>8</kbd></div>
+                    <div className="keys"><kbd>1</kbd> â€” <kbd>8</kbd></div>
                     <div className="desc">Instant Grid Density presets (2 to 16 Units)</div>
                   </div>
                   <div className="help-shortcut-item">
@@ -189,7 +189,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <div className="help-footer">
                 <div className="footer-info">
                   <Info size={14} />
-                  <span>COSMO SYMPHONY — v1.1.2</span>
+                  <span>COSMO SYMPHONY â€” v1.2.1</span>
                 </div>
                 <div className="footer-status">SYMPHONY SYSTEM STABLE</div>
               </div>
@@ -200,3 +200,4 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
     </AnimatePresence>
   );
 };
+

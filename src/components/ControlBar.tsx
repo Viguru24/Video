@@ -331,7 +331,7 @@ export function ControlBar({
     if (e.button !== 0) return; // Only left click
 
     const target = e.target as HTMLElement;
-    if (target.closest('[data-no-drag]') || target.closest('button') || target.closest('input') || target.closest('select')) {
+    if (target.closest('[data-no-drag]') || target.closest('a') || target.closest('button') || target.closest('input') || target.closest('select')) {
       return;
     }
 
@@ -582,7 +582,7 @@ export function ControlBar({
 
               <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
 
-              {/* "Open Screenshots Folder" button removed as per user request — it was confusing because it didn't open the currently active image folder */}
+              {/* "Open Screenshots Folder" button removed as per user request â€” it was confusing because it didn't open the currently active image folder */}
             </div>
             
             {isTauri() && (
@@ -594,7 +594,7 @@ export function ControlBar({
               >
                 <button className="win-dot min" onClick={() => getCurrentWindow().minimize()} title="Minimize" />
                 <button className="win-dot max" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMaxMenu(prev => !prev); }} title="Maximize Options" />
-                <button className="win-dot close" onClick={() => invoke('exit_app')} title="Close" />
+                <button className="win-dot close" onClick={() => getCurrentWindow().close()} title="Close" />
                 
                 {showMaxMenu && (
                   <div className="max-options-dropdown" style={{
@@ -749,10 +749,10 @@ export function ControlBar({
                   { label: 'Custom Order', value: 'custom' },
                   { label: 'Sort: Videos First', value: 'videos-first' },
                   { label: 'Sort: Stills First', value: 'pictures-first' },
-                  { label: 'Name (A → Z)', value: 'name-asc' },
-                  { label: 'Name (Z → A)', value: 'name-desc' },
-                  { label: 'Size (Small → Large)', value: 'size-asc' },
-                  { label: 'Size (Large → Small)', value: 'size-desc' },
+                  { label: 'Name (A â†’ Z)', value: 'name-asc' },
+                  { label: 'Name (Z â†’ A)', value: 'name-desc' },
+                  { label: 'Size (Small â†’ Large)', value: 'size-asc' },
+                  { label: 'Size (Large â†’ Small)', value: 'size-desc' },
                   { label: 'Date Modified (Newest)', value: 'modified-newest' },
                   { label: 'Date Modified (Oldest)', value: 'modified-oldest' },
                   { label: 'Date Created (Newest)', value: 'created-newest' },
@@ -983,9 +983,10 @@ export function ControlBar({
               </div>
 
               {/* VERSION & DEV BADGES */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', pointerEvents: 'auto' }}>
                 <a
                   href="https://cosmowhisper.com"
+                  data-no-drag
                   onClick={async (e) => {
                     e.preventDefault();
                     try {
@@ -1029,7 +1030,7 @@ export function ControlBar({
                   userSelect: 'none',
                   marginLeft: '4px'
                 }}>
-                  v1.1.2
+                  v1.2.1
                 </div>
                 <div style={{
                   height: '18px',
@@ -1210,3 +1211,4 @@ export function ControlBar({
     </>
   );
 }
+

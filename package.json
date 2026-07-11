@@ -1,7 +1,7 @@
 {
     "name": "video",
     "private": true,
-    "version": "1.1.2",
+    "version": "1.2.1",
     "author": "Cosmo Video Symphony",
     "description": "Cosmo Video Multi-Video Workspace",
     "type": "module",
@@ -53,3 +53,4 @@
         "vite": "^8.0.10"
     }
 }
+
