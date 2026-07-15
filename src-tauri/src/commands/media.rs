@@ -1104,10 +1104,33 @@ fn convert_png_to_webp(png_path: &str) -> Result<String, String> {
         .decode()
         .map_err(|e| format!("Failed to decode PNG: {}", e))?;
     
+    let mut rgba_img = img.into_rgba8();
+    
+    // Optimize: clear out RGB bytes of fully transparent pixels to black.
+    // This allows WebP lossless compression to compress the transparent regions extremely efficiently.
+    for pixel in rgba_img.pixels_mut() {
+        if pixel[3] < 5 {
+            pixel[0] = 0;
+            pixel[1] = 0;
+            pixel[2] = 0;
+            pixel[3] = 0;
+        }
+    }
+    
     // Save as WebP
-    img.save(&webp_path)
-        .map_err(|e| format!("Failed to save WebP: {}", e))?;
-        
+    let file = std::fs::File::create(&webp_path)
+        .map_err(|e| format!("Failed to create WebP file: {}", e))?;
+    
+    let encoder = image::codecs::webp::WebPEncoder::new_lossless(file);
+    
+    use image::ImageEncoder;
+    encoder.write_image(
+        rgba_img.as_raw(),
+        rgba_img.width(),
+        rgba_img.height(),
+        image::ExtendedColorType::Rgba8
+    ).map_err(|e| format!("Failed to encode WebP: {}", e))?;
+    
     // Delete original PNG
     let _ = std::fs::remove_file(png_path_buf);
     
