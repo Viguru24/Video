@@ -8,6 +8,7 @@ import {
   showConfirm,
   requiresConversion,
   maybeConvertMedia,
+  generateUUID,
 } from '../utils/videoUtils';
 import type { VideoItem } from '../types';
 
@@ -246,7 +247,7 @@ export function useIngestion({
               else pictureCount++;
 
               newVids.push({
-                id: crypto.randomUUID(),
+                id: generateUUID(),
                 url: finalUrl,
                 realPath: finalPath,
                 title: finalName,

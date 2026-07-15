@@ -4,7 +4,19 @@ use std::fs;
 use tauri::{AppHandle, Manager, State, Window, Emitter, WebviewWindowBuilder, WebviewUrl};
 use crate::{AppState, LaunchArgs};
 
-pub static AI_HARDWARE_MODE: OnceLock<String> = OnceLock::new();
+use std::sync::RwLock;
+
+pub static AI_HARDWARE_MODE: OnceLock<RwLock<String>> = OnceLock::new();
+
+pub fn set_ai_hardware_status(status: String) {
+    if let Some(lock) = AI_HARDWARE_MODE.get() {
+        if let Ok(mut guard) = lock.write() {
+            *guard = status;
+        }
+    } else {
+        let _ = AI_HARDWARE_MODE.set(RwLock::new(status));
+    }
+}
 
 fn clean_path(path: &std::path::Path) -> String {
     path.to_string_lossy().replace("\\\\?\\", "")
@@ -41,6 +53,14 @@ pub struct SetupProgressEvent {
     pub error: Option<String>,
 }
 
+struct GpuTelemetryCache {
+    vram: String,
+    temp: f32,
+    last_query: std::time::Instant,
+}
+
+static GPU_CACHE: OnceLock<std::sync::Mutex<GpuTelemetryCache>> = OnceLock::new();
+
 #[tauri::command]
 pub fn get_telemetry(state: State<AppState>) -> serde_json::Value {
     let mut sys = match state.sys.lock() {
@@ -64,40 +84,56 @@ pub fn get_telemetry(state: State<AppState>) -> serde_json::Value {
     let total_mem = sys.total_memory() / 1024 / 1024 / 1024; // GB
     let used_mem = sys.used_memory() / 1024 / 1024 / 1024; // GB
 
-    // Helper to spawn hidden process on Windows
-    let run_hidden_cmd = |cmd_name: &str, args: &[&str]| -> Option<String> {
-        let mut cmd = std::process::Command::new(cmd_name);
-        cmd.args(args);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-        cmd.output().ok().and_then(|out| String::from_utf8(out.stdout).ok())
-    };
-
-    let gpu_temp = run_hidden_cmd("nvidia-smi", &["--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"])
-        .and_then(|s| s.trim().parse::<f32>().ok())
-        .unwrap_or(0.0);
-
-    let vram_data = run_hidden_cmd("nvidia-smi", &["--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"])
-        .and_then(|s| {
-            let parts: Vec<&str> = s.split(',').collect();
-            if parts.len() >= 2 {
-                let used = parts[0].trim().parse::<f32>().ok()? / 1024.0;
-                let total = parts[1].trim().parse::<f32>().ok()? / 1024.0;
-                Some(format!("{:.1}/{:.1}GB", used, total))
-            } else {
-                None
-            }
+    let cache_mutex = GPU_CACHE.get_or_init(|| {
+        std::sync::Mutex::new(GpuTelemetryCache {
+            vram: format!("{}/{}GB", used_mem, total_mem),
+            temp: 0.0,
+            last_query: std::time::Instant::now() - std::time::Duration::from_secs(60),
         })
-        .unwrap_or_else(|| format!("{}/{}GB", used_mem, total_mem));
+    });
+
+    let mut cache = cache_mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if cache.last_query.elapsed() >= std::time::Duration::from_secs(10) {
+        // Helper to spawn hidden process on Windows
+        let run_hidden_cmd = |cmd_name: &str, args: &[&str]| -> Option<String> {
+            let mut cmd = std::process::Command::new(cmd_name);
+            cmd.args(args);
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            cmd.output().ok().and_then(|out| String::from_utf8(out.stdout).ok())
+        };
+
+        let temp_data = run_hidden_cmd("nvidia-smi", &["--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"])
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .unwrap_or(0.0);
+
+        let vram_data = run_hidden_cmd("nvidia-smi", &["--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"])
+            .and_then(|s| {
+                let parts: Vec<&str> = s.split(',').collect();
+                if parts.len() >= 2 {
+                    let used = parts[0].trim().parse::<f32>().ok()? / 1024.0;
+                    let total = parts[1].trim().parse::<f32>().ok()? / 1024.0;
+                    Some(format!("{:.1}/{:.1}GB", used, total))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| format!("{}/{}GB", used_mem, total_mem));
+
+        cache.temp = temp_data;
+        cache.vram = vram_data;
+        cache.last_query = std::time::Instant::now();
+    }
 
     serde_json::json!({
         "cpu": format!("{:.1}%", cpu_usage),
-        "mem": vram_data,
+        "mem": cache.vram,
         "gpu": "RTX 5080",
-        "temp": gpu_temp,
+        "temp": cache.temp,
         "fps": "STABLE"
     })
 }
@@ -131,7 +167,24 @@ pub fn cosmo_log(app: AppHandle, msg: String) {
 
 #[tauri::command]
 pub fn exit_app(app: AppHandle) {
+    println!("Cosmo Symphony: exit_app command called. Cleaning up processes and exiting...");
+    let _ = crate::commands::server::secure_cleanup_on_exit(&app);
+    
+    // Kill child Python server instances bound to ports 8005 or 12000
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("powershell.exe")
+            .args(&[
+                "-NoProfile", "-Command",
+                "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+            ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+    }
+    
     app.exit(0);
+    std::process::exit(0);
 }
 
 #[tauri::command]
@@ -214,7 +267,64 @@ pub fn get_popout_url() -> Option<String> {
 
 #[tauri::command]
 pub fn get_ai_hardware_status() -> String {
-    AI_HARDWARE_MODE.get().cloned().unwrap_or_else(|| "Detecting...".to_string())
+    AI_HARDWARE_MODE
+        .get()
+        .and_then(|lock| lock.read().ok())
+        .map(|guard| guard.clone())
+        .unwrap_or_else(|| "Detecting...".to_string())
+}
+
+#[tauri::command]
+pub async fn detect_ai_hardware(app: AppHandle) -> Result<String, String> {
+    let app_handle = app.clone();
+    let mode_str = tauri::async_runtime::spawn_blocking(move || {
+        let mut has_gpu = false;
+        let mut is_dml = false;
+        if let Ok((runner, args)) = resolve_enhancer_command(Some(&app_handle)) {
+            let mut check_args = args;
+            check_args.push("--check-cuda".to_string());
+            
+            let mut cmd = std::process::Command::new(&runner);
+            cmd.args(&check_args);
+
+            if let Ok(app_data) = app_handle.path().app_data_dir() {
+                let _ = std::fs::create_dir_all(&app_data);
+                cmd.current_dir(&app_data);
+            }
+
+            if let Some(models_dir) = resolve_models_dir(Some(&app_handle)) {
+                cmd.env("COSMO_MODELS_DIR", &models_dir);
+            }
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            
+            if let Ok(output) = cmd.output() {
+                let out_str = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+                if out_str.contains("cuda") {
+                    has_gpu = true;
+                } else if out_str.contains("dml") || out_str.contains("directml") {
+                    has_gpu = true;
+                    is_dml = true;
+                }
+            }
+        }
+        
+        if has_gpu {
+            if is_dml {
+                "GPU (AMD DirectML)".to_string()
+            } else {
+                "GPU (NVIDIA CUDA)".to_string()
+            }
+        } else {
+            "CPU (Bilateral Filter Fallback)".to_string()
+        }
+    }).await.map_err(|e| e.to_string())?;
+
+    set_ai_hardware_status(mode_str.clone());
+    Ok(mode_str)
 }
 
 #[tauri::command]
@@ -916,10 +1026,10 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
     }
 
     let ps_download = format!(
-        "Import-Module BitsTransfer; \
-         $dir = '{app_dir}'; \
+        "$dir = '{app_dir}'; \
          if (!(Test-Path $dir)) {{ New-Item -ItemType Directory -Force -Path $dir | Out-Null }}; \
-         Start-BitsTransfer -Source '{url}' -Destination '{dest}' -Priority High",
+         $client = New-Object System.Net.WebClient; \
+         $client.DownloadFile('{url}', '{dest}')",
         app_dir = app_data_str,
         url     = BUNDLE_URL,
         dest    = zip_path_str,
@@ -934,33 +1044,12 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
             .output()
     });
 
-    // Poll file growth for progress (5 % -> 70 %)
+    // Poll file growth directly from disk (5 % -> 70 %)
     const EXPECTED_BYTES: u64 = 286 * 1024 * 1024;
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1000));
         
-        // Query active BITS job progress for this URL
-        let ps_check = format!(
-            "Import-Module BitsTransfer; \
-             (Get-BitsTransfer | Where-Object {{ $_.FileList.RemoteName -like '*{}*' }} | Select-Object -First 1).BytesTransferred",
-            "cosmo_enhance"
-        );
-        let out = new_hidden_command("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_check])
-            .output();
-        
-        let mut current = 0;
-        if let Ok(o) = out {
-            let s = String::from_utf8_lossy(&o.stdout);
-            if let Ok(bytes) = s.trim().parse::<u64>() {
-                current = bytes;
-            }
-        }
-        
-        // Fallback to disk file size
-        if current == 0 {
-            current = std::fs::metadata(&zip_path_poll).map(|m| m.len()).unwrap_or(0);
-        }
+        let current = std::fs::metadata(&zip_path_poll).map(|m| m.len()).unwrap_or(0);
 
         let pct = if current > 0 {
             (5.0_f64 + (current as f64 / EXPECTED_BYTES as f64) * 65.0).min(69.0) as u32
@@ -1114,10 +1203,10 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
     }
 
     let ps_download = format!(
-        "Import-Module BitsTransfer; \
-         $dir = '{app_dir}'; \
+        "$dir = '{app_dir}'; \
          if (!(Test-Path $dir)) {{ New-Item -ItemType Directory -Force -Path $dir | Out-Null }}; \
-         Start-BitsTransfer -Source '{url}' -Destination '{dest}' -Priority High",
+         $client = New-Object System.Net.WebClient; \
+         $client.DownloadFile('{url}', '{dest}')",
         app_dir = app_data_str,
         url     = GPU_BUNDLE_URL,
         dest    = zip_str,
@@ -1132,33 +1221,12 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
             .output()
     });
 
-    // Expect ~2.5 GB — update if your actual zip differs
+    // Poll file growth directly from disk (3 % -> 70 %)
     const EXPECTED_BYTES: u64 = 2_815 * 1024 * 1024;
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1000));
         
-        // Query active BITS job progress for this URL
-        let ps_check = format!(
-            "Import-Module BitsTransfer; \
-             (Get-BitsTransfer | Where-Object {{ $_.FileList.RemoteName -like '*{}*' }} | Select-Object -First 1).BytesTransferred",
-            "cosmo_enhance"
-        );
-        let out = new_hidden_command("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_check])
-            .output();
-        
-        let mut current = 0;
-        if let Ok(o) = out {
-            let s = String::from_utf8_lossy(&o.stdout);
-            if let Ok(bytes) = s.trim().parse::<u64>() {
-                current = bytes;
-            }
-        }
-        
-        // If BITS is done, fallback to file size on disk
-        if current == 0 {
-            current = std::fs::metadata(&zip_poll).map(|m| m.len()).unwrap_or(0);
-        }
+        let current = std::fs::metadata(&zip_poll).map(|m| m.len()).unwrap_or(0);
 
         let pct = if current > 0 {
             (3.0_f64 + (current as f64 / EXPECTED_BYTES as f64) * 67.0).min(69.0) as u32
@@ -1226,6 +1294,7 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
 
     let _ = std::fs::remove_file(&zip_path);
     emit("done", "GPU Acceleration Pack installed \u{2713}", 98);
+    let _ = detect_ai_hardware(app.clone()).await;
     emit_done(&app);
     Ok(())
 }

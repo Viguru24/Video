@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -34,6 +34,36 @@ interface BrowserItem {
   path: string;
   is_dir: boolean;
   is_media: boolean;
+}
+
+function VideoPreview({ src, isHovered }: { src: string; isHovered: boolean }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isHovered) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+      // Seek back to first frame (0.01 seconds) when not hovered
+      video.currentTime = 0.01;
+    }
+  }, [isHovered]);
+
+  return (
+    <video 
+      ref={videoRef}
+      src={src + "#t=0.01"} 
+      className="file-thumb"
+      muted
+      playsInline
+      loop
+      preload="metadata"
+      style={{ objectFit: 'contain', width: '100%', height: '100%', display: 'block' }}
+    />
+  );
 }
 
 // Subcomponent to optimize rendering and prevent loading off-screen videos or flooding WebViews
@@ -94,20 +124,7 @@ function BrowserItemCard({
         <div className="file-item-content">
           <div className="file-thumbnail-container">
             {isValidMediaExtension(item.path, 'video') ? (
-              isHovered ? (
-                <video 
-                  src={toCosmoUrl(item.path)} 
-                  className="file-thumb"
-                  muted
-                  playsInline
-                  autoPlay
-                  loop
-                />
-              ) : (
-                <div className="file-thumb-placeholder">
-                  <Play size={16} className="placeholder-icon" />
-                </div>
-              )
+              <VideoPreview src={toCosmoUrl(item.path)} isHovered={isHovered} />
             ) : (
               <img 
                 src={toCosmoUrl(item.path)} 
@@ -324,13 +341,16 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
       .filter(item => !item.is_dir && item.is_media)
       .map(item => item.path);
     
+    console.log("[InAppBrowser] handleAddAll paths:", mediaPaths);
+    addLog(`System: In-app browser "Add All" requested for ${mediaPaths.length} file(s).`);
+
     if (mediaPaths.length === 0) {
       alert("No compatible media files in this folder to add.");
       return;
     }
     
     onAddMultipleFiles(mediaPaths);
-    setShowInAppBrowser(false);
+    setIsCollapsed(true);
   };
 
   const formatPathLabel = (path: string) => {

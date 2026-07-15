@@ -169,21 +169,9 @@ def init_models():
             
         model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
 
-        # Dynamically pick tile size based on available VRAM
-        gpu_tile = 128  # safe default
-        if device == 'cuda':
-            try:
-                free_vram_mb = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
-                if free_vram_mb >= 12000:    # 12GB+ VRAM → large tiles
-                    gpu_tile = 512
-                elif free_vram_mb >= 8000:  # 8GB+ VRAM → medium tiles
-                    gpu_tile = 256
-                print(f"Using tile size: {gpu_tile} (total VRAM: {free_vram_mb:.0f} MB)", file=sys.stderr)
-            except Exception:
-                pass
-        else:
-            gpu_tile = 256
-            print(f"Using tile size: {gpu_tile} (AMD / DirectML GPU)", file=sys.stderr)
+        # Use a conservative tile size of 128 to prevent VRAM memory allocation overhead crashes/freezes on laptop GPUs
+        gpu_tile = 128
+        print(f"Using conservative tile size: {gpu_tile} for model inference", file=sys.stderr)
 
         upscaler = RealESRGANer(
             scale=4,
@@ -201,7 +189,8 @@ def init_models():
             upscale=4,
             arch='clean',
             channel_multiplier=2,
-            bg_upsampler=upscaler
+            bg_upsampler=upscaler,
+            device=device
         )
         print(f"Real-ESRGAN and GFPGAN models warmloaded into GPU ({device}) successfully!")
     except Exception as e:
@@ -254,7 +243,10 @@ def process_enhance(img_or_bytes, fidelity=0.5):
     # server event loop is never blocked and Windows driver heartbeats continue.
     if gfpganer is not None:
         try:
+            print("Dispatching upscale task to GPU executor...", file=sys.stderr)
+            print("Transferring image matrix to GPU VRAM...", file=sys.stderr)
             def _run_gpu():
+                print("Running Real-ESRGAN model inference...", file=sys.stderr)
                 return gfpganer.enhance(
                     img,
                     has_aligned=False,
@@ -263,6 +255,7 @@ def process_enhance(img_or_bytes, fidelity=0.5):
                     weight=fidelity
                 )
             _, _, restored_img = _gpu_executor.submit(_run_gpu).result()
+            print("GPU Model inference successful! Releasing VRAM back to OS...", file=sys.stderr)
             # Release VRAM back to OS immediately
             import torch
             torch.cuda.empty_cache()
@@ -494,19 +487,27 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                     elif ext_lower == '.png':
                         params = [cv2.IMWRITE_PNG_COMPRESSION, 6]
                     elif ext_lower == '.webp':
+                        # Limit to standard quality parameter to avoid OpenCV-WebP lossless assertion failures
                         params = [cv2.IMWRITE_WEBP_QUALITY, 80]
 
-                    success, encoded_img = cv2.imencode(ext_lower, enhanced_img, params)
-                    if not success and ext_lower == '.webp':
-                        print("WebP encoding failed. Falling back to PNG format...", file=sys.stderr)
+                    print(f"Encoding upscaled image to {ext_lower}...", file=sys.stderr)
+                    success = False
+                    try:
+                        success, encoded_img = cv2.imencode(ext_lower, enhanced_img, params)
+                    except Exception as enc_err:
+                        print(f"Warning: Primary encode failed ({enc_err}). Falling back to PNG...", file=sys.stderr)
+                        
+                    if not success or encoded_img is None:
+                        print("WebP/JPEG encoding failed. Falling back to PNG format...", file=sys.stderr)
                         ext_lower = '.png'
                         out_path = os.path.splitext(out_path)[0] + '.png'
                         params = [cv2.IMWRITE_PNG_COMPRESSION, 6]
                         success, encoded_img = cv2.imencode(ext_lower, enhanced_img, params)
 
-                    if not success:
+                    if not success or encoded_img is None:
                         raise ValueError("Failed to encode upscaled image for saving")
                         
+                    print(f"Saving final image to {out_path}...", file=sys.stderr)
                     encoded_img.tofile(out_path)
                     response_data = {
                         'status': 'success',
@@ -710,23 +711,24 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                         
                         result = result[y_min:y_max+1, x_min:x_max+1]
                 
-                # Resolve output path next to the original file, always as a transparent PNG sticker
+                # Resolve output path next to the original file, always as a transparent WebP sticker
                 ext_idx = img_path.rfind('.')
                 if ext_idx != -1:
                     base_path = img_path[:ext_idx] + '_sticker'
                 else:
                     base_path = img_path + '_sticker'
                     
-                out_path = base_path + '.png'
+                out_path = base_path + '.webp'
                 
                 # Generate unique index name if sticker already exists
                 index = 1
                 while os.path.exists(out_path):
-                    out_path = f"{base_path}_{index:03d}.png"
+                    out_path = f"{base_path}_{index:03d}.webp"
                     index += 1
                 
-                # Encode with high PNG compression (level 9)
-                success, encoded_img = cv2.imencode('.png', result, [int(cv2.IMWRITE_PNG_COMPRESSION), 9])
+                # Encode as WebP with high quality (90) to support transparency and keep file size extremely small
+                webp_quality = 90
+                success, encoded_img = cv2.imencode('.webp', result, [int(cv2.IMWRITE_WEBP_QUALITY), webp_quality] if hasattr(cv2, 'IMWRITE_WEBP_QUALITY') else [64, webp_quality])
                 if not success:
                     raise ValueError("Failed to encode transparent sticker")
                     

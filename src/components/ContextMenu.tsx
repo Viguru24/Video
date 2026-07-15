@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { 
   Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, CheckSquare, Volume2, VolumeX, 
   ExternalLink, Info, Edit2, ChevronLeft, ChevronRight, 
-  Minimize2, Repeat, Repeat1, Crop, Eraser, Sparkles, Save, Sliders, Copy, ShieldAlert, Layout,
-  ChevronDown, ChevronUp, Share2
+  Minimize2, Repeat, Repeat1, Crop, Sparkles, Save, Sliders, Copy, ShieldAlert,
+  ChevronDown, ChevronUp, Share2, RefreshCw
 } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { isValidPictureExtension, isTauri } from '../utils/videoUtils';
@@ -106,7 +106,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
             {metadata.width && metadata.height && metadata.width > 0 && metadata.height > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
                 <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Dimensions</span>
-                <strong style={{ fontSize: '9.5px', color: '#fff' }}>{metadata.width} × {metadata.height}</strong>
+                <strong style={{ fontSize: '9.5px', color: '#fff' }}>{metadata.width} x {metadata.height}</strong>
               </div>
             )}
 
@@ -296,7 +296,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               ) : (
                 <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
                   <ShieldAlert size={12} />
-                  <span>Demo video — upscale/snapshot disabled</span>
+                  <span>Demo video â€” upscale/snapshot disabled</span>
                 </div>
               )}
               <div className="context-menu-separator"></div>
@@ -309,7 +309,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               {isDemo ? (
                 <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
                   <ShieldAlert size={12} />
-                  <span>Demo file — drag in your own image to edit</span>
+                  <span>Demo file â€” drag in your own image to edit</span>
                 </div>
               ) : (
                 <>
@@ -329,10 +329,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Repeat size={14} />
                     <span>Mirror Horizontally</span>
                   </div>
-                  <div className="context-menu-item" onClick={() => onAction('watermark')}>
-                    <Eraser size={14} />
-                    <span>Erase Watermark</span>
-                  </div>
+
                   <div className="context-menu-item" onClick={() => onAction('crop')}>
                     <Crop size={14} />
                     <span>Crop Image</span>
@@ -341,10 +338,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Minimize2 size={14} />
                     <span>Rescale / Resize</span>
                   </div>
-                  <div className="context-menu-item" onClick={() => onAction('generate_store_logos')}>
-                    <Layout size={14} />
-                    <span>App Icon Generator</span>
-                  </div>
+
                 </>
               )}
               <div className="context-menu-separator"></div>
@@ -367,6 +361,10 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
           <div className="context-menu-item" onClick={() => onAction('pop_out')}>
             <ExternalLink size={14} />
             <span>Pop Out Player</span>
+          </div>
+          <div className="context-menu-item" onClick={() => onAction('refresh_tile')}>
+            <RefreshCw size={14} />
+            <span>Refresh Tile (Reload)</span>
           </div>
 
           {isTauri() && (
@@ -450,7 +448,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               ) : (
                 <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
                   <ShieldAlert size={12} />
-                  <span>Demo video — upscale/snapshot disabled</span>
+                  <span>Demo video â€” upscale/snapshot disabled</span>
                 </div>
               )}
               <div className="context-menu-separator"></div>
@@ -463,7 +461,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               {isDemo ? (
                 <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
                   <ShieldAlert size={12} />
-                  <span>Demo file — drag in your own image to edit</span>
+                  <span>Demo file â€” drag in your own image to edit</span>
                 </div>
               ) : (
                 <>
@@ -483,10 +481,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Repeat size={14} />
                     <span>Mirror Horizontally</span>
                   </div>
-                  <div className="context-menu-item" onClick={() => onAction('watermark')}>
-                    <Eraser size={14} />
-                    <span>Erase Watermark</span>
-                  </div>
+
                   <div className="context-menu-item" onClick={() => onAction('crop')}>
                     <Crop size={14} />
                     <span>Crop Image</span>
@@ -495,10 +490,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Minimize2 size={14} />
                     <span>Rescale / Resize</span>
                   </div>
-                  <div className="context-menu-item" onClick={() => onAction('generate_store_logos')}>
-                    <Layout size={14} />
-                    <span>App Icon Generator</span>
-                  </div>
+
                 </>
               )}
               <div className="context-menu-separator"></div>
@@ -533,6 +525,10 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
           <div className="context-menu-item" onClick={() => onAction('pop_out')}>
             <ExternalLink size={14} />
             <span>Pop Out Player</span>
+          </div>
+          <div className="context-menu-item" onClick={() => onAction('refresh_tile')}>
+            <RefreshCw size={14} />
+            <span>Refresh Tile (Reload)</span>
           </div>
 
           {isTauri() && (
@@ -587,3 +583,4 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
     </div>
   );
 }
+

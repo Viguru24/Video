@@ -108,3 +108,21 @@ document.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 
+// Prevent Ctrl+Wheel zoom and double-tap zoom gestures globally to avoid magnification issues
+if (typeof window !== 'undefined') {
+  document.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  // Disable double-tap-to-zoom on touchpad/touchscreen
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 300) {
+      e.preventDefault();
+    }
+    lastTouchEnd = now;
+  }, { passive: false });
+}

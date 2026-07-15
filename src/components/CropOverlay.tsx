@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem } from '../types';
 import { convertToVideoUrl } from '../utils/videoUtils';
 
@@ -26,11 +27,41 @@ export function CropOverlay({
   const [containerSize, setContainerSize] = useState({ w: 800, h: 600 });
 
   useEffect(() => {
-    const img = new Image();
-    img.src = convertToVideoUrl(video);
-    img.onload = () => {
-      setImgSize({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+    const fetchDims = async () => {
+      try {
+        const targetPath = (video.folderFiles && video.currentIdx !== undefined)
+          ? (video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url)
+          : (video.realPath || video.url);
+
+        const [w, h] = await invoke<[number, number]>('get_media_dimensions', { path: targetPath });
+        if (w && h) {
+          setImgSize({ w, h });
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to query raw dimensions from backend:", err);
+      }
+
+      // Fallback
+      const mediaEl = document.querySelector('.solo-container .media-wrapper img, .solo-container .media-wrapper video') as HTMLImageElement | HTMLVideoElement | null;
+      if (mediaEl) {
+        const isVideo = mediaEl.tagName.toLowerCase() === 'video';
+        const w = isVideo ? (mediaEl as HTMLVideoElement).videoWidth : (mediaEl as HTMLImageElement).naturalWidth;
+        const h = isVideo ? (mediaEl as HTMLVideoElement).videoHeight : (mediaEl as HTMLImageElement).naturalHeight;
+        if (w && h) {
+          setImgSize({ w, h });
+          return;
+        }
+      }
+
+      const img = new Image();
+      img.src = convertToVideoUrl(video);
+      img.onload = () => {
+        setImgSize({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+      };
     };
+
+    fetchDims();
   }, [video]);
 
   useEffect(() => {

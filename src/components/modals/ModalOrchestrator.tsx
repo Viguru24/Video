@@ -5,7 +5,6 @@ import type { VideoItem, RepeatMode } from '../../types';
 import { FileManagementModal } from '../FileManagementModal';
 import { RenameProtocolModal } from './RenameProtocolModal';
 import { SaveCropModal } from './SaveCropModal';
-import { GenerateStoreLogosModal } from './GenerateStoreLogosModal';
 import { SaveUpscaleModal } from './SaveUpscaleModal';
 import { ResizeModal } from './ResizeModal';
 import { UpscaleStatusPanel } from './UpscaleStatusPanel';
@@ -43,10 +42,6 @@ interface ModalOrchestratorProps {
   setShowSaveCropOptions: (show: boolean) => void;
   handleSaveCrop: (choice: 'overwrite' | 'new') => void;
 
-  // Store Logos Generator
-  isGeneratingStoreLogos: boolean;
-  setIsGeneratingStoreLogos: (show: boolean) => void;
-  storeLogoImagePath: string;
 
   // Upscale Options
   showSaveUpscaleOptions: boolean;
@@ -128,9 +123,6 @@ export function ModalOrchestrator({
   showSaveCropOptions,
   setShowSaveCropOptions,
   handleSaveCrop,
-  isGeneratingStoreLogos,
-  setIsGeneratingStoreLogos,
-  storeLogoImagePath,
   showSaveUpscaleOptions,
   setShowSaveUpscaleOptions,
   upscaleTarget,
@@ -203,12 +195,6 @@ export function ModalOrchestrator({
         onSave={handleSaveCrop}
       />
 
-      <GenerateStoreLogosModal
-        isOpen={isGeneratingStoreLogos}
-        onClose={() => setIsGeneratingStoreLogos(false)}
-        imagePath={storeLogoImagePath}
-        onLog={addLog}
-      />
 
       <SaveUpscaleModal
         isOpen={showSaveUpscaleOptions && upscaleTarget !== null}

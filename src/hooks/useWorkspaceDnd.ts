@@ -11,6 +11,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem } from '../types';
 import { DRAG_ACTIVATION_DISTANCE } from '../constants';
 import { toRealPath, toCosmoUrl, showConfirm } from '../utils/videoUtils';
+import { useStore } from '../store/useStore';
 
 interface UseWorkspaceDndProps {
   videos: VideoItem[];
@@ -35,6 +36,7 @@ export function useWorkspaceDnd({
   setToast,
   addLog
 }: UseWorkspaceDndProps) {
+  const setSortOrder = useStore((state) => state.setSortOrder);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragFile, setDragFile] = useState(false);
 
@@ -49,22 +51,12 @@ export function useWorkspaceDnd({
     })
   );
 
-  const dragPointerRef = useRef<{ x: number; y: number } | null>(null);
-  const dragPointerCleanupRef = useRef<(() => void) | null>(null);
-
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDragId(event.active.id as string);
-
-    const onPointerMove = (e: PointerEvent) => {
-      dragPointerRef.current = { x: e.clientX, y: e.clientY };
-    };
-    window.addEventListener('pointermove', onPointerMove);
-    dragPointerCleanupRef.current = () => {
-      window.removeEventListener('pointermove', onPointerMove);
-    };
   }, []);
 
   const performStandardReorder = useCallback((activeId: string, overId: string) => {
+    setSortOrder('custom');
     setVideos((items) => {
       const oldIndex = items.findIndex((v) => v.id === activeId);
       const newIndex = items.findIndex((v) => v.id === overId);
@@ -75,88 +67,11 @@ export function useWorkspaceDnd({
       }
       return items;
     });
-  }, [setVideos, addLog]);
+  }, [setVideos, addLog, setSortOrder]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     setDragId(null);
-
-    if (dragPointerCleanupRef.current) {
-      dragPointerCleanupRef.current();
-      dragPointerCleanupRef.current = null;
-    }
-
-    const pointer = dragPointerRef.current;
-    dragPointerRef.current = null;
-
-    if (pointer) {
-      const elementsAtDrop = document.elementsFromPoint(pointer.x, pointer.y);
-      const isOverAnotherTile = elementsAtDrop.some(el => {
-        const tileEl = el.closest('.grid-item-wrap');
-        return tileEl && tileEl.getAttribute('data-id') !== active.id;
-      });
-
-      if (!isOverAnotherTile) {
-        const isInsideGrid = elementsAtDrop.some(el =>
-          el.closest('.video-grid') || el.closest('.video-grid-container') || el.closest('.video-scroll')
-        );
-
-        if (isInsideGrid) {
-          const activeItem = videos.find(v => v.id === active.id);
-          if (activeItem) {
-            const effectivePath = activeItem.realPath || '';
-            if (effectivePath) {
-              (async () => {
-                try {
-                  const cleanPath = toRealPath(effectivePath) || effectivePath;
-                  addLog(`Duplicating unit: ${activeItem.title}...`);
-                  setToast(`Creating physical duplicate...`);
-                  const resultPath = await invoke<string>('duplicate_file_on_disk', { srcPath: cleanPath });
-                  addLog(`Successfully duplicated: ${resultPath}`);
-
-                  const separator = resultPath.includes('\\') ? '\\' : '/';
-                  const fileNameWithExt = resultPath.substring(resultPath.lastIndexOf(separator) + 1);
-                  const extIdx = fileNameWithExt.lastIndexOf('.');
-                  const titleName = extIdx > 0 ? fileNameWithExt.substring(0, extIdx) : fileNameWithExt;
-
-                  const newItem: VideoItem = {
-                    id: crypto.randomUUID(),
-                    url: toCosmoUrl(resultPath),
-                    realPath: resultPath,
-                    title: titleName,
-                    repeatMode: 'none',
-                    repeatCount: 0,
-                    cols: 1,
-                    currentIdx: 0,
-                    playing: masterPlaying,
-                    muted: masterMuted,
-                  };
-
-                  setVideos(prev => {
-                    const idx = prev.findIndex(v => v.id === activeItem.id);
-                    if (idx !== -1) {
-                      const next = [...prev];
-                      next.splice(idx + 1, 0, newItem);
-                      return next;
-                    }
-                    return [...prev, newItem];
-                  });
-
-                  setToast(`Duplicated → ${titleName}`);
-                  setTimeout(() => setToast(null), 3000);
-                } catch (err) {
-                  console.error('Duplicate via drag-to-blank failed:', err);
-                  addLog(`ERROR: Failed to duplicate - ${err}`);
-                  setToast(`Duplicate failed: ${err}`);
-                  setTimeout(() => setToast(null), 4000);
-                }
-              })();
-              return;
-            }
-          }
-        }
-      }
-    }
 
     if (over && active.id !== over.id) {
       const activeItem = videos.find(v => v.id === active.id);
@@ -255,7 +170,7 @@ export function useWorkspaceDnd({
 
       performStandardReorder(active.id as string, over.id as string);
     }
-  }, [videos, setVideos, masterPlaying, masterMuted, selectedIds, setSelectedIds, setSelectionMode, setToast, addLog, performStandardReorder]);
+  }, [videos, setVideos, selectedIds, setSelectedIds, setSelectionMode, setToast, addLog, performStandardReorder]);
 
   const onReorder = useCallback((fromId: string, toId: string) => {
     if (fromId === toId) return;

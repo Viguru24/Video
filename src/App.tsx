@@ -65,7 +65,8 @@ import {
   pathsEqual,
   requiresConversion,
   maybeConvertMedia,
-  triggerPopOut
+  triggerPopOut,
+  generateUUID
 } from './utils/videoUtils';
 import { handleError, isAbortError } from './utils/errorHandler';
 
@@ -78,17 +79,59 @@ function isDemoFile(video: { url?: string; realPath?: string }): boolean {
 }
 
 export default function App() {
-  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus, enableOSFullscreen, sortOrder, setSortOrder } = useStore();
+  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus, enableOSFullscreen, sortOrder, setSortOrder, quickFolders, setQuickFolders } = useStore();
   
   useEffect(() => {
     if (isTauri()) {
-      import('@tauri-apps/api/path').then(({ appDataDir }) => {
+      import('@tauri-apps/api/path').then(({ appDataDir, pictureDir, videoDir, documentDir }) => {
         appDataDir().then(dir => {
           localStorage.setItem('cosmo-app-data-dir', dir);
         }).catch(err => console.error("Failed to get appDataDir:", err));
+
+        // Self-healing path validation for pinned quick folders
+        (async () => {
+          try {
+            const nextFolders = [...quickFolders];
+            let modified = false;
+
+            for (let i = 0; i < nextFolders.length; i++) {
+              const folder = nextFolders[i];
+              try {
+                const exists = await invoke<boolean>('file_exists', { path: folder.path });
+                if (!exists) {
+                  let fallbackPath = '';
+                  if (folder.id === 'demo-pictures') {
+                    fallbackPath = await pictureDir();
+                  } else if (folder.id === 'demo-videos') {
+                    fallbackPath = await videoDir();
+                  } else {
+                    fallbackPath = await documentDir();
+                  }
+
+                  if (fallbackPath) {
+                    nextFolders[i] = {
+                      ...folder,
+                      path: fallbackPath
+                    };
+                    modified = true;
+                  }
+                }
+              } catch (err) {
+                console.error(`Failed to check existence for ${folder.path}:`, err);
+              }
+            }
+
+            if (modified) {
+              setQuickFolders(nextFolders);
+            }
+          } catch (err) {
+            console.error("Failed to validate quick folders on startup:", err);
+          }
+        })();
+
       }).catch(err => console.error("Failed to import @tauri-apps/api/path:", err));
     }
-  }, []);
+  }, [quickFolders, setQuickFolders]);
 
   const handleOpenWebsite = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -259,10 +302,12 @@ export default function App() {
           // (avoids the destroy/exit race condition that causes a crash)
           setTimeout(async () => {
             try {
+              // Direct process terminate through background command, then close window
               await invoke('exit_app');
+              await win.close();
             } catch {
-              // If invoke fails, hard-close as last resort
-              await win.destroy();
+              // If invoke fails, close window directly to trigger Rust's on_window_event
+              await win.close();
             }
           }, 2600);
         });
@@ -319,8 +364,8 @@ export default function App() {
   // States and hooks extracted to useVideoOperations, useStickerCreator, useWorkspaceDnd
 
   // STORE LOGOS CREATOR STATE
-  const [isGeneratingStoreLogos, setIsGeneratingStoreLogos] = useState(false);
-  const [storeLogoImagePath, setStoreLogoImagePath] = useState('');
+
+
   const [sessionDuration, setSessionDuration] = useState(0); 
   
   
@@ -636,7 +681,7 @@ export default function App() {
               return;
             }
             const newVids = convertedVids.map((file) => ({
-              id: crypto.randomUUID(), 
+              id: generateUUID(), 
               url: toCosmoUrl(file.url), 
               realPath: file.url, 
               title: file.name, 
@@ -672,7 +717,7 @@ export default function App() {
               }
               const filename = getFileNameFromPath(finalPath);
               const newUnit = { 
-                id: crypto.randomUUID(), 
+                id: generateUUID(), 
                 url: toCosmoUrl(finalPath), 
                 realPath: finalPath, 
                 title: filename, 
@@ -736,6 +781,8 @@ export default function App() {
       setImmersive(false);
     }
   }, [setFocusedId, setImmersive, setIsFS]);
+
+
 
   const focusedVideo = focusedId ? videos.find(v => v.id === focusedId) : null;
   const focusedEffectivePath = focusedVideo
@@ -1019,8 +1066,9 @@ export default function App() {
     }
 
     try {
-      await invoke('recycle_unit', { path: video.realPath });
       setVideos(p => p.filter(x => x.id !== id));
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await invoke('recycle_unit', { path: video.realPath });
       addLog("Unit Annihilated (Recycle Bin)");
     } catch (e) {
       console.error(e);
@@ -1459,8 +1507,10 @@ export default function App() {
             const data = await invoke('get_video_metadata', { path: targetPath });
             metadataCache.current[effectivePath] = data;
             setMenuMetadata(data);
-          } catch (e) {
+          } catch (e: any) {
             console.error("Failed to fetch metadata", e);
+            addLog(`Error fetching metadata for ${effectivePath}: ${e.toString()}`);
+            setMenuMetadata({ name: 'Metadata Error', format: 'N/A', size: 'N/A', width: 0, height: 0 });
           }
         }
       }
@@ -1994,9 +2044,20 @@ export default function App() {
     >
       <IntroOverlay isPopout={isPopout} />
       <ShutdownOverlay show={showShutdown} />
-      {needsSetup && (
-        <SetupWizard onComplete={() => { setNeedsSetup(false); setForceSetup(false); }} force={forceSetup} />
-      )}
+      <AnimatePresence>
+        {needsSetup && (
+          <SetupWizard key="setup-wizard" onComplete={async () => {
+            setNeedsSetup(false);
+            setForceSetup(false);
+            try {
+              const res = await invoke<string>('detect_ai_hardware');
+              setAiHardwareStatus(res);
+            } catch (e) {
+              console.error("Failed to re-detect AI hardware:", e);
+            }
+          }} force={forceSetup} />
+        )}
+      </AnimatePresence>
       <ResizeHandles />
       <div className="nebula-bg" />
       <AnimatePresence>
@@ -2031,7 +2092,9 @@ export default function App() {
             {toastPath && (
               <button 
                 onClick={() => {
-                  loadToastPathFolder(toastPath);
+                  invoke('open_folder', { path: toastPath }).catch(err => {
+                    console.error("Failed to open folder:", err);
+                  });
                 }}
                 style={{
                   background: 'var(--accent, #00ff88)',
@@ -2207,7 +2270,6 @@ export default function App() {
               snapshotDir={snapshotDir}
               setSnapshotDir={setSnapshotDir}
               onAddVideo={onAddVideo}
-              onNavigateToGrid={() => setShowCollageCanvas(false)}
             />
           ) : (
             <>
@@ -2388,13 +2450,19 @@ export default function App() {
                 addLog(`SYSTEM: Popped out window for "${v.title}"`);
                 break;
               }
+              case 'refresh_tile': {
+                const cacheBuster = `t=${Date.now()}`;
+                const cleanUrl = v.url.split('?')[0];
+                onUpdateVideo(v.id, { url: `${cleanUrl}?${cacheBuster}` });
+                addLog(`SYSTEM: Refreshed tile "${v.title}"`);
+                break;
+              }
               case 'play': onUpdateVideo(v.id, { playing: !v.playing }); break;
               case 'mute': onUpdateVideo(v.id, { muted: !v.muted }); break;
               case 'stop': onUpdateVideo(v.id, { playing: false }); break;
               case 'loop': onUpdateVideo(v.id, { repeatMode: v.repeatMode === 'always' ? 'none' : 'always' }); break;
               case 'step-back': setGlobalControl(`stepback-${v.id}-${Date.now()}`); break;
               case 'step-forward': setGlobalControl(`stepforward-${v.id}-${Date.now()}`); break;
-              case 'watermark': setGlobalControl(`watermark-${v.id}-${Date.now()}`); break;
               case 'create_sticker':
                 handleCreateSticker(v);
                 break;
@@ -2406,12 +2474,6 @@ export default function App() {
                 break;
               case 'resize':
                 handleResize(v);
-                break;
-              case 'generate_store_logos':
-                if (effectivePath) {
-                  setStoreLogoImagePath(effectivePath);
-                  setIsGeneratingStoreLogos(true);
-                }
                 break;
               case 'prev-file': handleNavigateSibling(-1); break;
               case 'next-file': handleNavigateSibling(1); break;
@@ -2609,8 +2671,6 @@ export default function App() {
                     }
 
                     try {
-                      await invoke('recycle_unit', { path: targetPath });
-
                       if (targetVideo.folderFiles && targetVideo.folderFiles.length > 1) {
                         const newFiles = targetVideo.folderFiles.filter((_, i) => i !== (targetVideo.currentIdx || 0));
                         const newIdx = Math.min(targetVideo.currentIdx || 0, newFiles.length - 1);
@@ -2644,6 +2704,9 @@ export default function App() {
                         }
                         setVideos(p => p.filter(x => x.id !== targetVideo.id));
                       }
+
+                      await new Promise(resolve => setTimeout(resolve, 150));
+                      await invoke('recycle_unit', { path: targetPath });
                       successCount++;
                     } catch(err) {
                       console.error("Annihilation failed for", targetPath, err);
@@ -2667,7 +2730,6 @@ export default function App() {
                     if (!yes) break;
                   }
                   try {
-                    await invoke('recycle_unit', { path: effectivePath });
                     // For folder units with multiple files: remove just this file
                     if (v.folderFiles && v.folderFiles.length > 1) {
                       const newFiles = v.folderFiles.filter((_, i) => i !== (v.currentIdx || 0));
@@ -2696,6 +2758,9 @@ export default function App() {
                       }
                       setVideos(p => p.filter(x => x.id !== v.id));
                     }
+
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                    await invoke('recycle_unit', { path: effectivePath });
                     addLog('Unit Annihilated (Recycle Bin)');
                   } catch(e) {
                     addLog('Annihilation Failed: ' + e);
@@ -2732,8 +2797,6 @@ export default function App() {
                     }
 
                     try {
-                      await invoke('secure_delete_file', { path: targetPath });
-
                       if (targetVideo.folderFiles && targetVideo.folderFiles.length > 1) {
                         const newFiles = targetVideo.folderFiles.filter((_, i) => i !== (targetVideo.currentIdx || 0));
                         const newIdx = Math.min(targetVideo.currentIdx || 0, newFiles.length - 1);
@@ -2767,6 +2830,9 @@ export default function App() {
                         }
                         setVideos(p => p.filter(x => x.id !== targetVideo.id));
                       }
+
+                      await new Promise(resolve => setTimeout(resolve, 150));
+                      await invoke('secure_delete_file', { path: targetPath });
                       successCount++;
                     } catch(err) {
                       console.error("Secure destruction failed for", targetPath, err);
@@ -2792,7 +2858,6 @@ export default function App() {
                   if (!yes) break;
                   
                   try {
-                    await invoke('secure_delete_file', { path: effectivePath });
                     if (v.folderFiles && v.folderFiles.length > 1) {
                       const newFiles = v.folderFiles.filter((_, i) => i !== (v.currentIdx || 0));
                       const newIdx = Math.min(v.currentIdx || 0, newFiles.length - 1);
@@ -2820,6 +2885,9 @@ export default function App() {
                       }
                       setVideos(p => p.filter(x => x.id !== v.id));
                     }
+
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                    await invoke('secure_delete_file', { path: effectivePath });
                     addLog('Unit Securely Destroyed (Permanently overwritten & deleted)');
                   } catch(e) {
                     addLog('Secure Destruction Failed: ' + e);
@@ -3136,9 +3204,6 @@ export default function App() {
         showSaveCropOptions={showSaveCropOptions}
         setShowSaveCropOptions={setShowSaveCropOptions}
         handleSaveCrop={handleSaveCrop}
-        isGeneratingStoreLogos={isGeneratingStoreLogos}
-        setIsGeneratingStoreLogos={setIsGeneratingStoreLogos}
-        storeLogoImagePath={storeLogoImagePath}
         showSaveUpscaleOptions={showSaveUpscaleOptions}
         setShowSaveUpscaleOptions={setShowSaveUpscaleOptions}
         upscaleTarget={upscaleTarget}

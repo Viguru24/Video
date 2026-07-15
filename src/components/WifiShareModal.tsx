@@ -260,7 +260,37 @@ export function WifiShareModal({ isOpen, onClose, sharedFiles, onLog, onAddMulti
                     {shareUrl}
                   </a>
                 </p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: receiverConnected ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await invoke('open_external_url', { url: shareUrl });
+                      } catch (err) {
+                        console.error('Failed to open link:', err);
+                      }
+                    }}
+                    style={{
+                      background: 'rgba(0, 255, 136, 0.1)',
+                      border: '1px solid rgba(0, 255, 136, 0.25)',
+                      color: 'var(--accent, #00ff88)',
+                      borderRadius: '4px',
+                      padding: '6px 12px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(0, 255, 136, 0.18)'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(0, 255, 136, 0.1)'}
+                  >
+                    <Monitor size={12} />
+                    Open Share Page on this PC
+                  </button>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: receiverConnected ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.4)', marginTop: '6px' }}>
                   <span style={{ 
                     width: '8px', 
                     height: '8px', 
@@ -268,7 +298,7 @@ export function WifiShareModal({ isOpen, onClose, sharedFiles, onLog, onAddMulti
                     background: receiverConnected ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.3)',
                     animation: receiverConnected ? 'pulse 1s infinite alternate' : 'none'
                   }} />
-                  <span>{receiverConnected ? 'Phone Connected' : 'Waiting for connection...'}</span>
+                  <span>{receiverConnected ? 'Phone/Web Client Connected' : 'Waiting for connection...'}</span>
                 </div>
               </div>
             </div>

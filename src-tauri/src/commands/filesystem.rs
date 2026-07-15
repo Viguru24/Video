@@ -575,36 +575,8 @@ pub async fn create_new_folder(parent_dir: String, folder_name: String) -> Resul
 }
 
 pub fn clean_local_path(p: &str) -> String {
-    let mut clean = p.trim().to_string();
-
-    // Remove Tauri asset protocol or other URLs if present
-    let prefixes = [
-        "local://",
-        "cosmo://",
-        "asset://localhost/",
-        "asset://",
-        "http://asset.localhost/",
-        "https://asset.localhost/",
-        "http://cosmo.localhost/",
-        "https://cosmo.localhost/",
-        "asset.localhost/",
-        "cosmo.localhost/",
-    ];
-
-    for prefix in prefixes {
-        if clean.to_lowercase().starts_with(prefix) {
-            clean = clean[prefix.len()..].to_string();
-            break;
-        }
-    }
-
-    // Strip subroutes
-    let subroutes = ["localhost/", "media/", "video/"];
-    for subroute in subroutes {
-        if clean.to_lowercase().starts_with(subroute) {
-            clean = clean[subroute.len()..].to_string();
-        }
-    }
+    // Use clean_file_path first to strip Tauri v2 scheme protocol prefixes and isolate raw Windows paths
+    let mut clean = clean_file_path(p);
 
     // Decode percent encoding
     if let Ok(decoded) = urlencoding::decode(&clean) {

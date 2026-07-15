@@ -10,6 +10,7 @@
 - **Dynamic Grid**: Drag-and-drop workspace customization powered by `@dnd-kit`.
 - **Auto-Rotation**: Intelligent sequence cycling with customizable intervals and session timers.
 - **Hardware Telemetry**: Real-time CPU, GPU, and Memory monitoring directly in the status bar.
+- **Hardware-Aware Secure Deletion**: Advanced secure shredding that automatically detects drive media types. For **SSDs/NVMes**, it avoids wear-inducing overwrites and triggers direct hardware block erasure via Windows API `FSCTL_FILE_LEVEL_TRIM` commands. For **HDDs**, it performs a full 3-pass cryptographic wipe (Zero, 0xFF, and random passes) followed by truncation.
 - **Local Sovereignty**: Zero cloud dependency. All persistence and logs are stored locally.
 - **Pop-Out Mode**: Detach any video unit into its own native window for secondary monitor layouts.
 

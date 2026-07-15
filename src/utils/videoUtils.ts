@@ -312,4 +312,22 @@ export async function triggerPopOut(path: string, title: string): Promise<void> 
   localStorage.setItem('cosmo-popout-active-url', path);
   localStorage.setItem('cosmo-popout-active-title', title);
   await invoke('pop_out', { url: path, title });
+}
+
+/**
+ * Generate a cryptographically secure UUID (v4) if supported by the browser,
+ * otherwise fall back to a robust pseudo-random UUID generator.
+ * This prevents runtime crashes in contexts where `crypto.randomUUID` is undefined
+ * (e.g. non-secure origins under WebView2 / packaged MSIX container).
+ */
+export function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Math.random RFC4122 v4 UUID generator fallback
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }

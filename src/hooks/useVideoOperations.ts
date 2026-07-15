@@ -75,12 +75,31 @@ export function useVideoOperations({
             setLastEnhancedTitle('Image Crop');
           }
 
+          // Retrieve raw physical dimensions from backend to guarantee alignment with unrotated layout
+          let imgW = 1920;
+          let imgH = 1080;
+          try {
+            const [w, h] = await invoke<[number, number]>('get_media_dimensions', { path: originalPath });
+            imgW = w;
+            imgH = h;
+          } catch (err) {
+            console.error("Failed to query raw dimensions for crop:", err);
+            const mediaEl = document.querySelector('.solo-container .media-wrapper img, .solo-container .media-wrapper video') as HTMLImageElement | HTMLVideoElement | null;
+            if (mediaEl) {
+              const isVideo = mediaEl.tagName.toLowerCase() === 'video';
+              imgW = isVideo ? (mediaEl as HTMLVideoElement).videoWidth : (mediaEl as HTMLImageElement).naturalWidth;
+              imgH = isVideo ? (mediaEl as HTMLVideoElement).videoHeight : (mediaEl as HTMLImageElement).naturalHeight;
+            }
+          }
+
           const savedPath = await invoke<string>('crop_image_on_disk', {
             path: originalPath,
             cropX: cropBox.x,
             cropY: cropBox.y,
             cropW: cropBox.w,
             cropH: cropBox.h,
+            imgW,
+            imgH,
             overwrite,
           });
 
