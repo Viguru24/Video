@@ -58,6 +58,7 @@ export function CollectionsModal({
   const saveCollection = () => {
     const name = collectionName.trim();
     if (!name) return;
+    console.log("[CollectionsModal] Saving collection", name, "with videos:", videos);
     setCollections(p => {
       const next = { ...p, [name]: videos };
       const cleaned = cleanCollectionsForPersistence(next);
@@ -75,6 +76,7 @@ export function CollectionsModal({
   const loadCollection = async (col: VideoItem[]) => {
     onClose();
     addLog('Loading workspace set...');
+    console.log("[CollectionsModal] loadCollection called with:", col);
 
     let scannedItems = col;
     if (isTauri()) {
@@ -111,6 +113,7 @@ export function CollectionsModal({
       }));
     }
 
+    console.log("[CollectionsModal] loadCollection final scanned items:", scannedItems);
     setVideos(scannedItems);
     addLog(`Loaded set: ${scannedItems.length} tiles ready.`);
   };

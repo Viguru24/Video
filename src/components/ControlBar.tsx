@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { toCosmoUrl, isTauri, showConfirm } from '../utils/videoUtils';
+import { toCosmoUrl, isTauri, showConfirm, generateUUID } from '../utils/videoUtils';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion } from 'framer-motion';
 import type { VideoItem, RepeatMode, SortOption } from '../types';
@@ -243,7 +243,7 @@ export function ControlBar({
       
       const nextFolders = [
         {
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           name: label.trim() || defaultName,
           path
         },
@@ -582,7 +582,31 @@ export function ControlBar({
 
               <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
 
-              {/* "Open Screenshots Folder" button removed as per user request â€” it was confusing because it didn't open the currently active image folder */}
+              {/* "Open Screenshots Folder" button removed as per user request — it was confusing because it didn't open the currently active image folder */}
+              
+              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+
+              {/* Refresh Tiles Button */}
+              <button 
+                className="mode-btn"
+                onClick={() => {
+                  const cacheBuster = `t=${Date.now()}`;
+                  setVideos(prev => prev.map(v => {
+                    const cleanUrl = v.url.split('?')[0];
+                    return { ...v, url: `${cleanUrl}?${cacheBuster}` };
+                  }));
+                  addLog("SYSTEM: Refreshed all tiles in workspace");
+                }}
+                data-tooltip="Refresh All Tiles"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <RefreshCw size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                <span>REFRESH TILES</span>
+              </button>
             </div>
             
             {isTauri() && (
@@ -749,10 +773,10 @@ export function ControlBar({
                   { label: 'Custom Order', value: 'custom' },
                   { label: 'Sort: Videos First', value: 'videos-first' },
                   { label: 'Sort: Stills First', value: 'pictures-first' },
-                  { label: 'Name (A â†’ Z)', value: 'name-asc' },
-                  { label: 'Name (Z â†’ A)', value: 'name-desc' },
-                  { label: 'Size (Small â†’ Large)', value: 'size-asc' },
-                  { label: 'Size (Large â†’ Small)', value: 'size-desc' },
+                  { label: 'Name (A -> Z)', value: 'name-asc' },
+                  { label: 'Name (Z -> A)', value: 'name-desc' },
+                  { label: 'Size (Small -> Large)', value: 'size-asc' },
+                  { label: 'Size (Large -> Small)', value: 'size-desc' },
                   { label: 'Date Modified (Newest)', value: 'modified-newest' },
                   { label: 'Date Modified (Oldest)', value: 'modified-oldest' },
                   { label: 'Date Created (Newest)', value: 'created-newest' },
@@ -1146,7 +1170,7 @@ export function ControlBar({
                 <span>Zoom</span>
               </div>
             </div>
-
+            
             </div>
           </div>
         </header>

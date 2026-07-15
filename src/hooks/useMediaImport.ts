@@ -8,7 +8,8 @@ import {
   showConfirm,
   requiresConversion,
   maybeConvertMedia,
-  isTauri
+  isTauri,
+  generateUUID
 } from '../utils/videoUtils';
 
 interface UseMediaImportProps {
@@ -114,6 +115,9 @@ export function useMediaImport({
   const handleIngestPaths = useCallback(async (paths: string[]) => {
     if (!paths || paths.length === 0) return;
     
+    console.log("[useMediaImport] handleIngestPaths called with:", paths);
+    addLog(`System: Ingesting ${paths.length} file(s)...`);
+
     // Phase 1: Resolve and identify types
     const resolved = paths.map(p => {
       const isVideo = isValidMediaExtension(p, 'video');
@@ -127,7 +131,12 @@ export function useMediaImport({
       };
     }).filter(f => f.isVideo || f.isPicture);
 
-    if (resolved.length === 0) return;
+    console.log("[useMediaImport] resolved files:", resolved);
+
+    if (resolved.length === 0) {
+      console.warn("[useMediaImport] No files resolved as valid media.");
+      return;
+    }
 
     // Phase 2: Check conversion
     const needConv = resolved.filter(f => requiresConversion(f.path, f.isVideo));
@@ -166,8 +175,12 @@ export function useMediaImport({
 
     for (const file of resolved) {
       try {
+        console.log("[useMediaImport] Processing file:", file.path);
         const needsConv = requiresConversion(file.path, file.isVideo);
-        if (needsConv && !doConvert) continue;
+        if (needsConv && !doConvert) {
+          console.log("[useMediaImport] Skipping non-native file (conversion declined):", file.path);
+          continue;
+        }
 
         if (needsConv && doConvert) {
           convIdx++;
@@ -195,12 +208,12 @@ export function useMediaImport({
           console.error('[Ingestion] Failed to get stats for single file:', file.path, e);
         }
 
-        newItems.push({
-          id: crypto.randomUUID(),
+        const newItem = {
+          id: generateUUID(),
           url: finalUrl,
           realPath: finalPath,
           title: finalName,
-          repeatMode: 'none',
+          repeatMode: 'none' as RepeatMode,
           repeatCount: 0,
           cols: 1,
           currentIdx: 0,
@@ -209,17 +222,26 @@ export function useMediaImport({
           size,
           modified,
           created
-        });
+        };
+        console.log("[useMediaImport] Created new item:", newItem);
+        newItems.push(newItem);
       } catch (err: any) {
         console.error('Failed to ingest browser path:', file.path, err);
       }
     }
 
     setConvertingStatus(null);
+    console.log("[useMediaImport] Final newItems list built:", newItems);
 
     if (newItems.length > 0) {
-      setVideos(prev => [...prev, ...newItems]);
+      setVideos(prev => {
+        const next = [...prev, ...newItems];
+        console.log("[useMediaImport] setVideos called. Prev count:", prev.length, "New count:", next.length);
+        return next;
+      });
       addLog(`System: Ingested ${newItems.length} file(s) from in-app browser.`);
+    } else {
+      console.warn("[useMediaImport] No items added to videos state (newItems is empty).");
     }
   }, [masterPlaying, masterMuted, setVideos, addLog, setConvertingStatus]);
 
@@ -253,7 +275,7 @@ export function useMediaImport({
         }));
         
         const folderName = parentPath.split('/').pop() || "Snapshots";
-        const newFolderId = crypto.randomUUID();
+        const newFolderId = generateUUID();
         
         setVideos((p) => [
           ...p,
@@ -306,7 +328,7 @@ export function useMediaImport({
             setVideos((p) => [
               ...p,
               {
-                id: crypto.randomUUID(),
+                id: generateUUID(),
                 url: toCosmoUrl(convertedVids[0].url),
                 realPath: convertedVids[0].url,
                 title: convertedVids[0].name,

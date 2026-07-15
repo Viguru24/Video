@@ -164,9 +164,8 @@
   cursor: none !important;
 }
 [data-ghost="true"] .video-overlay, [data-ghost="true"] .fs-exit-trigger, [data-ghost="true"] .app-footer, [data-ghost="true"] .app-header { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; transition: opacity 0.3s ease, visibility 0.3s !important; }
-/* Modals and watermark toolbar must ALWAYS be visible and interactive — never ghost them */
+/* Modals must ALWAYS be visible and interactive — never ghost them */
 [data-ghost="true"] .modal-overlay,
-[data-ghost="true"] .watermark-editor-toolbar,
 [data-ghost="true"] .card-action-menu { opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; }
 
 

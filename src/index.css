@@ -8,3 +8,8 @@
 @import "./styles/modals.css";
 @import "./styles/telemetry.css";
 @import "./styles/workshops.css";
+
+/* Disable automatic browser EXIF rotation for all images to align with raw coordinates */
+img {
+  image-orientation: none !important;
+}

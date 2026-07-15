@@ -49,7 +49,7 @@ export function TelemetryPanel({ videosCount, telemetry }: TelemetryPanelProps) 
         <div className="tel-divider" />
         <div className="tel-item" data-tooltip="GPU THERMAL STATE">
           <Thermometer size={12} className="text-accent" />
-          <span className="tel-label">TEMP:</span> {(telemetry.temp ?? internalStats.temp).toFixed(1)}Â°C
+          <span className="tel-label">TEMP:</span> {(telemetry.temp ?? internalStats.temp).toFixed(1)}°C
         </div>
         <div className="tel-divider" />
         <div className="tel-item" data-tooltip="SYSTEM STABILITY INDEX">

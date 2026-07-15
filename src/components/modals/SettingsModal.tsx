@@ -1,4 +1,4 @@
-import { X, Monitor, MousePointer2, Info, Gauge, Zap, ListRestart, Layers, Palette, HelpCircle, Keyboard, Play, Camera, Maximize, ExternalLink, Download } from 'lucide-react';
+import { X, Monitor, MousePointer2, Info, Gauge, Zap, ListRestart, Layers, Palette, HelpCircle, Keyboard, Play, Camera, Maximize, ExternalLink, Download, Sparkles } from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store/useStore';
@@ -45,7 +45,9 @@ export function SettingsModal({
     enableOSFullscreen,
     setEnableOSFullscreen,
     enableSlideshowPanZoom,
-    setEnableSlideshowPanZoom
+    setEnableSlideshowPanZoom,
+    aiHardwareStatus,
+    setAiHardwareStatus
   } = useStore();
   
   const [customPath, setCustomPath] = useState<string>('');
@@ -471,9 +473,18 @@ export function SettingsModal({
                         Force a clean download and extraction of the AI dependencies from VPS
                       </span>
                     </div>
-                    {onForceSetup && (
+                    <div style={{ display: 'flex', gap: '8px' }}>
                       <button 
-                        onClick={onForceSetup}
+                        onClick={async () => {
+                          setAiHardwareStatus('Detecting...');
+                          try {
+                            const res = await invoke<string>('detect_ai_hardware');
+                            setAiHardwareStatus(res);
+                          } catch (e) {
+                            console.error(e);
+                            setAiHardwareStatus('CPU (Bilateral Filter Fallback)');
+                          }
+                        }}
                         className="browse-btn"
                         style={{ 
                           display: 'flex', 
@@ -481,16 +492,37 @@ export function SettingsModal({
                           gap: '6px', 
                           height: '28px', 
                           padding: '0 12px',
-                          background: 'var(--accent, #00ff88)',
-                          color: '#000',
-                          border: 'none',
-                          fontWeight: 700
+                          background: 'rgba(255,255,255,0.06)',
+                          color: '#fff',
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          fontWeight: 600
                         }}
                       >
-                        <ListRestart size={12} />
-                        <span>Force Reinstall</span>
+                        <Sparkles size={12} />
+                        <span>Re-detect GPU</span>
                       </button>
-                    )}
+
+                      {onForceSetup && (
+                        <button 
+                          onClick={onForceSetup}
+                          className="browse-btn"
+                          style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '6px', 
+                            height: '28px', 
+                            padding: '0 12px',
+                            background: 'var(--accent, #00ff88)',
+                            color: '#000',
+                            border: 'none',
+                            fontWeight: 700
+                          }}
+                        >
+                          <ListRestart size={12} />
+                          <span>Force Reinstall</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -564,6 +596,27 @@ export function SettingsModal({
                       <span>Get HEVC Extensions from Microsoft Store</span>
                       <ExternalLink size={10} />
                     </a>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'rgba(0, 255, 136, 0.02)',
+                  border: '1px solid rgba(0, 255, 136, 0.08)',
+                  borderRadius: '8px',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '12px',
+                  marginBottom: '20px'
+                }}>
+                  <Zap size={16} color="var(--accent, #00ff88)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                  <div>
+                    <h4 style={{ fontSize: '11px', color: '#fff', fontWeight: 'bold', margin: '0 0 4px 0' }}>HARDWARE-AWARE SECURE DELETION</h4>
+                    <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: '0' }}>
+                      Cosmo Symphony automatically queries your physical storage device media type. 
+                      For <strong>SSDs & NVMes</strong>, it avoids wear-inducing overwrites and triggers direct hardware block erasure via Windows API <code>FSCTL_FILE_LEVEL_TRIM</code> commands. 
+                      For <strong>traditional HDDs</strong>, it performs a secure 3-pass cryptographic wipe (Zero, 0xFF, and random passes) followed by truncation.
+                    </p>
                   </div>
                 </div>
               </div>

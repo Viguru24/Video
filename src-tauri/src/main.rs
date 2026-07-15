@@ -178,6 +178,28 @@ fn main() {
     }
 
     let builder = tauri::Builder::default()
+        .on_window_event(|window, event| {
+            match event {
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                    println!("Cosmo Symphony: Close/Destroy requested on window '{}'. Exiting hard...", window.label());
+                    
+                    // Spawn a quick background process killer command for sibling servers
+                    #[cfg(target_os = "windows")]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        let _ = std::process::Command::new("powershell.exe")
+                            .args(&[
+                                "-NoProfile", "-Command",
+                                "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+                            ])
+                            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                            .output();
+                    }
+                    std::process::exit(0);
+                }
+                _ => {}
+            }
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
         .plugin(
@@ -417,9 +439,8 @@ fn main() {
             commands::media::upscale_image,
             commands::media::generate_store_logos,
             commands::media::enhance_image_crop,
-            commands::media::auto_erase_watermark,
-            commands::media::save_inpainted_image,
             commands::system::get_ai_hardware_status,
+            commands::system::detect_ai_hardware,
             commands::system::span_all_monitors,
             commands::system::unspan_monitors,
             commands::media::snapshot_video_frame,
@@ -431,6 +452,7 @@ fn main() {
             commands::filesystem::file_exists,
             commands::filesystem::duplicate_file_on_disk,
             commands::media::crop_image_on_disk,
+            commands::media::get_media_dimensions,
             commands::media::resize_image_on_disk,
             commands::filesystem::secure_delete_file,
             commands::system::exit_app,
@@ -574,7 +596,7 @@ fn main() {
                 } else {
                     "CPU (Bilateral Filter Fallback)".to_string()
                 };
-                let _ = commands::system::AI_HARDWARE_MODE.set(mode_str);
+                commands::system::set_ai_hardware_status(mode_str);
             });
 
             // Copy demo files to AppData directory in a background thread so the window shows immediately
@@ -593,23 +615,9 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|app_handle, event| {
+    app.run(|_app_handle, event| {
         if let tauri::RunEvent::Exit = event {
-            println!("Cosmo Symphony: Running secure forensic cleanup of temp files...");
-            let _ = commands::server::secure_cleanup_on_exit(app_handle);
-            
-            // Terminate background Python servers (ports 8005 and 12000) to release file locks
-            #[cfg(target_os = "windows")]
-            {
-                use std::os::windows::process::CommandExt;
-                let _ = std::process::Command::new("powershell.exe")
-                    .args(&[
-                        "-NoProfile", "-Command",
-                        "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-                    ])
-                    .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                    .spawn();
-            }
+            // Hard exit process immediately to release WebView2 graphics context
             std::process::exit(0);
         }
     });

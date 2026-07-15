@@ -196,137 +196,9 @@ export function useVideoCard({
   const startPan = useRef({ x: 0, y: 0 });
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
 
-  // Watermark Auto-Eraser State
-  const [isEditingWatermark, setIsEditingWatermark] = useState(false);
-  const [boxStart, setBoxStart] = useState<{ x: number; y: number } | null>(null);
-  const [boxEnd, setBoxEnd] = useState<{ x: number; y: number } | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [inpaintedPreview, setInpaintedPreview] = useState<string | null>(null);
-  const [isErasingLoading, setIsErasingLoading] = useState(false);
-  const imageRef = useRef<HTMLImageElement>(null);
 
-  const handleImageMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isEditingWatermark || inpaintedPreview || isErasingLoading || !imageRef.current) return;
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const imgRect = imageRef.current.getBoundingClientRect();
-    const x = e.clientX - imgRect.left;
-    const y = e.clientY - imgRect.top;
-    
-    // Clamp to image bounds
-    const clampedX = Math.max(0, Math.min(imgRect.width, x));
-    const clampedY = Math.max(0, Math.min(imgRect.height, y));
-    
-    setBoxStart({ x: clampedX, y: clampedY });
-    setBoxEnd({ x: clampedX, y: clampedY });
-    setIsDrawing(true);
-  };
-
-  const handleImageMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isEditingWatermark || !isDrawing || !boxStart || inpaintedPreview || isErasingLoading || !imageRef.current) return;
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const imgRect = imageRef.current.getBoundingClientRect();
-    const x = e.clientX - imgRect.left;
-    const y = e.clientY - imgRect.top;
-    
-    // Clamp to image bounds
-    const clampedX = Math.max(0, Math.min(imgRect.width, x));
-    const clampedY = Math.max(0, Math.min(imgRect.height, y));
-    
-    setBoxEnd({ x: clampedX, y: clampedY });
-  };
-
-  const handleImageMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isEditingWatermark || !isDrawing || inpaintedPreview || isErasingLoading) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDrawing(false);
-  };
-
-  const handleAutoErase = async () => {
-    if (!boxStart || !boxEnd || !imageRef.current) return;
-    
-    const rectX = Math.min(boxStart.x, boxEnd.x);
-    const rectY = Math.min(boxStart.y, boxEnd.y);
-    const rectW = Math.abs(boxStart.x - boxEnd.x);
-    const rectH = Math.abs(boxStart.y - boxEnd.y);
-    
-    if (rectW < 5 || rectH < 5) {
-      onLog("Please draw a larger selection box");
-      return;
-    }
-    
-    const rect = imageRef.current.getBoundingClientRect();
-    
-    setIsErasingLoading(true);
-    try {
-      onLog("Auto-detecting watermark contours & inpainting on local RTX GPU...");
-      const result = await invoke<string>('auto_erase_watermark', {
-        path: video.realPath,
-        rectX,
-        rectY,
-        rectW,
-        rectH,
-        widthDisp: rect.width,
-        heightDisp: rect.height
-      });
-      setInpaintedPreview(result);
-      onLog("Watermark successfully removed! Review preview, then click Save & Apply.");
-    } catch (e) {
-      console.error(e);
-      onLog(`Error removing watermark: ${e}`);
-    } finally {
-      setIsErasingLoading(false);
-    }
-  };
-
-  const handleSaveInpainted = async () => {
-    if (!inpaintedPreview) return;
-    
-    try {
-      onLog("Saving clean image on disk...");
-      await invoke('save_inpainted_image', {
-        path: video.realPath,
-        base64Data: inpaintedPreview
-      });
-      
-      const newKey = Date.now();
-      setReloadKey(newKey);
-      onLog("Watermark removed and original file overwritten successfully!");
-      
-      // Clear state and exit editing mode
-      setInpaintedPreview(null);
-      setBoxStart(null);
-      setBoxEnd(null);
-      setIsEditingWatermark(false);
-    } catch (e) {
-      console.error(e);
-      onLog(`Failed to save: ${e}`);
-    }
-  };
-
-  const handleResetEraser = () => {
-    setInpaintedPreview(null);
-    setBoxStart(null);
-    setBoxEnd(null);
-    setIsDrawing(false);
-    onLog("Watermark eraser selection reset.");
-  };
-
-  const handleCancelEraser = () => {
-    setInpaintedPreview(null);
-    setBoxStart(null);
-    setBoxEnd(null);
-    setIsDrawing(false);
-    setIsEditingWatermark(false);
-    onLog("Watermark editing cancelled.");
-  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (isEditingWatermark) return;
 
     // Handle middle click (roller button click) to rotate
     if (e.button === 1) {
@@ -418,14 +290,6 @@ export function useVideoCard({
     setIsPanning(false);
   }, [video.url]);
 
-  // Reset zoom/pan when entering watermark editing mode
-  useEffect(() => {
-    if (isEditingWatermark) {
-      setZoomScale(1);
-      setPanOffset({ x: 0, y: 0 });
-      setIsPanning(false);
-    }
-  }, [isEditingWatermark]);
 
   // Reset zoom/pan when entering cropping mode
   useEffect(() => {
@@ -856,12 +720,14 @@ export function useVideoCard({
 
       const v = videoRef.current;
       const currentTimeSecs = v ? v.currentTime : (video.currentTime || 0);
-      const realFilePath = video.realPath || '';
-
-      if (!realFilePath) {
-        onLog('ERROR: Snapshot failed - no real file path available for this video');
-        return;
+      let realFilePath = video.realPath || '';
+      
+      // Fallback for bundled demo videos so they can be snapshotted successfully
+      if (!realFilePath && (video.url?.startsWith('/demos/') || video.url?.startsWith('demos/'))) {
+        realFilePath = toRealPath(video.url) || '';
       }
+
+
 
       let dirToUse = snapshotDir;
       if (isTauri() && (!dirToUse || dirToUse.trim() === '')) {
@@ -882,26 +748,66 @@ export function useVideoCard({
       const fileName = `Cosmo_${video.title.replace(/[^a-z0-9]/gi, '_')}_${timestamp}.png`;
 
       if (isTauri()) {
-        const path = await invoke<string>('snapshot_video_frame', {
-          realPath: realFilePath,
-          timestampSecs: currentTimeSecs,
-          fileName,
-          customDir: dirToUse || null,
-        });
-
-        onLog(`SUCCESS: Snapshot saved to: ${path}`);
-
-        if (onAddVideo) {
-          onAddVideo({
-            id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            title: fileName.replace('.png', ''),
-            url: toCosmoUrl(path),
-            realPath: path,
-            currentTime: 0,
-            repeatMode: 'none',
-            playing: false,
-            muted: true
+        try {
+          if (!realFilePath) {
+            throw new Error("No physical file path available.");
+          }
+          const path = await invoke<string>('snapshot_video_frame', {
+            realPath: realFilePath,
+            timestampSecs: currentTimeSecs,
+            fileName,
+            customDir: dirToUse || null,
           });
+
+          onLog(`SUCCESS: Snapshot saved to: ${path}`);
+
+          if (onAddVideo) {
+            onAddVideo({
+              id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              title: fileName.replace('.png', ''),
+              url: toCosmoUrl(path),
+              realPath: path,
+              currentTime: 0,
+              repeatMode: 'none',
+              playing: false,
+              muted: true
+            });
+          }
+        } catch (err: any) {
+          onLog(`SYSTEM: Native snapshot failed (${err.message || err}). Trying Canvas client-side fallback...`);
+          if (v && v.videoWidth > 0) {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = v.videoWidth;
+              canvas.height = v.videoHeight;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) throw new Error("Could not create canvas context");
+              ctx.drawImage(v, 0, 0, v.videoWidth, v.videoHeight);
+              const base64 = canvas.toDataURL('image/png');
+              const path = await invoke<string>('save_snapshot', {
+                base64Data: base64,
+                fileName,
+                customDir: dirToUse || null
+              });
+              onLog(`SUCCESS (Canvas Fallback): Snapshot saved to: ${path}`);
+              if (onAddVideo) {
+                onAddVideo({
+                  id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                  title: fileName.replace('.png', ''),
+                  url: toCosmoUrl(path),
+                  realPath: path,
+                  currentTime: 0,
+                  repeatMode: 'none',
+                  playing: false,
+                  muted: true
+                });
+              }
+            } catch (fallbackErr: any) {
+              onLog(`ERROR: Snapshot failed entirely: ${fallbackErr.message || fallbackErr}`);
+            }
+          } else {
+            onLog('ERROR: Video is not ready or has zero dimension');
+          }
         }
       } else {
         if (v && v.videoWidth > 0) {
@@ -1049,9 +955,6 @@ export function useVideoCard({
         videoRef.current.currentTime = Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + (1 / FPS));
         onUpdateVideo(video.id, { playing: false });
       }
-    }
-    if (type === 'watermark') {
-      setIsEditingWatermark(true);
     }
   }, [globalControl, video.id, takeSnapshot, onUpdateVideo, focusedId, inSoloMode]);
 
@@ -1373,7 +1276,6 @@ export function useVideoCard({
     // refs
     videoRef,
     cardRef,
-    imageRef,
     progressRef,
     handleRef,
     textRef,
@@ -1391,11 +1293,7 @@ export function useVideoCard({
     zoomScale,
     panOffset,
     isPanning,
-    isEditingWatermark,
-    boxStart,
-    boxEnd,
-    inpaintedPreview,
-    isErasingLoading,
+
     error,
     recovering,
     snapshotToast,
@@ -1426,18 +1324,7 @@ export function useVideoCard({
     setError,
     setPlaying,
     setReloadKey,
-    setIsEditingWatermark,
-    setInpaintedPreview,
-    setBoxStart,
-    setBoxEnd,
     // actions/handlers
-    handleImageMouseDown,
-    handleImageMouseMove,
-    handleImageMouseUp,
-    handleAutoErase,
-    handleSaveInpainted,
-    handleResetEraser,
-    handleCancelEraser,
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,

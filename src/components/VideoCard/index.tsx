@@ -1,13 +1,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Play, Pause, RefreshCw, Camera, Volume2, VolumeX, GripVertical, Minimize2, FolderOpen, X, AlertCircle, ChevronLeft, ChevronRight, Maximize, CheckCircle2, Trash2, Eraser, Sliders, Crop, Sparkles, ExternalLink } from 'lucide-react';
+import { Play, Pause, RefreshCw, Camera, Volume2, VolumeX, GripVertical, Minimize2, FolderOpen, X, AlertCircle, ChevronLeft, ChevronRight, Maximize, CheckCircle2, Trash2, Sliders, Crop, Sparkles, ExternalLink } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store/useStore';
 import { triggerPopOut } from '../../utils/videoUtils';
 import { useVideoCard } from './useVideoCard';
 import type { UseVideoCardProps } from './useVideoCard';
 import { AudioCard } from './AudioCard';
-import { WatermarkEraserCanvas, WatermarkToolbar } from './WatermarkEraser';
 import { ColorFilterDefs } from '../ColorFilterDefs';
 
 interface VideoCardProps extends Omit<UseVideoCardProps, 'quality'> {
@@ -84,28 +83,7 @@ function VideoCardInternal(props: VideoCardProps) {
       
       {props.isVisible && !props.isAiEnhancing ? (
         state.isImage ? (
-          state.isEditingWatermark ? (
-            <WatermarkEraserCanvas
-              video={props.video}
-              displayUrl={state.displayUrl}
-              filterId={state.filterId}
-              filters={state.filters}
-              imageRef={state.imageRef}
-              inpaintedPreview={state.inpaintedPreview}
-              isErasingLoading={state.isErasingLoading}
-              boxStart={state.boxStart}
-              boxEnd={state.boxEnd}
-              reloadKey={state.reloadKey}
-              onMouseDown={state.handleImageMouseDown}
-              onMouseMove={state.handleImageMouseMove}
-              onMouseUp={state.handleImageMouseUp}
-              onAutoErase={state.handleAutoErase}
-              onSaveInpainted={state.handleSaveInpainted}
-              onResetEraser={state.handleResetEraser}
-              onCancelEraser={state.handleCancelEraser}
-            />
-          ) : (
-            <div
+          (            <div
               className="media-wrapper"
               data-zoom={state.zoomScale}
               data-pan-x={state.panOffset.x}
@@ -132,7 +110,7 @@ function VideoCardInternal(props: VideoCardProps) {
                 style={{ 
                   width: '100%', 
                   height: '100%', 
-                  objectFit: fitMode,
+              objectFit: props.isCropping ? 'contain' : fitMode, 
                   imageOrientation: 'none', 
                   filter: props.video.colorFilters ? `url(#filter-${state.filterId}) brightness(${state.filters.brightness}) contrast(${state.filters.contrast}) saturate(${state.filters.saturation}) hue-rotate(${state.filters.hue}deg)` : undefined
                 }}
@@ -232,7 +210,7 @@ function VideoCardInternal(props: VideoCardProps) {
             style={{ 
               width: '100%', 
               height: '100%', 
-              objectFit: fitMode, 
+              objectFit: props.isCropping ? 'contain' : fitMode, 
               backgroundColor: '#000',
               transform: `translate(${state.panOffset.x}px, ${state.panOffset.y}px) scale(${state.zoomScale}) ${props.video.flipped ? 'scaleX(-1) ' : ''}rotate(${props.video.rotation || 0}deg)`,
               transition: state.isPanning ? 'none' : 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -269,7 +247,30 @@ function VideoCardInternal(props: VideoCardProps) {
         <div key={state.snapshotToast} className="snapshot-toast">SNAPSHOT SAVED</div>
       )}
 
-      {!state.isEditingWatermark && props.masterShowUI && !immersive && (
+      {/* Localized Demo File Warning Label */}
+      {(props.video.url?.startsWith('demos/') || props.video.url?.startsWith('/demos/') || props.video.realPath?.includes('demos')) && (
+        <div className="demo-notice-tag" style={{
+          position: 'absolute',
+          top: '12px',
+          left: '12px',
+          background: 'rgba(255, 171, 0, 0.9)',
+          color: '#000',
+          fontSize: '9px',
+          fontWeight: 900,
+          padding: '3px 8px',
+          borderRadius: '4px',
+          letterSpacing: '0.8px',
+          textTransform: 'uppercase',
+          pointerEvents: 'none',
+          boxShadow: '0 4px 10px rgba(0, 0, 0, 0.4)',
+          zIndex: 80,
+          fontFamily: 'system-ui, -apple-system, sans-serif'
+        }}>
+          Demo File: Snapshots Restricted
+        </div>
+      )}
+
+      {props.masterShowUI && !immersive && (
         <div 
           className={`selection-indicator ${props.isSelected ? 'selected' : ''}`}
           onClick={(e) => { e.stopPropagation(); props.onToggleSelect?.(e.shiftKey, true); }}
@@ -290,7 +291,7 @@ function VideoCardInternal(props: VideoCardProps) {
         </div>
       )}
 
-      {!state.isEditingWatermark && !props.isFocused && (state.error || (props.masterShowUI && (props.selectionMode || state.showControls || props.isSelected))) && !immersive && (
+      {!props.isFocused && (state.error || (props.masterShowUI && (props.selectionMode || state.showControls || props.isSelected))) && !immersive && (
         <button 
           onClick={(e) => { e.stopPropagation(); props.onRemove(props.video.id); }} 
           className="premium-close-btn"
@@ -328,7 +329,7 @@ function VideoCardInternal(props: VideoCardProps) {
         </button>
       )}
 
-      {!state.isEditingWatermark && (
+      {(
         <div className={`video-overlay ${(props.selectionMode || state.showControls || props.isFocused || props.isSelected) && props.masterShowUI ? 'visible' : 'hidden'}`}>
         
         {props.isFocused && !state.isImage && (
@@ -505,53 +506,98 @@ function VideoCardInternal(props: VideoCardProps) {
               <GripVertical size={16} />
             </div>
 
-            {/* Pop Out Window Button */}
-            <button
-              className="mini-btn popout-btn"
-              onClick={async (e) => {
-                e.stopPropagation();
-                try {
-                  const effectivePath = (props.video.folderFiles && props.video.currentIdx !== undefined)
-                    ? (props.video.folderFiles[props.video.currentIdx]?.path || props.video.folderFiles[props.video.currentIdx]?.url)
-                    : props.video.realPath || props.video.url;
-                  await triggerPopOut(effectivePath, props.video.title);
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              {/* Refresh Tile Button */}
+              <button
+                className="mini-btn refresh-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const cacheBuster = `t=${Date.now()}`;
+                  const cleanUrl = props.video.url.split('?')[0];
+                  props.onUpdateVideo(props.video.id, { url: `${cleanUrl}?${cacheBuster}` });
                   if (props.onLog) {
-                    props.onLog(`SYSTEM: Popped out asset "${props.video.title}"`);
+                    props.onLog(`SYSTEM: Refreshed tile "${props.video.title}"`);
                   }
-                } catch (err) {
-                  console.error("Popout failed:", err);
-                }
-              }}
-              data-tooltip="Pop Out Player"
-              style={{
-                pointerEvents: 'auto',
-                background: 'rgba(10, 10, 12, 0.45)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                color: 'rgba(255, 255, 255, 0.7)',
-                borderRadius: '6px',
-                width: '26px',
-                height: '26px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                opacity: state.showControls ? 1 : 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = '#fff';
-                e.currentTarget.style.background = 'rgba(10, 10, 12, 0.8)';
-                e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
-                e.currentTarget.style.background = 'rgba(10, 10, 12, 0.45)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
-              }}
-            >
-              <ExternalLink size={12} />
-            </button>
+                }}
+                data-tooltip="Refresh Tile"
+                style={{
+                  pointerEvents: 'auto',
+                  background: 'rgba(10, 10, 12, 0.45)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  borderRadius: '6px',
+                  width: '26px',
+                  height: '26px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  opacity: state.showControls ? 1 : 0
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#fff';
+                  e.currentTarget.style.background = 'rgba(10, 10, 12, 0.8)';
+                  e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+                  e.currentTarget.style.background = 'rgba(10, 10, 12, 0.45)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                }}
+              >
+                <RefreshCw size={12} />
+              </button>
+
+              {/* Pop Out Window Button */}
+              <button
+                className="mini-btn popout-btn"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    const effectivePath = (props.video.folderFiles && props.video.currentIdx !== undefined)
+                      ? (props.video.folderFiles[props.video.currentIdx]?.path || props.video.folderFiles[props.video.currentIdx]?.url)
+                      : props.video.realPath || props.video.url;
+                    await triggerPopOut(effectivePath, props.video.title);
+                    if (props.onLog) {
+                      props.onLog(`SYSTEM: Popped out asset "${props.video.title}"`);
+                    }
+                  } catch (err) {
+                    console.error("Popout failed:", err);
+                  }
+                }}
+                data-tooltip="Pop Out Player"
+                style={{
+                  pointerEvents: 'auto',
+                  background: 'rgba(10, 10, 12, 0.45)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  borderRadius: '6px',
+                  width: '26px',
+                  height: '26px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  opacity: state.showControls ? 1 : 0
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#fff';
+                  e.currentTarget.style.background = 'rgba(10, 10, 12, 0.8)';
+                  e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+                  e.currentTarget.style.background = 'rgba(10, 10, 12, 0.45)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                }}
+              >
+                <ExternalLink size={12} />
+              </button>
+            </div>
           </div>
         )}
 
@@ -753,17 +799,6 @@ function VideoCardInternal(props: VideoCardProps) {
           <div className="card-menu-items">
             {state.isImage ? (
               <>
-                <button 
-                  className="card-menu-item" 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    state.setIsEditingWatermark(true); 
-                    state.setShowCardMenu(false); 
-                  }}
-                >
-                  <Eraser size={12} />
-                  <span>Erase Watermark</span>
-                </button>
                 {props.onSelectAll && (
                   <button 
                     className="card-menu-item" 
@@ -853,19 +888,6 @@ function VideoCardInternal(props: VideoCardProps) {
             )}
           </div>
         </div>
-      )}
-
-      {state.isEditingWatermark && (
-        <WatermarkToolbar
-          isErasingLoading={state.isErasingLoading}
-          boxStart={state.boxStart}
-          boxEnd={state.boxEnd}
-          inpaintedPreview={state.inpaintedPreview}
-          onAutoErase={state.handleAutoErase}
-          onSaveInpainted={state.handleSaveInpainted}
-          onResetEraser={state.handleResetEraser}
-          onCancelEraser={state.handleCancelEraser}
-        />
       )}
 
       {state.hudData && (

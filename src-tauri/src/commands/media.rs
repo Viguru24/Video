@@ -1213,9 +1213,12 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
         .as_millis();
 
     let output_path = if overwrite {
-        let temp_dir = std::env::temp_dir();
+        // Use the source file's own directory for the temp file instead of std::env::temp_dir().
+        // In MSIX sandboxed builds, temp_dir() is a virtualized package path that the Python
+        // sidecar (running outside the sandbox) cannot write to, causing a silent copy failure.
+        let parent = p.parent().unwrap_or_else(|| Path::new("."));
         let temp_file_name = format!("{}_upscale_temp_{}.{}", stem, timestamp, ext);
-        temp_dir.join(&temp_file_name)
+        parent.join(&temp_file_name)
     } else {
         let parent = p.parent().unwrap_or_else(|| Path::new("."));
         let base_prefix = crate::commands::filesystem::extract_base_prefix(&stem);
@@ -1460,9 +1463,9 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
     let parent = p.parent().unwrap_or_else(|| Path::new("."));
     
     let output_path = if overwrite {
-        let temp_dir = std::env::temp_dir();
+        // Same fix as upscale_image: use parent dir instead of temp_dir() for MSIX sandbox compat.
         let temp_file_name = format!("{}_upscale_temp_{}.{}", stem, timestamp, ext);
-        temp_dir.join(&temp_file_name)
+        parent.join(&temp_file_name)
     } else {
         let base_prefix = crate::commands::filesystem::extract_base_prefix(&stem);
         let next_num = crate::commands::filesystem::get_next_sequence_num(parent, &base_prefix, &ext);
@@ -1737,112 +1740,14 @@ pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String,
 }
 
 #[tauri::command]
-pub async fn auto_erase_watermark(
-    app: AppHandle,
-    path: String,
-    rect_x: f64,
-    rect_y: f64,
-    rect_w: f64,
-    rect_h: f64,
-    width_disp: f64,
-    height_disp: f64,
-) -> Result<String, String> {
-    use std::io::{Write, Read};
-    use std::net::TcpStream;
-
-    let mut stream_connected = TcpStream::connect("127.0.0.1:12000").is_ok();
-    
-    if !stream_connected {
-        println!("Watermark auto-eraser requested but server is offline. Spawning background server...");
-        if let Ok(_) = spawn_enhancement_server(Some(&app)) {
-            for _ in 0..100 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if TcpStream::connect("127.0.0.1:12000").is_ok() {
-                    stream_connected = true;
-                    println!("AI Enhancement Server booted and connected on port 12000 for watermark eraser!");
-                    break;
-                }
-            }
-        }
-    }
-    
-    if !stream_connected {
-        return Err("Connection to local AI server failed. Make sure Python is installed and the models are available.".into());
-    }
-
-    let mut stream = TcpStream::connect("127.0.0.1:12000").map_err(|e| format!("Connection to local AI enhancer failed: {}", e))?;
-    
-    let json_payload = serde_json::json!({
-        "path": path,
-        "rect_x": rect_x,
-        "rect_y": rect_y,
-        "rect_w": rect_w,
-        "rect_h": rect_h,
-        "width_disp": width_disp,
-        "height_disp": height_disp
-    }).to_string();
-    
-    let request = format!(
-        "POST /inpaint HTTP/1.1\r\n\
-         Host: 127.0.0.1:12000\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\r\n\
-         {}",
-        json_payload.len(),
-        json_payload
-    );
-    
-    stream.write_all(request.as_bytes()).map_err(|e| format!("Failed to send data to AI enhancer: {}", e))?;
-    
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).map_err(|e| format!("Failed to read response from AI enhancer: {}", e))?;
-    
-    let response_str = String::from_utf8_lossy(&response);
-    
-    if let Some(pos) = response_str.find("\r\n\r\n") {
-        let body = &response_str[pos + 4..];
-        
-        let parsed: Value = serde_json::from_str(body).map_err(|e| format!("Inpainting server returned invalid JSON: {}", e))?;
-        if let Some(err) = parsed.get("error") {
-            return Err(err.as_str().unwrap_or("Unknown server error").to_string());
-        }
-        
-        if let Some(img) = parsed.get("image") {
-            if let Some(img_str) = img.as_str() {
-                return Ok(img_str.to_string());
-            }
-        }
-        
-        Err("Inpainting server returned invalid response format".to_string())
-    } else {
-        Err("Inpainting server returned invalid HTTP response".to_string())
-    }
-}
-
-#[tauri::command]
-pub async fn save_inpainted_image(path: String, base64_data: String) -> Result<(), String> {
-    let path = clean_local_path(&path);
-    use std::fs::File;
-    use std::io::Write;
-    
-    let decoded = general_purpose::STANDARD
-        .decode(base64_data.trim())
-        .map_err(|e| format!("Failed to decode base64 data: {}", e))?;
-        
-    let mut file = File::create(&path).map_err(|e| format!("Failed to open file for writing: {}", e))?;
-    file.write_all(&decoded).map_err(|e| format!("Failed to write decoded bytes to disk: {}", e))?;
-    
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn crop_image_on_disk(
     path: String,
     crop_x: f64,
     crop_y: f64,
     crop_w: f64,
     crop_h: f64,
+    img_w: f64,
+    img_h: f64,
     overwrite: bool,
 ) -> Result<String, String> {
     let path = clean_local_path(&path);
@@ -1850,8 +1755,8 @@ pub async fn crop_image_on_disk(
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     debug_log(&format!(
-        "START crop_image_on_disk: path={}, crop_x={}, crop_y={}, crop_w={}, crop_h={}, overwrite={}",
-        path, crop_x, crop_y, crop_w, crop_h, overwrite
+        "START crop_image_on_disk: path={}, crop_x={}, crop_y={}, crop_w={}, crop_h={}, img_w={}, img_h={}, overwrite={}",
+        path, crop_x, crop_y, crop_w, crop_h, img_w, img_h, overwrite
     ));
 
     tauri::async_runtime::spawn_blocking(move || {
@@ -1863,22 +1768,6 @@ pub async fn crop_image_on_disk(
         let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
         let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
         let parent = path_obj.parent().ok_or("No parent dir")?;
-
-        let mut probe_cmd = new_hidden_command("ffprobe");
-        probe_cmd
-            .args(["-v", "error", "-select_streams", "v:0",
-                   "-show_entries", "stream=width,height",
-                   "-of", "csv=s=x:p=0", &path]);
-        probe_cmd.creation_flags(CREATE_NO_WINDOW);
-
-        let probe_out = probe_cmd.output().map_err(|e| format!("ffprobe failed: {}", e))?;
-        let dims_str = String::from_utf8_lossy(&probe_out.stdout).trim().to_string();
-        let parts: Vec<&str> = dims_str.split('x').collect();
-        if parts.len() != 2 {
-            return Err(format!("Could not parse image dimensions from ffprobe: '{}'", dims_str));
-        }
-        let img_w: f64 = parts[0].trim().parse().map_err(|_| format!("Bad width: {}", parts[0]))?;
-        let img_h: f64 = parts[1].trim().parse().map_err(|_| format!("Bad height: {}", parts[1]))?;
 
         let px_x = ((crop_x / 100.0) * img_w).round() as u64;
         let px_y = ((crop_y / 100.0) * img_h).round() as u64;
@@ -1902,6 +1791,7 @@ pub async fn crop_image_on_disk(
 
         let mut cmd = new_hidden_command("ffmpeg");
         cmd.arg("-y")
+           .arg("-nostdin")
            .arg("-threads").arg("1")
            .arg("-noautorotate")
            .arg("-i").arg(&path)
@@ -1995,6 +1885,7 @@ pub async fn resize_image_on_disk(
 
         let mut cmd = new_hidden_command("ffmpeg");
         cmd.arg("-y")
+           .arg("-nostdin")
            .arg("-threads").arg("1")
            .arg("-noautorotate")
            .arg("-i").arg(&path)
@@ -2116,4 +2007,40 @@ pub async fn generate_store_logos(app: AppHandle, path: String, bg_color: String
     }
 
     Err("Failed to communicate with the logo generator server.".into())
+}
+
+#[tauri::command]
+pub async fn get_media_dimensions(path: String) -> Result<(u32, u32), String> {
+    let path = clean_local_path(&path);
+    let path_obj = Path::new(&path);
+    if !path_obj.exists() {
+        return Err("File does not exist".to_string());
+    }
+
+    let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
+    if ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov" || ext == "webm" {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut probe_cmd = new_hidden_command("ffprobe");
+        probe_cmd
+            .args(["-v", "error", "-select_streams", "v:0",
+                   "-show_entries", "stream=width,height",
+                   "-of", "csv=s=x:p=0", &path]);
+        probe_cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let probe_out = probe_cmd.output().map_err(|e| format!("ffprobe failed: {}", e))?;
+        let dims_str = String::from_utf8_lossy(&probe_out.stdout).trim().to_string();
+        let parts: Vec<&str> = dims_str.split('x').collect();
+        if parts.len() != 2 {
+            return Err(format!("Could not parse video dimensions: '{}'", dims_str));
+        }
+        let w: u32 = parts[0].trim().parse().map_err(|_| format!("Bad width: {}", parts[0]))?;
+        let h: u32 = parts[1].trim().parse().map_err(|_| format!("Bad height: {}", parts[1]))?;
+        return Ok((w, h));
+    }
+
+    match image::image_dimensions(&path) {
+        Ok((w, h)) => Ok((w, h)),
+        Err(e) => Err(format!("Failed to read image dimensions: {}", e)),
+    }
 }
