@@ -1090,6 +1090,30 @@ fn register_upscale_history(app: &AppHandle, file_path: &str, used_ai: bool) {
     }
 }
 
+fn convert_png_to_webp(png_path: &str) -> Result<String, String> {
+    let png_path_buf = Path::new(png_path);
+    if !png_path_buf.exists() {
+        return Err("PNG file not found".to_string());
+    }
+
+    let webp_path = png_path_buf.with_extension("webp");
+    
+    // Open PNG using image crate
+    let img = image::ImageReader::open(&png_path_buf)
+        .map_err(|e| format!("Failed to open PNG reader: {}", e))?
+        .decode()
+        .map_err(|e| format!("Failed to decode PNG: {}", e))?;
+    
+    // Save as WebP
+    img.save(&webp_path)
+        .map_err(|e| format!("Failed to save WebP: {}", e))?;
+        
+    // Delete original PNG
+    let _ = std::fs::remove_file(png_path_buf);
+    
+    Ok(webp_path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<String, String> {
     use std::io::{Write, Read};
@@ -1168,6 +1192,15 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
         }
 
         if server_success && !sticker_path.is_empty() {
+            if sticker_path.to_lowercase().ends_with(".png") {
+                match convert_png_to_webp(&sticker_path) {
+                    Ok(webp_path) => return Ok(webp_path),
+                    Err(e) => {
+                        println!("Failed to convert sticker PNG to WebP: {}. Returning original PNG.", e);
+                        return Ok(sticker_path);
+                    }
+                }
+            }
             return Ok(sticker_path);
         }
 
