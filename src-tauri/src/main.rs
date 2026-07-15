@@ -181,8 +181,13 @@ fn main() {
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
-                    println!("Cosmo Symphony: Close/Destroy requested on window '{}'. Exiting hard...", window.label());
+                    println!("Cosmo Symphony: Close/Destroy requested on window '{}'. Saving state and exiting...", window.label());
                     
+                    // Manually save window position/size before hard exit, otherwise tauri-plugin-window-state hooks are bypassed
+                    use tauri::Manager;
+                    use tauri_plugin_window_state::AppHandleExt;
+                    let _ = window.app_handle().save_window_state(tauri_plugin_window_state::StateFlags::all());
+
                     // Spawn a quick background process killer command for sibling servers
                     #[cfg(target_os = "windows")]
                     {
