@@ -23,6 +23,46 @@ fn new_hidden_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
     cmd
 }
 
+fn resolve_ffmpeg_path(app: Option<&AppHandle>) -> PathBuf {
+    if let Some(app) = app {
+        if let Ok(res_dir) = app.path().resource_dir() {
+            let res_ffmpeg = res_dir.join("resources").join("ffmpeg.exe");
+            if res_ffmpeg.exists() {
+                return res_ffmpeg;
+            }
+            let root_ffmpeg = res_dir.join("ffmpeg.exe");
+            if root_ffmpeg.exists() {
+                return root_ffmpeg;
+            }
+        }
+    }
+    PathBuf::from("ffmpeg")
+}
+
+fn resolve_ffprobe_path(app: Option<&AppHandle>) -> PathBuf {
+    if let Some(app) = app {
+        if let Ok(res_dir) = app.path().resource_dir() {
+            let res_ffprobe = res_dir.join("resources").join("ffprobe.exe");
+            if res_ffprobe.exists() {
+                return res_ffprobe;
+            }
+            let root_ffprobe = res_dir.join("ffprobe.exe");
+            if root_ffprobe.exists() {
+                return root_ffprobe;
+            }
+        }
+    }
+    PathBuf::from("ffprobe")
+}
+
+fn new_hidden_ffmpeg_command(app: Option<&AppHandle>) -> Command {
+    new_hidden_command(resolve_ffmpeg_path(app))
+}
+
+fn new_hidden_ffprobe_command(app: Option<&AppHandle>) -> Command {
+    new_hidden_command(resolve_ffprobe_path(app))
+}
+
 pub static CANCEL_UPSCALE: AtomicBool = AtomicBool::new(false);
 
 
@@ -99,7 +139,7 @@ fn safe_recycle_file(path: &Path, retries: u32) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn convert_media_to_standard(src_path: String, media_type: String) -> Result<String, String> {
+pub async fn convert_media_to_standard(app: AppHandle, src_path: String, media_type: String) -> Result<String, String> {
     let src_path = clean_local_path(&src_path);
     tauri::async_runtime::spawn_blocking(move || {
         use std::os::windows::process::CommandExt;
@@ -117,7 +157,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
                 "aac", "mp3", "opus", "vorbis", "flac",
             ];
 
-            let probe_out = new_hidden_command("ffprobe")
+            let probe_out = new_hidden_ffprobe_command(Some(&app))
                 .args([
                     "-v", "error",
                     "-select_streams", "v:0",
@@ -139,7 +179,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
             let codec_is_web_native = web_native_codecs.iter().any(|c| source_codec.contains(c));
 
             if codec_is_web_native {
-                let copy_out = new_hidden_command("ffmpeg")
+                let copy_out = new_hidden_ffmpeg_command(Some(&app))
                     .args(["-y", "-i", &src_path, "-c", "copy", "-movflags", "+faststart", &dest_str])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output()
@@ -158,7 +198,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
                 debug_log(&format!("convert_media: codec '{}' not web-native, skipping stream-copy and re-encoding directly", source_codec));
             }
 
-            let enc_out = new_hidden_command("ffmpeg")
+            let enc_out = new_hidden_ffmpeg_command(Some(&app))
                 .args([
                     "-y", "-i", &src_path,
                     "-c:v", "libx264", "-crf", "18", "-preset", "fast",
@@ -185,7 +225,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
             }
 
             if !python_success {
-                let out = new_hidden_command("ffmpeg")
+                let out = new_hidden_ffmpeg_command(Some(&app))
                     .args(["-y", "-i", &src_path, "-q:v", "2", &dest_str])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output()
@@ -221,7 +261,7 @@ pub async fn convert_media_to_standard(src_path: String, media_type: String) -> 
 }
 
 #[tauri::command]
-pub async fn convert_heic_to_jpg(src_path: String) -> Result<String, String> {
+pub async fn convert_heic_to_jpg(app: AppHandle, src_path: String) -> Result<String, String> {
     let src_path = clean_local_path(&src_path);
     tauri::async_runtime::spawn_blocking(move || {
         use std::os::windows::process::CommandExt;
@@ -239,7 +279,7 @@ pub async fn convert_heic_to_jpg(src_path: String) -> Result<String, String> {
         }
 
         if !python_success {
-            let output = new_hidden_command("ffmpeg")
+            let output = new_hidden_ffmpeg_command(Some(&app))
                 .args(["-y", "-i", &src_path, "-q:v", "2", &dest_str])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output()
@@ -275,6 +315,7 @@ pub async fn convert_heic_to_jpg(src_path: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn snapshot_video_frame(
+    app: AppHandle,
     real_path: String,
     timestamp_secs: f64,
     file_name: String,
@@ -320,7 +361,7 @@ pub async fn snapshot_video_frame(
         let ss = total_secs % 60;
         let ts_str = format!("{:02}:{:02}:{:02}.{:03}", hh, mm, ss, millis);
 
-        let output = new_hidden_command("ffmpeg")
+        let output = new_hidden_ffmpeg_command(Some(&app))
             .args([
                 "-y",
                 "-ss", &ts_str,
@@ -552,7 +593,7 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<Value, S
         "Unknown".to_string()
     };
 
-    let mut probe_cmd = new_hidden_command("ffprobe");
+    let mut probe_cmd = new_hidden_ffprobe_command(Some(&app));
     probe_cmd
         .args(["-v", "error", "-select_streams", "v:0",
                "-show_entries", "stream=width,height:format=duration",
@@ -601,7 +642,7 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<Value, S
 }
 
 #[tauri::command]
-pub async fn rotate_media_on_disk(path: String, rotation: i32, is_image: bool) -> Result<String, String> {
+pub async fn rotate_media_on_disk(app: AppHandle, path: String, rotation: i32, is_image: bool) -> Result<String, String> {
     let path = clean_local_path(&path);
     let log_msg = format!("START rotate_media_on_disk: path={}, rotation={}, is_image={}", path, rotation, is_image);
     debug_log(&log_msg);
@@ -633,7 +674,7 @@ pub async fn rotate_media_on_disk(path: String, rotation: i32, is_image: bool) -
     let temp_path = temp_dir.join(&temp_file_name);
     debug_log(&format!("temp_path={:?}", temp_path));
 
-    let mut cmd = new_hidden_command("ffmpeg");
+    let mut cmd = new_hidden_ffmpeg_command(Some(&app));
     cmd.arg("-y");
     cmd.arg("-nostdin");
 
@@ -720,7 +761,7 @@ pub async fn rotate_media_on_disk(path: String, rotation: i32, is_image: bool) -
 }
 
 #[tauri::command]
-pub async fn mirror_media_on_disk(path: String, is_image: bool) -> Result<String, String> {
+pub async fn mirror_media_on_disk(app: AppHandle, path: String, is_image: bool) -> Result<String, String> {
     let path = clean_local_path(&path);
     debug_log(&format!("START mirror_media_on_disk: path={}, is_image={}", path, is_image));
     tauri::async_runtime::spawn_blocking(move || {
@@ -741,7 +782,7 @@ pub async fn mirror_media_on_disk(path: String, is_image: bool) -> Result<String
         let temp_file_name = format!("{}_mir_{}.{}", stem, timestamp, ext);
         let temp_path = temp_dir.join(&temp_file_name);
 
-        let mut cmd = new_hidden_command("ffmpeg");
+        let mut cmd = new_hidden_ffmpeg_command(Some(&app));
         cmd.arg("-y");
         cmd.arg("-nostdin");
 
@@ -808,6 +849,7 @@ pub async fn mirror_media_on_disk(path: String, is_image: bool) -> Result<String
 
 #[tauri::command]
 pub async fn apply_color_adjustments_on_disk(
+    app: AppHandle,
     path: String,
     brightness: f32,
     contrast: f32,
@@ -885,7 +927,7 @@ pub async fn apply_color_adjustments_on_disk(
     let filter_str = filters.join(",");
     debug_log(&format!("filter_str={}", filter_str));
 
-    let mut cmd = new_hidden_command("ffmpeg");
+    let mut cmd = new_hidden_ffmpeg_command(Some(&app));
     cmd.arg("-y");
     cmd.arg("-nostdin");
 
@@ -1245,6 +1287,53 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
     Err("Failed to process background removal. Make sure 'rembg' Python library is fully installed.".into())
 }
 
+fn get_next_upscale_filename(parent: &Path, stem: &str, ext: &str) -> PathBuf {
+    let stem_str = stem.to_string();
+    
+    // Check if the stem ends with a single letter suffix after digits, e.g. "007A"
+    let chars: Vec<char> = stem_str.chars().collect();
+    if chars.len() >= 2 {
+        let last_char = chars[chars.len() - 1];
+        let prev_char = chars[chars.len() - 2];
+        if last_char.is_ascii_alphabetic() && prev_char.is_ascii_digit() {
+            let base_part = &stem_str[..stem_str.len() - 1];
+            let last_char_upper = last_char.to_ascii_uppercase();
+            if last_char_upper >= 'A' && last_char_upper < 'Z' {
+                for next_char in ((last_char_upper as u8 + 1)..=b'Z').map(|b| b as char) {
+                    let path_attempt = parent.join(format!("{}{}.{}", base_part, next_char, ext));
+                    if !path_attempt.exists() {
+                        return path_attempt;
+                    }
+                }
+            }
+        }
+    }
+    
+    // If it ends with just digits, e.g. "007"
+    let trimmed = stem_str.trim_end_matches(|c: char| c.is_ascii_digit());
+    let digits = &stem_str[trimmed.len()..];
+    if !digits.is_empty() {
+        for suffix_char in b'A'..=b'Z' {
+            let suffix = (suffix_char as char).to_string();
+            let path_attempt = parent.join(format!("{}{}{}.{}", trimmed, digits, suffix, ext));
+            if !path_attempt.exists() {
+                return path_attempt;
+            }
+        }
+    }
+    
+    // Fallback: standard sequence increments
+    let base_prefix = crate::commands::filesystem::extract_base_prefix(stem);
+    let next_num = crate::commands::filesystem::get_next_sequence_num(parent, &base_prefix, ext);
+    let mut final_path = parent.join(format!("{}_{:03}.{}", base_prefix, next_num, ext));
+    let mut counter = next_num;
+    while final_path.exists() {
+        counter += 1;
+        final_path = parent.join(format!("{}_{:03}.{}", base_prefix, counter, ext));
+    }
+    final_path
+}
+
 #[tauri::command]
 pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Result<String, String> {
     let path = clean_local_path(&path);
@@ -1277,15 +1366,7 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
         parent.join(&temp_file_name)
     } else {
         let parent = p.parent().unwrap_or_else(|| Path::new("."));
-        let base_prefix = crate::commands::filesystem::extract_base_prefix(&stem);
-        let next_num = crate::commands::filesystem::get_next_sequence_num(parent, &base_prefix, &ext);
-        let mut final_path = parent.join(format!("{}_{:03}.{}", base_prefix, next_num, ext));
-        let mut counter = next_num;
-        while final_path.exists() {
-            counter += 1;
-            final_path = parent.join(format!("{}_{:03}.{}", base_prefix, counter, &ext));
-        }
-        final_path
+        get_next_upscale_filename(parent, stem, &ext)
     };
 
     let out_str = output_path.to_string_lossy().to_string();
@@ -1542,14 +1623,14 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
     
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     
-    let fps_out = new_hidden_command("ffprobe")
+    let fps_out = new_hidden_ffprobe_command(Some(&app))
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", &path])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("ffprobe failed to resolve framerate: {}", e))?;
     let fps_str = String::from_utf8_lossy(&fps_out.stdout).trim().to_string();
     
-    let frames_out = new_hidden_command("ffprobe")
+    let frames_out = new_hidden_ffprobe_command(Some(&app))
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=nb_frames", "-of", "default=noprint_wrappers=1:nokey=1", &path])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -1562,7 +1643,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
         return Err("Could not determine total frame count of video".into());
     }
     
-    let extract_status = new_hidden_command("ffmpeg")
+    let extract_status = new_hidden_ffmpeg_command(Some(&app))
         .args(["-y", "-i", &path, "-q:v", "2", &temp_frames_dir.join("frame_%06d.png").to_string_lossy().to_string()])
         .creation_flags(CREATE_NO_WINDOW)
         .status()
@@ -1615,8 +1696,8 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
         let mut server_success = false;
         
         if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(180)));
-            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(180)));
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
+            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
             use std::io::{Write, Read};
             let json_payload = serde_json::json!({
                 "path": frame_path_str,
@@ -1667,6 +1748,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
             }
             cmd.creation_flags(CREATE_NO_WINDOW);
             let out = cmd.output();
+            let mut fallback_success = false;
             if let Ok(ref output) = out {
                 if output.status.success() {
                     let stdout_str = String::from_utf8_lossy(&output.stdout);
@@ -1674,7 +1756,12 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
                     if cli_used_ai {
                         used_ai_global = true;
                     }
+                    fallback_success = true;
                 }
+            }
+            if !fallback_success {
+                let _ = secure_delete_dir_all(&temp_frames_dir);
+                return Err("Upscaling failed: Both server and CLI fallback failed to process frame. Your GPU may be out of VRAM or CUDA errored.".into());
             }
         }
     }
@@ -1683,7 +1770,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
     
     let out_str = output_path.to_string_lossy().to_string();
     
-    let stitch_status = new_hidden_command("ffmpeg")
+    let stitch_status = new_hidden_ffmpeg_command(Some(&app))
         .args([
             "-y",
             "-f", "image2",
@@ -1797,6 +1884,7 @@ pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String,
 
 #[tauri::command]
 pub async fn crop_image_on_disk(
+    app: AppHandle,
     path: String,
     crop_x: f64,
     crop_y: f64,
@@ -1815,6 +1903,7 @@ pub async fn crop_image_on_disk(
         path, crop_x, crop_y, crop_w, crop_h, img_w, img_h, overwrite
     ));
 
+    let app_handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let path_obj = Path::new(&path);
         if !path_obj.exists() {
@@ -1845,7 +1934,7 @@ pub async fn crop_image_on_disk(
 
         let crop_filter = format!("crop={}:{}:{}:{}", px_w, px_h, px_x, px_y);
 
-        let mut cmd = new_hidden_command("ffmpeg");
+        let mut cmd = new_hidden_ffmpeg_command(Some(&app_handle));
         cmd.arg("-y")
            .arg("-nostdin")
            .arg("-threads").arg("1")
@@ -1902,6 +1991,7 @@ pub async fn crop_image_on_disk(
 
 #[tauri::command]
 pub async fn resize_image_on_disk(
+    app: AppHandle,
     path: String,
     width: u32,
     height: u32,
@@ -1918,6 +2008,7 @@ pub async fn resize_image_on_disk(
         path, width, height, overwrite
     ));
 
+    let app_handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let path_obj = Path::new(&path);
         if !path_obj.exists() {
@@ -1939,7 +2030,7 @@ pub async fn resize_image_on_disk(
 
         let scale_filter = format!("scale={}:{}", width, height);
 
-        let mut cmd = new_hidden_command("ffmpeg");
+        let mut cmd = new_hidden_ffmpeg_command(Some(&app_handle));
         cmd.arg("-y")
            .arg("-nostdin")
            .arg("-threads").arg("1")
@@ -2066,7 +2157,7 @@ pub async fn generate_store_logos(app: AppHandle, path: String, bg_color: String
 }
 
 #[tauri::command]
-pub async fn get_media_dimensions(path: String) -> Result<(u32, u32), String> {
+pub async fn get_media_dimensions(app: AppHandle, path: String) -> Result<(u32, u32), String> {
     let path = clean_local_path(&path);
     let path_obj = Path::new(&path);
     if !path_obj.exists() {
@@ -2077,7 +2168,7 @@ pub async fn get_media_dimensions(path: String) -> Result<(u32, u32), String> {
     if ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov" || ext == "webm" {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let mut probe_cmd = new_hidden_command("ffprobe");
+        let mut probe_cmd = new_hidden_ffprobe_command(Some(&app));
         probe_cmd
             .args(["-v", "error", "-select_streams", "v:0",
                    "-show_entries", "stream=width,height",

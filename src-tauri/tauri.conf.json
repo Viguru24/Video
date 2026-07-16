@@ -37,7 +37,9 @@
     "targets": "all",
     "resources": [
       "cosmo_enhance.py",
-      "demos/*"
+      "demos/*",
+      "resources/ffmpeg.exe",
+      "resources/ffprobe.exe"
     ],
     "icon": [
       "icons/32x32.png",
