@@ -181,26 +181,30 @@ fn main() {
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
-                    println!("Cosmo Symphony: Close/Destroy requested on window '{}'. Saving state and exiting...", window.label());
-                    
-                    // Manually save window position/size before hard exit, otherwise tauri-plugin-window-state hooks are bypassed
-                    use tauri::Manager;
-                    use tauri_plugin_window_state::AppHandleExt;
-                    let _ = window.app_handle().save_window_state(tauri_plugin_window_state::StateFlags::all());
+                    if window.label() == "main" {
+                        println!("Cosmo Symphony: Close/Destroy requested on main window. Saving state and exiting...");
+                        
+                        // Manually save window position/size before hard exit, otherwise tauri-plugin-window-state hooks are bypassed
+                        use tauri::Manager;
+                        use tauri_plugin_window_state::AppHandleExt;
+                        let _ = window.app_handle().save_window_state(tauri_plugin_window_state::StateFlags::all());
 
-                    // Spawn a quick background process killer command for sibling servers
-                    #[cfg(target_os = "windows")]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        let _ = std::process::Command::new("powershell.exe")
-                            .args(&[
-                                "-NoProfile", "-Command",
-                                "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-                            ])
-                            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                            .output();
+                        // Spawn a quick background process killer command for sibling servers
+                        #[cfg(target_os = "windows")]
+                        {
+                            use std::os::windows::process::CommandExt;
+                            let _ = std::process::Command::new("powershell.exe")
+                                .args(&[
+                                    "-NoProfile", "-Command",
+                                    "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+                                ])
+                                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                                .output();
+                        }
+                        std::process::exit(0);
+                    } else {
+                        println!("Cosmo Symphony: Close/Destroy requested on secondary window '{}'. Allowing standard window close.", window.label());
                     }
-                    std::process::exit(0);
                 }
                 _ => {}
             }

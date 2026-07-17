@@ -1054,7 +1054,7 @@ export function ControlBar({
                   userSelect: 'none',
                   marginLeft: '4px'
                 }}>
-                  v1.3.1
+                  v1.3.2
                 </div>
                 <div style={{
                   height: '18px',
