@@ -515,7 +515,10 @@ fn main() {
                 .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
             // Check if bundled resources path exists
-            let dist_path = resource_path.join("resources").join("wifi-share-web");
+            let mut dist_path = resource_path.join("wifi-share-web");
+            if !dist_path.exists() {
+                dist_path = resource_path.join("resources").join("wifi-share-web");
+            }
 
             // Fallback for development
             let dist_path = if dist_path.exists() {
