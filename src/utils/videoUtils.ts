@@ -17,43 +17,33 @@ export function toCosmoUrl(absolutePathOrUrl: string): string {
   if (absolutePathOrUrl.startsWith('/demos/') || absolutePathOrUrl.startsWith('demos/')) {
     return absolutePathOrUrl;
   }
-  const resolvedPath = toRealPath(absolutePathOrUrl);
-  const path = resolvedPath || absolutePathOrUrl;
 
-  if (path.startsWith('http') || path.startsWith('asset:') || path.startsWith('cosmo:') || path.startsWith('blob:')) {
-    // Migrate old cosmo:// or http://cosmo.localhost/ URLs to native asset protocol for development/CORS compliance
-    if ((path.startsWith('cosmo://') || path.includes('cosmo.localhost/')) && isTauri()) {
-      const cleanPath = toRealPath(path);
-      if (cleanPath) {
-        try {
-          return convertFileSrc(cleanPath);
-        } catch (e) {
-          console.warn("Tauri convertFileSrc failed during migration:", e);
-        }
-      }
+  const isLocalMigration = 
+    absolutePathOrUrl.includes('cosmo.localhost/') || 
+    absolutePathOrUrl.includes('asset.localhost/') || 
+    absolutePathOrUrl.includes('tauri.localhost/') || 
+    absolutePathOrUrl.startsWith('cosmo://') || 
+    absolutePathOrUrl.startsWith('local://');
+
+  if (!isLocalMigration) {
+    if (absolutePathOrUrl.startsWith('blob:')) {
+      return absolutePathOrUrl;
     }
-    
-    // Extra safety: if the unresolved path is a picture and starts with any protocol, format it
-    if (isValidPictureExtension(path) && isTauri()) {
-      try {
-        return convertFileSrc(path);
-      } catch (e) {
-        // Fallback to path
-      }
+    if (absolutePathOrUrl.startsWith('http://') || absolutePathOrUrl.startsWith('https://')) {
+      return absolutePathOrUrl;
     }
-    return path;
   }
+
+  const realPath = toRealPath(absolutePathOrUrl) || absolutePathOrUrl;
 
   if (isTauri()) {
     try {
-      // Route all media files through native asset protocol to bypass CORS and scheme blockers.
-      // Built-in asset protocol natively supports progressive seeking and CORS in Tauri v2.
-      return convertFileSrc(path);
+      return convertFileSrc(realPath);
     } catch (e) {
       console.warn("Tauri convertFileSrc failed, falling back to path:", e);
     }
   }
-  return path;
+  return realPath;
 }
 
 /**
@@ -78,59 +68,80 @@ export function toRealPath(urlOrPath: string): string | null {
 
   if (/^[A-Za-z]:[/\\]/.test(clean) || clean.startsWith('/')) return clean.replace(/\x00/g, '').trim();
 
-  // local:// scheme — strip prefix
   if (clean.startsWith('local://')) {
-    return decodeURIComponent(clean.slice('local://'.length)).replace(/\x00/g, '').trim();
+    try {
+      return decodeURIComponent(clean.slice('local://'.length)).replace(/\x00/g, '').trim();
+    } catch {
+      return null;
+    }
   }
 
-  // http://cosmo.localhost/ or https://cosmo.localhost/ format
   if (clean.includes('cosmo.localhost/')) {
     const encoded = clean.split('cosmo.localhost/')[1] || '';
     const withoutSubroute = encoded
       .replace(/^localhost[/\\]/i, '')
       .replace(/^media[/\\]/i, '')
       .replace(/^video[/\\]/i, '');
-    return decodeURIComponent(withoutSubroute).replace(/\x00/g, '').trim();
+    try {
+      return decodeURIComponent(withoutSubroute).replace(/\x00/g, '').trim();
+    } catch {
+      return null;
+    }
   }
 
-  // cosmo:// scheme — strip prefix
   if (clean.startsWith('cosmo://')) {
     const rawPath = clean.slice('cosmo://'.length);
     const withoutSubroute = rawPath
       .replace(/^localhost[/\\]/i, '')
       .replace(/^media[/\\]/i, '')
       .replace(/^video[/\\]/i, '');
-    return decodeURIComponent(withoutSubroute).replace(/\x00/g, '').trim();
+    try {
+      return decodeURIComponent(withoutSubroute).replace(/\x00/g, '').trim();
+    } catch {
+      return null;
+    }
   }
 
-  // Tauri asset protocol: http://asset.localhost/C%3A%5CPath%5Cfile.jpg
   if (clean.includes('asset.localhost/')) {
     const encoded = clean.split('asset.localhost/')[1] || '';
-    const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
-    return decoded || null;
+    try {
+      const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
+      return decoded || null;
+    } catch {
+      return null;
+    }
   }
 
-  // Tauri v2 localhost protocol: http://tauri.localhost/C%3A%5CPath%5Cfile.jpg
   if (clean.includes('tauri.localhost/')) {
     const encoded = clean.split('tauri.localhost/')[1] || '';
-    const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
-    return decoded || null;
+    try {
+      const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
+      return decoded || null;
+    } catch {
+      return null;
+    }
   }
 
-  // Tauri asset protocol alternative: asset://localhost/... or asset://...
   if (clean.startsWith('asset://localhost/')) {
     const encoded = clean.slice('asset://localhost/'.length);
-    const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
-    return decoded || null;
+    try {
+      const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
+      return decoded || null;
+    } catch {
+      return null;
+    }
   }
 
   if (clean.startsWith('asset://')) {
     const encoded = clean.slice('asset://'.length);
-    const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
-    return decoded || null;
+    try {
+      const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
+      return decoded || null;
+    } catch {
+      return null;
+    }
   }
 
-  // Unrecognised remote URL
   return null;
 }
 
@@ -302,7 +313,7 @@ export async function triggerPopOut(path: string, title: string): Promise<void> 
   if (!isTauri()) {
     // Web fallback
     const encodedUrl = encodeURIComponent(path);
-    const win = window.open(`?popout=true&url=${encodedUrl}`, `pop-${Date.now()}`, 'width=850,height=500,resizable=yes');
+    const win = window.open(`?popout=true&url=${encodedUrl}`, `pop-${Date.now()}`, 'width=850,height=500,resizable=yes,noopener,noreferrer');
     if (win) {
       win.focus();
     }
@@ -324,10 +335,18 @@ export function generateUUID(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  // Math.random RFC4122 v4 UUID generator fallback
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('').replace(
+      /^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5'
+    );
+  }
+  // Final Math.random fallback
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
 }

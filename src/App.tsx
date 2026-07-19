@@ -81,7 +81,13 @@ function isDemoFile(video: { url?: string; realPath?: string }): boolean {
 export default function App() {
   const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus, enableOSFullscreen, sortOrder, setSortOrder, quickFolders, setQuickFolders } = useStore();
   
+  const hasCheckedQuickFolders = useRef(false);
+
   useEffect(() => {
+    if (hasCheckedQuickFolders.current) return;
+    if (!quickFolders || quickFolders.length === 0) return;
+    hasCheckedQuickFolders.current = true;
+
     if (isTauri()) {
       import('@tauri-apps/api/path').then(({ appDataDir, pictureDir, videoDir, documentDir }) => {
         appDataDir().then(dir => {
@@ -143,7 +149,7 @@ export default function App() {
         await openUrl('https://cosmowhisper.com');
       } catch (err2) {
         console.error("Failed to open URL via Tauri openUrl plugin:", err2);
-        window.open('https://cosmowhisper.com', '_blank');
+        window.open('https://cosmowhisper.com', '_blank', 'noopener,noreferrer');
       }
     }
   };
@@ -201,7 +207,14 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       const qUrl = urlParams.get('url');
-      return qUrl ? decodeURIComponent(qUrl) : '';
+      if (qUrl) {
+        try {
+          return decodeURIComponent(qUrl);
+        } catch {
+          return qUrl;
+        }
+      }
+      return '';
     }
     return '';
   });
@@ -422,14 +435,7 @@ export default function App() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      let configToSave = collageConfig;
-      if (collageConfig.backgroundType === 'image') {
-        configToSave = {
-          backgroundType: 'gradient',
-          backgroundValue: 'linear-gradient(135deg, #0d081b 0%, #150d2e 50%, #05020c 100%)'
-        };
-      }
-      const dataStr = JSON.stringify(configToSave);
+      const dataStr = JSON.stringify(collageConfig);
       if (isTauri()) {
         invoke('save_persistence', { key: 'cosmo-collage-cfg', data: dataStr }).catch(() => {});
       }
@@ -1016,7 +1022,7 @@ export default function App() {
 
     for (const vid of videos) {
       const rawPath = vid.realPath;
-      if (!rawPath) continue;
+      if (!rawPath || typeof rawPath !== 'string') continue;
       try {
         const exists = await invoke<boolean>('file_exists', { path: rawPath });
         if (!exists) {
@@ -2032,7 +2038,8 @@ export default function App() {
             } catch (err) {
               console.error("Duplicate via drag-drop failed:", err);
               addLog(`ERROR: Failed to duplicate - ${err}`);
-              alert(`Duplicate failed: ${err}`);
+              setToast(`Duplicate failed: ${err}`);
+              setTimeout(() => setToast(null), 4000);
             }
           } else {
             handleIngestPaths([internalPath]);
@@ -2323,6 +2330,7 @@ export default function App() {
               onForceSetup={() => {
                 setForceSetup(true);
                 setNeedsSetup(true);
+                setShowSettings(false);
               }}
               onOpenWifiShare={() => {
                 invoke('set_wifi_shared_files', { paths: [] })
@@ -2333,11 +2341,6 @@ export default function App() {
                   .catch((err) => {
                     addLog(`Wi-Fi Share ERROR: ${err}`);
                   });
-              }}
-              onForceSetup={() => {
-                setForceSetup(true);
-                setNeedsSetup(true);
-                setShowSettings(false);
               }}
             />
           )}
@@ -2919,11 +2922,12 @@ export default function App() {
                      });
                      addLog(`Rotation permanently saved to disk for: ${v.title}`);
                    })
-                   .catch((err) => {
-                     console.error("Failed to save rotation:", err);
-                     alert(`Rotation save failed: ${err}`);
-                     addLog(`Failed to save rotation: ${err}`);
-                   });
+                    .catch((err) => {
+                      console.error("Failed to save rotation:", err);
+                      addLog(`Failed to save rotation: ${err}`);
+                      setToast(`Rotation save failed: ${err}`);
+                      setTimeout(() => setToast(null), 4000);
+                    });
                  } else {
                    addLog("Error: Native path lost for this unit.");
                  }

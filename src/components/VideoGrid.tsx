@@ -139,7 +139,7 @@ export function VideoGrid({
         await openUrl('https://cosmowhisper.com');
       } catch (err2) {
         console.error("Failed to open URL via Tauri openUrl plugin:", err2);
-        window.open('https://cosmowhisper.com', '_blank');
+        window.open('https://cosmowhisper.com', '_blank', 'noopener,noreferrer');
       }
     }
   };

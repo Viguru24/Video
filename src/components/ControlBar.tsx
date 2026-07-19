@@ -292,17 +292,20 @@ export function ControlBar({
   useEffect(() => {
     if (!isTauri()) return;
     const checkMax = async () => {
-      const max = await getCurrentWindow().isMaximized();
-      setIsWindowMaximized(max);
+      try {
+        const max = await getCurrentWindow().isMaximized();
+        setIsWindowMaximized(max);
+      } catch {}
     };
     checkMax();
-    const interval = setInterval(checkMax, 1000);
-    return () => clearInterval(interval);
+    let unlisten: (() => void) | null = null;
+    getCurrentWindow().onResized(() => {
+      checkMax();
+    }).then(u => { unlisten = u; });
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
-
-
-
-
 
 
   const filteredHistory = useMemo(() => {
@@ -1017,7 +1020,7 @@ export function ControlBar({
                       await invoke('open_external_url', { url: 'https://cosmowhisper.com' });
                     } catch (err) {
                       try {
-                        window.open('https://cosmowhisper.com', '_blank');
+                         window.open('https://cosmowhisper.com', '_blank', 'noopener,noreferrer');
                       } catch (e2) {}
                     }
                   }}

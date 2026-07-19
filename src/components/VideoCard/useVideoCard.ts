@@ -543,7 +543,10 @@ export function useVideoCard({
     setIsInteracting(true);
     stepFrame(dir);
 
-    if (stepInterval.current) clearInterval(stepInterval.current);
+    if (stepInterval.current) {
+      clearTimeout(stepInterval.current);
+      clearInterval(stepInterval.current);
+    }
     stepInterval.current = setTimeout(() => {
       stepInterval.current = setInterval(() => {
         stepFrame(dir);
