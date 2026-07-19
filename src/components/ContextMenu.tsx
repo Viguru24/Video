@@ -188,9 +188,14 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
             )}
 
             {(() => {
-              const cleanPath = metadata.path 
-                ? decodeURIComponent(metadata.path.replace(/^local:\/\//, '').split('?')[0]).replace(/\//g, '\\') 
-                : '';
+              let cleanPath = '';
+              if (metadata.path) {
+                try {
+                  cleanPath = decodeURIComponent(metadata.path.replace(/^local:\/\//, '').split('?')[0]).replace(/\//g, '\\');
+                } catch {
+                  cleanPath = metadata.path.replace(/^local:\/\//, '').split('?')[0].replace(/\//g, '\\');
+                }
+              }
               return cleanPath ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px', paddingTop: '3px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>

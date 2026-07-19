@@ -83,7 +83,7 @@ function VideoCardInternal(props: VideoCardProps) {
       
       {props.isVisible && !props.isAiEnhancing ? (
         state.isImage ? (
-          (            <div
+            <div
               className="media-wrapper"
               data-zoom={state.zoomScale}
               data-pan-x={state.panOffset.x}
@@ -117,7 +117,6 @@ function VideoCardInternal(props: VideoCardProps) {
                 className={props.isSlideshowActive && props.isFocused && enableSlideshowPanZoom ? state.animationClass : ''}
               />
             </div>
-          )
         ) : state.isAudio ? (
           <AudioCard
             video={props.video}
