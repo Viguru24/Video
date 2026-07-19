@@ -100,7 +100,7 @@ export function SettingsModal({
     }
   };
 
-  const CustomInstallDirSetting = () => {
+  const renderCustomInstallDirSetting = () => {
     return (
       <>
         <div className="setting-item" style={{ marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '14px' }}>
@@ -527,7 +527,7 @@ export function SettingsModal({
                 </div>
 
                 {/* AI Custom Installation Drive / Folder Picker */}
-                <CustomInstallDirSetting />
+                {renderCustomInstallDirSetting()}
               </div>
 
               <div className="protocol-box" style={{ border: confirmDeletion ? '1px solid rgba(var(--accent-rgb), 0.2)' : '1px solid rgba(239, 68, 68, 0.3)', transition: 'border 0.3s ease', marginTop: '16px' }}>

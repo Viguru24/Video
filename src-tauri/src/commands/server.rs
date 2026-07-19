@@ -199,7 +199,7 @@ fn generate_qr_data_url(text: &str) -> String {
     // Draw black modules
     for (row_idx, line) in lines.iter().enumerate() {
         for (col_idx, ch) in line.chars().enumerate() {
-            if ch == '█' || ch == '\u{2588}' {
+            if ch == '█' {
                 for dy in 0..scale {
                     for dx in 0..scale {
                         let px = (col_idx as u32) * scale + dx;
