@@ -12,13 +12,14 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
-    io::Cursor,
+    io::{Cursor, Write},
     path::PathBuf,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tower_http::cors::CorsLayer;
 use tauri::Manager;
+use zip::{ZipWriter, write::FileOptions, CompressionMethod};
 
 // ─── Data Types ───
 
@@ -459,6 +460,84 @@ async fn download_file(
     (StatusCode::OK, headers, data).into_response()
 }
 
+// Download all PC-shared files as a single zip archive (mobile-friendly)
+async fn download_all_files(
+    State(state): State<AppState>,
+    AxumPath(code): AxumPath<String>,
+) -> impl IntoResponse {
+    let pc_files: Vec<(PathBuf, String)> = {
+        let rooms = state.rooms.lock().unwrap();
+        let Some(room) = rooms.get(&code) else {
+            return (StatusCode::NOT_FOUND, HeaderMap::new(), vec![]).into_response();
+        };
+        room.files
+            .iter()
+            .filter(|f| {
+                // Only PC-shared files (absolute paths)
+                f.filename.contains(':') || f.filename.starts_with('/') || f.filename.starts_with('\\')
+            })
+            .map(|f| {
+                let path = PathBuf::from(&f.filename);
+                (path, f.name.clone())
+            })
+            .collect()
+    };
+
+    if pc_files.is_empty() {
+        return (StatusCode::NOT_FOUND, HeaderMap::new(), vec![]).into_response();
+    }
+
+    // Build zip in memory
+    let mut buf = Cursor::new(Vec::new());
+    {
+        let mut zip = ZipWriter::new(&mut buf);
+        let opts: FileOptions<()> = FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        // Track duplicate names: append _{n} suffix if needed
+        let mut seen_names: HashMap<String, u32> = HashMap::new();
+        for (path, name) in &pc_files {
+            let Ok(data) = fs::read(path) else { continue };
+            let entry_name = {
+                let count = seen_names.entry(name.clone()).or_insert(0);
+                *count += 1;
+                if *count == 1 {
+                    name.clone()
+                } else {
+                    // Insert counter before extension
+                    let stem = std::path::Path::new(name)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(name);
+                    let ext = std::path::Path::new(name)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("");
+                    if ext.is_empty() {
+                        format!("{} ({})", stem, count)
+                    } else {
+                        format!("{} ({}).{}", stem, count, ext)
+                    }
+                }
+            };
+            if zip.start_file(&entry_name, opts).is_err() { continue; }
+            let _ = zip.write_all(&data);
+        }
+        let _ = zip.finish();
+    }
+
+    let zip_bytes = buf.into_inner();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"cosmo-shared-files.zip\""),
+    );
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/zip"),
+    );
+    (StatusCode::OK, headers, zip_bytes).into_response()
+}
+
 fn urlencoding_name(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -627,6 +706,7 @@ pub async fn start_server(frontend_dist_path: String) {
             "/api/rooms/{code}/files/{file_id}",
             get(download_file).delete(delete_file),
         )
+        .route("/api/rooms/{code}/download-all", get(download_all_files))
         .route("/api/rooms/{code}", delete(delete_room))
         .route("/api/view-file", get(view_local_file));
 
