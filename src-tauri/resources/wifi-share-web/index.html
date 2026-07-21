@@ -394,14 +394,14 @@
             </svg>
             Shared From PC
           </div>
-          <a id="download-all-btn" href="/api/rooms/local/download-all" download="cosmo-shared-files.zip" class="btn btn-primary btn-small hidden">
+          <button id="download-all-btn" class="btn btn-primary btn-small hidden" onclick="downloadAllFiles()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            Save All as ZIP
-          </a>
+            Copy All
+          </button>
         </div>
 
         <div id="pc-files-list" class="file-list">
@@ -608,8 +608,61 @@
         }
       }
 
-      // Download all PC shared files as a single zip — handled server-side via /download-all
-      // The anchor tag does the work; nothing extra needed here.
+      // Download all PC shared files one at a time using fetch+blob.
+      // This bypasses mobile browser popup/download-link restrictions by
+      // fetching each file into memory first, then triggering via objectURL.
+      async function downloadAllFiles() {
+        const pcFiles = currentFiles.filter(f => !f.isPhoneUpload);
+        if (pcFiles.length === 0) return;
+
+        const btn = document.getElementById('download-all-btn');
+        const origHTML = btn.innerHTML;
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+
+        for (let i = 0; i < pcFiles.length; i++) {
+          const file = pcFiles[i];
+          btn.innerHTML = `
+            <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+              <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/>
+              <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+              <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>
+            </svg>
+            ${i + 1} / ${pcFiles.length}
+          `;
+          try {
+            // Fetch the raw file bytes into memory first
+            const res = await fetch(`/api/rooms/${roomCode}/files/${file.id}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+
+            // Create a local blob URL — works without popup-blocker interference
+            const objUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = objUrl;
+            a.download = file.name;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            // Keep URL alive briefly so the download can start, then revoke
+            setTimeout(() => URL.revokeObjectURL(objUrl), 10000);
+
+            // Brief pause before next file so the OS save dialog can settle
+            if (i < pcFiles.length - 1) {
+              await new Promise(r => setTimeout(r, 1200));
+            }
+          } catch(e) {
+            console.error('Failed to download:', file.name, e);
+          }
+        }
+
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.innerHTML = origHTML;
+      }
 
       // Delete a file
       async function deleteFile(fileId) {

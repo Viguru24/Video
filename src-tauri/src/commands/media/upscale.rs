@@ -531,8 +531,8 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
                 let (w, h) = (img.width(), img.height());
                 let target_w = w * 4;
                 let target_h = h * 4;
-                let max_width = 3840;
-                let max_height = 2160;
+                let max_width = (7680).max(w * 2);
+                let max_height = (4320).max(h * 2);
 
                 let (final_w, final_h) = if target_w > max_width || target_h > max_height {
                     let scale = (max_width as f64 / target_w as f64).min(max_height as f64 / target_h as f64);

@@ -260,16 +260,17 @@ def process_enhance(img_or_bytes, fidelity=0.5):
             import torch
             torch.cuda.empty_cache()
             
-            # Capping maximum resolution to 4K max (3840x2160) to prevent oversized files
+            # Capping maximum resolution to 8K max (7680x4320) or 2x original dimensions
             h_out, w_out = restored_img.shape[:2]
-            max_width = 3840
-            max_height = 2160
+            h_in, w_in = img.shape[:2]
+            max_width = max(7680, w_in * 2)
+            max_height = max(4320, h_in * 2)
             if w_out > max_width or h_out > max_height:
                 scale = min(max_width / w_out, max_height / h_out)
                 new_w = int(w_out * scale)
                 new_h = int(h_out * scale)
                 restored_img = cv2.resize(restored_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                print(f"Downscaled upscaled image from {w_out}x{h_out} to {new_w}x{new_h} (max 4K cap)", file=sys.stderr)
+                print(f"Downscaled upscaled image from {w_out}x{h_out} to {new_w}x{new_h} (max 8K cap)", file=sys.stderr)
 
             # Brief yield — lets Windows compositor catch up after heavy GPU load
             time.sleep(0.05)
@@ -283,11 +284,11 @@ def process_enhance(img_or_bytes, fidelity=0.5):
     unsharp_lowres = cv2.addWeighted(smoothed, 1.5, gaussian, -0.5, 0)
     h, w = img.shape[:2]
     
-    # Cap CPU fallback to 4K as well!
+    # Cap CPU fallback to 8K as well!
     target_w = w * 4
     target_h = h * 4
-    max_width = 3840
-    max_height = 2160
+    max_width = max(7680, w * 2)
+    max_height = max(4320, h * 2)
     if target_w > max_width or target_h > max_height:
         scale = min(max_width / target_w, max_height / target_h)
         target_w = int(target_w * scale)
