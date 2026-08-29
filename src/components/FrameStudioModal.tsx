@@ -13,9 +13,11 @@ interface FrameStudioModalProps {
   onClose: () => void;
   onLog?: (msg: string) => void;
   setVideos?: React.Dispatch<React.SetStateAction<VideoItem[]>>;
+  onFocusMedia?: (id: string) => void;
+  onUpdateVideo?: (id: string, updates: Partial<VideoItem>) => void;
 }
 
-export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos }: FrameStudioModalProps) {
+export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos, onFocusMedia, onUpdateVideo }: FrameStudioModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [framePreset, setFramePreset] = useState<FramePreset>('white');
   const [cornerShape, setCornerShape] = useState<CornerShape>('round');
@@ -348,6 +350,7 @@ export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos }: F
             return [...prev, newUnit];
           });
           useStore.getState().setSortOrder('custom');
+          onFocusMedia?.(newUnit.id);
         } else {
           // Overwrite existing card in-place
           setVideos(prev => prev.map(v => {
@@ -361,6 +364,8 @@ export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos }: F
             }
             return v;
           }));
+          onUpdateVideo?.(video.id, { url: liveCosmoUrl, realPath: savedPath });
+          onFocusMedia?.(video.id);
         }
       }
       onClose();

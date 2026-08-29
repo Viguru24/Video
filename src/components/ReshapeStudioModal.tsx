@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem } from '../types';
-import { convertToVideoUrl } from '../utils/videoUtils';
+import { convertToVideoUrl, toCosmoUrl } from '../utils/videoUtils';
+import { useStore } from '../store/useStore';
 
 interface ReshapeStudioModalProps {
   video: VideoItem;
@@ -9,6 +10,8 @@ interface ReshapeStudioModalProps {
   onClose: () => void;
   onLog?: (msg: string) => void;
   setVideos?: React.Dispatch<React.SetStateAction<VideoItem[]>>;
+  onFocusMedia?: (id: string) => void;
+  onUpdateVideo?: (id: string, updates: Partial<VideoItem>) => void;
 }
 
 export function ReshapeStudioModal({
@@ -16,7 +19,9 @@ export function ReshapeStudioModal({
   isOpen,
   onClose,
   onLog,
-  setVideos
+  setVideos,
+  onFocusMedia,
+  onUpdateVideo
 }: ReshapeStudioModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -461,7 +466,7 @@ export function ReshapeStudioModal({
 
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<{ open: boolean; path: string } | null>(null);
 
-  const handleSaveReshape = async () => {
+  const handleSaveReshape = async (saveAsCopy: boolean = true) => {
     const mainCanvas = canvasRef.current;
     if (!mainCanvas) return;
 
@@ -477,39 +482,59 @@ export function ReshapeStudioModal({
       const savedPath = await invoke<string>('save_adjusted_image_bytes', {
         path: targetPath,
         base64Data,
-        saveAsCopy: true
+        saveAsCopy
       });
 
-      if (onLog) onLog(`Reshaped photo saved to disk: ${savedPath}`);
+      if (onLog) onLog(`Reshape: ${saveAsCopy ? 'Saved new copy' : 'Overwrote photo'} -> ${savedPath}`);
+
+      const liveCosmoUrl = `${toCosmoUrl(savedPath)}?t=${Date.now()}`;
 
       if (setVideos) {
-        const separator = savedPath.includes('\\') ? '\\' : '/';
-        const fileNameWithExt = savedPath.substring(savedPath.lastIndexOf(separator) + 1);
-        const extIdx = fileNameWithExt.lastIndexOf('.');
-        const cleanTitle = extIdx !== -1 ? fileNameWithExt.substring(0, extIdx) : fileNameWithExt;
+        if (saveAsCopy) {
+          const separator = savedPath.includes('\\') ? '\\' : '/';
+          const fileNameWithExt = savedPath.substring(savedPath.lastIndexOf(separator) + 1);
+          const extIdx = fileNameWithExt.lastIndexOf('.');
+          const cleanTitle = extIdx !== -1 ? fileNameWithExt.substring(0, extIdx) : fileNameWithExt;
 
-        const newUnit: VideoItem = {
-          id: `reshaped-${Date.now()}`,
-          title: cleanTitle,
-          url: convertToVideoUrl(savedPath),
-          realPath: savedPath,
-          currentTime: 0,
-          playing: false,
-          muted: video.muted,
-          repeatMode: 'none',
-          repeatCount: 0,
-          cols: video.cols || 1
-        };
+          const newUnit: VideoItem = {
+            id: `reshaped-${Date.now()}`,
+            title: `${video.title.replace(/\s*\(Reshaped\)/i, '')} (Reshaped)`,
+            url: liveCosmoUrl,
+            realPath: savedPath,
+            currentTime: 0,
+            playing: false,
+            muted: video.muted,
+            repeatMode: 'none',
+            repeatCount: 0,
+            cols: video.cols || 1
+          };
 
-        setVideos(prev => {
-          const currentIdx = prev.findIndex(item => item.id === video.id);
-          if (currentIdx !== -1) {
-            const next = [...prev];
-            next.splice(currentIdx + 1, 0, newUnit);
-            return next;
-          }
-          return [...prev, newUnit];
-        });
+          setVideos(prev => {
+            const currentIdx = prev.findIndex(item => item.id === video.id);
+            if (currentIdx !== -1) {
+              const next = [...prev];
+              next.splice(currentIdx + 1, 0, newUnit);
+              return next;
+            }
+            return [...prev, newUnit];
+          });
+          useStore.getState().setSortOrder('custom');
+          onFocusMedia?.(newUnit.id);
+        } else {
+          // Overwrite in place
+          setVideos(prev => prev.map(v => {
+            if (v.id === video.id) {
+              return {
+                ...v,
+                url: liveCosmoUrl,
+                realPath: savedPath
+              };
+            }
+            return v;
+          }));
+          onUpdateVideo?.(video.id, { url: liveCosmoUrl, realPath: savedPath });
+          onFocusMedia?.(video.id);
+        }
       }
 
       onClose();
@@ -610,21 +635,66 @@ export function ReshapeStudioModal({
           </div>
         </div>
 
-        <button
-          onClick={onClose}
-          style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: 'none',
-            color: '#fff',
-            borderRadius: '50%',
-            width: '32px',
-            height: '32px',
-            cursor: 'pointer',
-            fontSize: '16px'
-          }}
-        >
-          ✕
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={() => handleSaveReshape(true)}
+            disabled={isSaving}
+            style={{
+              background: 'var(--accent, #00ff88)',
+              border: 'none',
+              color: '#000',
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '11px',
+              fontWeight: 800,
+              cursor: isSaving ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              boxShadow: '0 0 12px rgba(0, 255, 136, 0.35)',
+              transition: 'all 0.2s'
+            }}
+          >
+            ➕ {isSaving ? 'Saving...' : 'Save as Copy'}
+          </button>
+
+          <button
+            onClick={() => handleSaveReshape(false)}
+            disabled={isSaving}
+            style={{
+              background: 'rgba(255, 255, 255, 0.12)',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              color: '#fff',
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '11px',
+              fontWeight: 700,
+              cursor: isSaving ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              transition: 'all 0.2s'
+            }}
+          >
+            💾 Overwrite
+          </button>
+
+          <button
+            onClick={onClose}
+            style={{
+              background: 'rgba(255, 255, 255, 0.1)',
+              border: 'none',
+              color: '#fff',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              cursor: 'pointer',
+              fontSize: '16px'
+            }}
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {/* Render Canvas Wrapper with Viewport Zoom and Pan */}
@@ -782,7 +852,7 @@ export function ReshapeStudioModal({
             </button>
 
             <button
-              onClick={handleSaveReshape}
+              onClick={() => handleSaveReshape(true)}
               disabled={isSaving}
               style={{
                 background: 'var(--accent, #00ff88)',
@@ -791,11 +861,29 @@ export function ReshapeStudioModal({
                 padding: '3px 10px',
                 borderRadius: '10px',
                 fontSize: '9px',
-                fontWeight: 700,
-                cursor: 'pointer'
+                fontWeight: 800,
+                cursor: isSaving ? 'wait' : 'pointer',
+                whiteSpace: 'nowrap'
               }}
             >
-              {isSaving ? 'Saving...' : 'Save'}
+              ➕ {isSaving ? 'Saving...' : 'Save Copy'}
+            </button>
+            <button
+              onClick={() => handleSaveReshape(false)}
+              disabled={isSaving}
+              style={{
+                background: 'rgba(255, 255, 255, 0.15)',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
+                color: '#fff',
+                padding: '3px 10px',
+                borderRadius: '10px',
+                fontSize: '9px',
+                fontWeight: 700,
+                cursor: isSaving ? 'wait' : 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              💾 Overwrite
             </button>
             <button
               onClick={() => setHudCollapsed(!hudCollapsed)}
