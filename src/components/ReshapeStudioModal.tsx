@@ -581,8 +581,6 @@ export function ReshapeStudioModal({
     offsetX = (containerSize.w - visibleW) / 2;
   }
 
-  const [hudCollapsed, setHudCollapsed] = useState<boolean>(true);
-
   return (
     <div
       ref={containerRef}
@@ -789,7 +787,7 @@ export function ReshapeStudioModal({
         )}
       </div>
 
-      {/* Collapsible Control HUD Bar */}
+      {/* Maximized Control HUD Bar */}
       <div
         style={{
           position: 'absolute',
@@ -799,7 +797,7 @@ export function ReshapeStudioModal({
           background: 'rgba(0, 0, 0, 0.38)',
           border: '1px solid rgba(255, 255, 255, 0.15)',
           borderRadius: '20px',
-          padding: hudCollapsed ? '5px 14px' : '6px 16px',
+          padding: '6px 16px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -933,26 +931,10 @@ export function ReshapeStudioModal({
             >
               💾 Overwrite
             </button>
-            <button
-              onClick={() => setHudCollapsed(!hudCollapsed)}
-              style={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: 'none',
-                color: 'rgba(255,255,255,0.7)',
-                borderRadius: '7px',
-                padding: '3px 7px',
-                fontSize: '9px',
-                cursor: 'pointer'
-              }}
-            >
-              {hudCollapsed ? '▲' : '▼'}
-            </button>
           </div>
         </div>
 
-        {!hudCollapsed && (
-          <>
-            {activeTab === 'stretch' && (
+        {activeTab === 'stretch' && (
               <div style={{ display: 'flex', gap: '16px', width: '100%', justifyContent: 'center', alignItems: 'center', paddingTop: '4px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '160px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'rgba(255,255,255,0.7)' }}>
@@ -1142,8 +1124,6 @@ export function ReshapeStudioModal({
                 </button>
               </div>
             )}
-          </>
-        )}
       </div>
 
       {/* Premium Glassmorphic Save Success Dialog */}
