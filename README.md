@@ -18,33 +18,35 @@
 
 </div>
 
-## ✨ Key Highlights & Features
+## ✨ Comprehensive Feature Matrix
 
-### 🎬 1. Hyper-Density Multi-Media Mosaic Wall
+### 📸 1. Professional Photo & Image Creative Suite
+* **High-Res RAW & Ultra-HD Viewer**: Blazing fast rendering for 50MP+ camera photos, HDR images, and multi-format graphics.
+* **🖼️ Artisanal Hardwood Frame Studio**: Procedurally generated 4-plank mitered hardwood molding with authentic 45° corner joinery, wood grain fiber alignment, gold inner fillet, and ambient drop shadows.
+* **✨ AI Portrait Bokeh & Depth Studio**: Automatic on-device neural depth estimation, background defocusing, adjustable virtual aperture (f/1.4 to f/16), and feathered edge masking.
+* **✂️ 1-Click AI Subject Cutout & Sticker Creator**: Long-press on any image to instantly isolate subjects into transparent PNG stickers with automatic side-by-side comparison.
+* **⚡ 4x AI Super-Resolution Upscaling**: Local neural model enhancement to upscale low-res photos and frame grabs to crisp 4K/8K.
+* **🎨 Color Grading & Adjustment Studio**: Real-time hardware GPU filters for Brightness, Contrast, Saturation, Gamma, Invert, and Hue shifting.
+* **🎞️ Dynamic Slideshow & Digital Picture Frame**: Continuous full-screen ambient playback with Ken Burns pan-and-zoom motion and intelligent resume memory.
+
+### 📲 2. Seamless Phone ↔ Desktop Wi-Fi Sharing (AirDrop for Windows)
+* **Zero-Cloud Local Transfer**: Send and receive photos, videos, and albums over local Wi-Fi with maximum speed and complete privacy.
+* **Instant QR Code Pairing**: Scan with any iPhone or Android camera — no app installation required; runs natively in mobile Safari/Chrome.
+* **Bidirectional Sync**:
+  * **PC ➔ Phone**: Send entire folders or curated clips to your mobile device with 1-click batch ZIP or individual downloads.
+  * **Phone ➔ PC**: Take photos or pick videos on your phone and beam them directly into the Cosmo Symphony workspace in real time.
+* **Companion Android App**: Includes `CosmoShare.apk` for background transfer and automated gallery saving.
+
+### 🎬 3. Hyper-Density Multi-Media Mosaic Wall
 * **Unified Symphony Orchestration**: Master Play, Pause, Mute, Volume, and Speed control across all active media cards simultaneously.
 * **Fluid Drag-and-Drop Grid**: Dynamic column density scaling (1 to 16 columns) powered by `@dnd-kit` with silky spring animations.
-* **Instant Free Show & Slideshow Mode**: Continuous full-screen showcase with intelligent resume memory and Ken Burns pan-zoom motion.
+* **Independent Zoom & Pan**: Pinch-to-zoom up to 800% with real-time HUD and 1-click `1:1` reset button.
 
-### 🤖 2. On-Device Local AI Studio (Zero Cloud)
-* **⚡ 4x AI Super-Resolution Upscaling**: Restore low-res clips and images to crisp 4K/8K using local DirectML/CUDA neural weights.
-* **✨ AI Portrait Bokeh & Depth Blur**: Automatic depth map generation and subject masking with customizable aperture, focal point, and feathered bokeh.
-* **✂️ 1-Click AI Instant Subject Cutout**: Hold on any image to extract clean transparent PNG stickers with automatic adjacent comparison placement.
-
-### 🖼️ 3. Artisanal Hardwood Frame Studio
-* **Procedural 4-Plank Mitered Molding**: Authentic 45° corner joinery, directional natural grain fibers, gold inner fillet, and physical ambient drop shadow.
-* **Resolution-Independent Dynamic Scaling**: Perfect border proportions whether framing 720p thumbnails or 48MP camera photos.
-* **Non-Destructive Dual Export**: Save as an adjacent comparison copy or overwrite in place.
-
-### 📱 4. Instant Wi-Fi Phone Transfer (AirDrop for PC)
-* **Zero-Config Mobile Sync**: Scan an animated QR code to instantly share, stream, and download files bidirectionally between Windows and iOS/Android devices on local Wi-Fi.
-* **Native Companion APK**: Included `CosmoShare.apk` for seamless background downloads on Android.
-* **Batch ZIP & Direct Streaming**: Download single files or full albums with one tap.
-
-### 🖥️ 5. Multi-Monitor Detached Popout Players
+### 🖥️ 4. Multi-Monitor Detached Popout Players
 * **Detached Native Windows**: Pop out any video or image into a dedicated floating window with Picture-in-Picture and Always-On-Top modes.
-* **Independent Zoom & Pan**: Pinch-to-zoom up to 800% with real-time HUD and 1-click `1:1` reset.
+* **Secondary Monitor Staging**: Arrange individual assets across multiple physical displays while maintaining synchronization.
 
-### 🛡️ 6. Hardware-Aware Secure Deletion
+### 🛡️ 5. Hardware-Aware Secure Storage & Shredding
 * **Direct NVMe/SSD Block Trim**: Detects solid-state media and executes kernel-level `FSCTL_FILE_LEVEL_TRIM` to protect drive endurance.
 * **3-Pass Cryptographic Wipe for HDDs**: DoD 5220.22-M compliant overwriting (Zero, 0xFF, Random) before file truncation.
 
