@@ -221,7 +221,20 @@ export function useVideoCard({
     }
 
     if (isFocused) {
-      if (e.altKey && e.button === 0 && zoomScale === 1) {
+      const target = e.target as HTMLElement;
+      const isControl = Boolean(
+        target.closest('button') ||
+        target.closest('input') ||
+        target.closest('.solo-control-bar') ||
+        target.closest('.card-controls') ||
+        target.closest('.zoom-hud-badge') ||
+        target.closest('.drag-handle-mini') ||
+        target.closest('.tel-item') ||
+        target.closest('.scrub-container') ||
+        target.closest('.focused-scrub-container')
+      );
+
+      if (e.altKey && e.button === 0 && zoomScale === 1 && !isControl) {
         e.preventDefault();
         e.stopPropagation();
 
@@ -240,7 +253,7 @@ export function useVideoCard({
         return;
       }
 
-      if (zoomScale > 1 && e.button === 0) {
+      if (zoomScale > 1 && e.button === 0 && !isControl) {
         e.preventDefault();
         e.stopPropagation();
         setIsPanning(true);
@@ -1372,6 +1385,14 @@ export function useVideoCard({
     setError,
     setPlaying,
     setReloadKey,
+    setZoomScale,
+    setPanOffset,
+    resetZoom: () => {
+      setZoomScale(1);
+      setPanOffset({ x: 0, y: 0 });
+      setIsPanning(false);
+      showHudNotification('ZOOM', '100%');
+    },
     // actions/handlers
     handleMouseDown,
     handleMouseMove,

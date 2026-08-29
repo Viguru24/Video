@@ -1,6 +1,7 @@
 import { useEffect, Dispatch, SetStateAction } from 'react';
 import type { VideoItem, RepeatMode } from '../types';
 import { isValidPictureExtension, showConfirm } from '../utils/videoUtils';
+import { useStore } from '../store/useStore';
 
 interface KeyboardShortcutsProps {
   focusedId: string | null;
@@ -186,7 +187,8 @@ export function useKeyboardShortcuts({
             }
             break;
           }
-          case ' ': {
+          case ' ':
+          case 'k': {
             e.preventDefault();
             if (isSlideshowActive) {
               if (setIsSlideshowActive) {
@@ -214,6 +216,59 @@ export function useKeyboardShortcuts({
               toggleMasterPlay();
               triggerGlobalHud?.('PLAYBACK', 'PLAY/PAUSE TOGGLED');
             }
+            break;
+          }
+          case '=':
+          case '+':
+          case 'volumeup': {
+            e.preventDefault();
+            const store = useStore.getState();
+            store.setGlobalVolume((prev: number) => {
+              const next = Math.min(1.0, Math.round((prev + 0.05) * 100) / 100);
+              triggerGlobalHud?.('VOLUME', `${Math.round(next * 100)}%`);
+              return next;
+            });
+            break;
+          }
+          case '-':
+          case '_':
+          case 'volumedown': {
+            e.preventDefault();
+            const store = useStore.getState();
+            store.setGlobalVolume((prev: number) => {
+              const next = Math.max(0.0, Math.round((prev - 0.05) * 100) / 100);
+              triggerGlobalHud?.('VOLUME', `${Math.round(next * 100)}%`);
+              return next;
+            });
+            break;
+          }
+          case ']':
+          case '>': {
+            e.preventDefault();
+            const store = useStore.getState();
+            store.setSpeed((prev: number) => {
+              const next = Math.min(8.0, Math.round((prev + 0.25) * 100) / 100);
+              triggerGlobalHud?.('SPEED', `${next.toFixed(2)}x`);
+              return next;
+            });
+            break;
+          }
+          case '[':
+          case '<': {
+            e.preventDefault();
+            const store = useStore.getState();
+            store.setSpeed((prev: number) => {
+              const next = Math.max(0.1, Math.round((prev - 0.25) * 100) / 100);
+              triggerGlobalHud?.('SPEED', `${next.toFixed(2)}x`);
+              return next;
+            });
+            break;
+          }
+          case '0': {
+            e.preventDefault();
+            const store = useStore.getState();
+            store.setSpeed(1.0);
+            triggerGlobalHud?.('SPEED', '1.00x');
             break;
           }
           case 'f':
