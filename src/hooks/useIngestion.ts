@@ -277,12 +277,6 @@ export function useIngestion({
               for (const v of prev) {
                 if (v.realPath) existingKeys.add(normalizeMediaKey(v.realPath));
                 if (v.url) existingKeys.add(normalizeMediaKey(v.url));
-                if (v.folderFiles && v.folderFiles.length > 0) {
-                  for (const f of v.folderFiles) {
-                    if (f.path) existingKeys.add(normalizeMediaKey(f.path));
-                    if (f.url) existingKeys.add(normalizeMediaKey(f.url));
-                  }
-                }
               }
 
               const uniqueNew = newVids.filter(item => {

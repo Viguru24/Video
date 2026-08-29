@@ -310,7 +310,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
   const [autoAddIncoming, setAutoAddIncoming] = useState(() =>
     localStorage.getItem('cosmo-auto-add-incoming') !== 'false'
   );
-  const [limit, setLimit] = useState(100);
+  const [limit, setLimit] = useState(300);
   
   const loadedPathsRef = React.useRef<Set<string>>(new Set());
   const pendingPathsRef = React.useRef<Set<string>>(new Set());
@@ -334,7 +334,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     activeTimeoutsRef.current.forEach(clearTimeout);
     activeTimeoutsRef.current = [];
     pendingPathsRef.current.clear();
-    setLimit(100);
+    setLimit(300);
     setInAppBrowserCollapsed(false);
   }, [inAppBrowserPath, setInAppBrowserCollapsed]);
 
