@@ -262,6 +262,16 @@ export function useMediaImport({
         return next;
       });
 
+      const videoCount = newItems.filter(v => isValidMediaExtension(v.realPath || v.url, 'video')).length;
+      const pictureCount = newItems.filter(v => isValidMediaExtension(v.realPath || v.url, 'picture')).length;
+      if (videoCount > 0 && pictureCount > 0) {
+        setMediaMode('all');
+      } else if (pictureCount > 0 && videoCount === 0) {
+        setMediaMode('picture');
+      } else if (videoCount > 0 && pictureCount === 0) {
+        setMediaMode('video');
+      }
+
       addLog(`System: Ingested ${newItems.length} file(s) into workspace.`);
     } else {
       console.warn("[useMediaImport] No items added to videos state (newItems is empty).");
@@ -280,10 +290,10 @@ export function useMediaImport({
       }
       const parentPath = parts.join('/');
       
-      const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path: parentPath, mode: mediaMode });
+      const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path: parentPath, mode: 'all' });
       if (folderVids && folderVids.length > 0) {
         const sortedVids = [...folderVids].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-        const convertedVids = await processFolderConversion(sortedVids, mediaMode);
+        const convertedVids = await processFolderConversion(sortedVids, 'all');
         if (convertedVids.length === 0) {
           addLog(`System: No compatible files in folder.`);
           return;
@@ -344,9 +354,9 @@ export function useMediaImport({
       try {
         const path = await invoke<string | null>('select_folder_cmd');
         if (path) {
-          const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path, mode: mediaMode });
+          const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path, mode: 'all' });
           if (folderVids && folderVids.length > 0) {
-            const convertedVids = await processFolderConversion(folderVids, mediaMode);
+            const convertedVids = await processFolderConversion(folderVids, 'all');
             if (convertedVids.length === 0) {
               addLog(`System: No compatible native or converted files in folder.`);
               return;

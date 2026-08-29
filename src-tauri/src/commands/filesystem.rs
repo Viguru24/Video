@@ -564,6 +564,7 @@ pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json:
                           "ts", "mts", "m2ts", "vob", "mpg", "mpeg", "ogv", "divx", "rm", "rmvb"];
         let image_exts = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff",
                           "heic", "heif", "avif", "jxl", "cr2", "cr3", "nef", "arw", "dng", "tga"];
+        let audio_exts = ["mp3", "wav", "flac", "aac", "ogg", "wma", "opus", "m4a"];
         
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
@@ -584,17 +585,11 @@ pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json:
                         || name_lower.ends_with(".download") {
                         continue;
                     }
-                    if let Some(pos) = name_lower.rfind(".f") {
-                        if let Some(dot_pos) = name_lower[pos + 1..].find('.') {
-                            let fmt = &name_lower[pos + 2..pos + 1 + dot_pos];
-                            if !fmt.is_empty() && fmt.chars().all(|c| c.is_ascii_digit() || c == '-' || c == 's' || c == 'r') {
-                                continue;
-                            }
-                        }
-                    }
                     if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
                         let ext_lower = ext.to_lowercase();
-                        is_media = video_exts.contains(&ext_lower.as_str()) || image_exts.contains(&ext_lower.as_str());
+                        is_media = video_exts.contains(&ext_lower.as_str()) 
+                            || image_exts.contains(&ext_lower.as_str())
+                            || audio_exts.contains(&ext_lower.as_str());
                     }
                     if !is_media {
                         continue;
