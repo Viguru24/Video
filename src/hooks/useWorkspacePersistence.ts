@@ -24,7 +24,7 @@ import type { VideoItem, RepeatMode } from '../types';
 import { PERSISTENCE_DEBOUNCE } from '../constants';
 import {
   isValidVideoExtension, isValidPictureExtension,
-  toCosmoUrl, isTauri, toRealPath
+  toCosmoUrl, isTauri, toRealPath, safeSetLocalStorage
 } from '../utils/videoUtils';
 import { useStore } from '../store/useStore';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -42,6 +42,29 @@ export function cleanVideosForPersistence(
   return vids.map(v => {
       const isFolderType = v.repeatMode === 'folder' || !!v.folderPath ||
         (Array.isArray(v.folderFiles) && v.folderFiles.length > 0);
+      
+      const cleaned: any = {
+        id: v.id,
+        url: v.url,
+        title: v.title
+      };
+
+      if (v.realPath && v.realPath !== v.url) cleaned.realPath = v.realPath;
+      if (v.repeatMode && v.repeatMode !== 'none') cleaned.repeatMode = v.repeatMode;
+      if (v.repeatCount && v.repeatCount !== 0) cleaned.repeatCount = v.repeatCount;
+      if (v.cols && v.cols !== 1) cleaned.cols = v.cols;
+      if (v.playing) cleaned.playing = true;
+      if (v.muted === false) cleaned.muted = false;
+      if (v.currentIdx && v.currentIdx !== 0) cleaned.currentIdx = v.currentIdx;
+      if (v.folderPath) cleaned.folderPath = v.folderPath;
+      if (v.folderMode) cleaned.folderMode = v.folderMode;
+      if (v.created) cleaned.created = v.created;
+      if (v.modified) cleaned.modified = v.modified;
+      if (v.rotation) cleaned.rotation = v.rotation;
+      if (v.flipped) cleaned.flipped = v.flipped;
+      if (v.currentTime && v.currentTime !== 0) cleaned.currentTime = v.currentTime;
+      if (v.colorFilters) cleaned.colorFilters = v.colorFilters;
+
       if (isFolderType) {
         let inferredFolderPath = v.folderPath;
         if (!inferredFolderPath && (v.realPath || v.url)) {
@@ -53,20 +76,19 @@ export function cleanVideosForPersistence(
         const isPictureFolder =
           v.folderMode === 'picture' ||
           (v.folderFiles && v.folderFiles.some(f => isValidPictureExtension(f.path)));
-        return {
-          ...v,
-          folderFiles: [],
-          folderPath: inferredFolderPath,
-          folderMode: v.folderMode || (isPictureFolder ? 'picture' : 'video'),
-          url: isPictureFolder ? '' : v.url,
-          realPath: isPictureFolder ? '' : v.realPath,
-          title: isPictureFolder
-            ? (/\.(jpg|jpeg|png|gif|webp)$/i.test(v.title) ? 'Image Folder' : v.title)
-            : v.title,
-          currentIdx: 0,
-        };
+        cleaned.folderFiles = [];
+        cleaned.folderPath = inferredFolderPath;
+        cleaned.folderMode = v.folderMode || (isPictureFolder ? 'picture' : 'video');
+        if (isPictureFolder) {
+          cleaned.url = '';
+          cleaned.realPath = '';
+          if (/\.(jpg|jpeg|png|gif|webp)$/i.test(v.title)) {
+            cleaned.title = 'Image Folder';
+          }
+        }
+        cleaned.currentIdx = 0;
       }
-      return v;
+      return cleaned;
     });
 }
 
@@ -82,7 +104,7 @@ export function cleanCollectionsForPersistence(
   return result;
 }
 
-/** Deserialise one saved VideoItem, fixing up cosmo:// URLs. */
+/** Deserialise one saved VideoItem, fixing up cosmo:// URLs and restoring default properties. */
 function hydrateItem(item: any): VideoItem {
   const cleanPath =
     toRealPath(item.realPath) || toRealPath(item.url) || item.realPath || item.url;
@@ -96,7 +118,17 @@ function hydrateItem(item: any): VideoItem {
       return { ...ff, url: toCosmoUrl(ffPath), path: toRealPath(ffPath) || ffPath };
     });
   }
-  return { ...item, url: updatedUrl, realPath: updatedRealPath, folderFiles: updatedFolderFiles };
+  return {
+    repeatMode: 'none',
+    repeatCount: 0,
+    cols: 1,
+    playing: false,
+    muted: true,
+    ...item,
+    url: updatedUrl,
+    realPath: updatedRealPath,
+    folderFiles: updatedFolderFiles
+  };
 }
 
 export function useWorkspacePersistence(
@@ -474,7 +506,7 @@ export function useWorkspacePersistence(
         invoke('save_persistence', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
         emit('workspace-changed', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
       }
-      localStorage.setItem('cosmo-v2', dataStr);
+      safeSetLocalStorage('cosmo-v2', dataStr);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [videos, isInitialized, isPopout]);
@@ -485,7 +517,7 @@ export function useWorkspacePersistence(
     const timer = setTimeout(() => {
       const dataStr = JSON.stringify(cleanCollectionsForPersistence(collections));
       if (isTauri()) invoke('save_persistence', { key: 'cosmo-collections', data: dataStr }).catch(console.error);
-      localStorage.setItem('cosmo-collections', dataStr);
+      safeSetLocalStorage('cosmo-collections', dataStr);
     }, 300); // short debounce — fast enough for manual saves, long enough to skip boot noise
     return () => clearTimeout(timer);
   }, [collections, isInitialized, isPopout]);
@@ -576,9 +608,9 @@ export function useWorkspacePersistence(
               const videosStr      = JSON.stringify(cleanVideosForPersistence(curVideos));
               const collectionsStr = JSON.stringify(cleanCollectionsForPersistence(curCollections));
 
-              // Synchronous localStorage writes — always succeed instantly
-              localStorage.setItem('cosmo-v2',          videosStr);
-              localStorage.setItem('cosmo-collections', collectionsStr);
+              // Safe localStorage writes
+              safeSetLocalStorage('cosmo-v2',          videosStr);
+              safeSetLocalStorage('cosmo-collections', collectionsStr);
               localStorage.setItem('cosmo-rot-int',     curRot.toString());
               if (curSnap) localStorage.setItem('cosmo-snap-dir', curSnap);
               localStorage.setItem('cosmo-theme',       curTheme);
@@ -634,8 +666,8 @@ export function useWorkspacePersistence(
       } = stateRef.current;
       const videosStr      = JSON.stringify(cleanVideosForPersistence(curVideos));
       const collectionsStr = JSON.stringify(cleanCollectionsForPersistence(curCollections));
-      localStorage.setItem('cosmo-v2',          videosStr);
-      localStorage.setItem('cosmo-collections', collectionsStr);
+      safeSetLocalStorage('cosmo-v2',          videosStr);
+      safeSetLocalStorage('cosmo-collections', collectionsStr);
       localStorage.setItem('cosmo-rot-int',     curRot.toString());
       if (curSnap) localStorage.setItem('cosmo-snap-dir', curSnap);
       localStorage.setItem('cosmo-theme',       curTheme);

@@ -29,7 +29,7 @@ export function useVideoOperations({
 }: UseVideoOperationsProps) {
   // Crop states
   const [isCropping, setIsCropping] = useState(false);
-  const [cropBox, setCropBox] = useState({ x: 15, y: 15, w: 70, h: 70 });
+  const [cropBox, setCropBox] = useState({ x: 0, y: 0, w: 100, h: 100 });
   const [aspectRatio, setAspectRatio] = useState<'free' | '1:1' | '16:9' | '4:3'>('free');
   const [showSaveCropOptions, setShowSaveCropOptions] = useState(false);
 
@@ -305,7 +305,14 @@ export function useVideoOperations({
           playing: false,
           muted: false
         };
-        current.push(newUnit);
+        const targetId = target.parentUnitId || target.id;
+        const currentIdx = current.findIndex(item => item.id === targetId);
+        if (currentIdx !== -1) {
+          current.splice(currentIdx + 1, 0, newUnit);
+        } else {
+          current.push(newUnit);
+        }
+        useStore.getState().setSortOrder('custom');
         setToast(`Resized copy saved: ${cleanTitle}`);
       }
       return current;
@@ -443,6 +450,7 @@ export function useVideoOperations({
           }
           return updated;
         });
+        useStore.getState().setSortOrder('custom');
         setFocusedId(newUnit.id);
 
         const targetTab = isVideo ? 'video' : 'picture';

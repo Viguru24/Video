@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { X, Save, Play, Trash2, FolderOpen, Film } from 'lucide-react';
 import type { VideoItem } from '../../types';
 import { invoke } from '@tauri-apps/api/core';
-import { toCosmoUrl, isTauri } from '../../utils/videoUtils';
+import { toCosmoUrl, isTauri, safeSetLocalStorage } from '../../utils/videoUtils';
 import { cleanCollectionsForPersistence } from '../../hooks/useWorkspacePersistence';
 
 interface CollectionsModalProps {
@@ -128,7 +128,7 @@ export function CollectionsModal({
       if (isTauri()) {
         invoke('save_persistence', { key: 'cosmo-collections', data: dataStr }).catch(console.error);
       }
-      localStorage.setItem('cosmo-collections', dataStr);
+      safeSetLocalStorage('cosmo-collections', dataStr);
       return next;
     });
   };

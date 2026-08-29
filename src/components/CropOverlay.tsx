@@ -1,7 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Sparkles, Loader2, User, Share2 } from 'lucide-react';
 import type { VideoItem } from '../types';
-import { convertToVideoUrl } from '../utils/videoUtils';
+import { convertToVideoUrl, isTauri } from '../utils/videoUtils';
+import { useStore } from '../store/useStore';
+
+interface AutoCropBoxResult {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  detected: boolean;
+  label: string;
+}
 
 interface CropOverlayProps {
   video: VideoItem;
@@ -25,6 +36,49 @@ export function CropOverlay({
   const containerRef = useRef<HTMLDivElement>(null);
   const [imgSize, setImgSize] = useState({ w: 1, h: 1 });
   const [containerSize, setContainerSize] = useState({ w: 800, h: 600 });
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [detectionLabel, setDetectionLabel] = useState<string | null>(null);
+
+  const detectSubject = useCallback(async () => {
+    if (!isTauri()) return;
+    try {
+      setIsDetecting(true);
+      setDetectionLabel("AI finding person / subject...");
+
+      const targetPath = (video.folderFiles && video.currentIdx !== undefined)
+        ? (video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url)
+        : (video.realPath || video.url);
+
+      if (!targetPath) {
+        setIsDetecting(false);
+        return;
+      }
+
+      const result = await invoke<AutoCropBoxResult>('detect_person_crop', { path: targetPath });
+      if (result && result.w > 0 && result.h > 0) {
+        setCropBox({
+          x: result.x,
+          y: result.y,
+          w: result.w,
+          h: result.h
+        });
+        setDetectionLabel(result.detected ? `✨ ${result.label}` : "Centered on main area");
+      }
+    } catch (err) {
+      console.error("AI Subject Auto-Crop error:", err);
+      setDetectionLabel("Auto-crop fallback applied");
+    } finally {
+      setIsDetecting(false);
+      setTimeout(() => {
+        setDetectionLabel(null);
+      }, 4000);
+    }
+  }, [video, setCropBox]);
+
+  useEffect(() => {
+    // Run AI person auto-detect automatically when crop overlay opens
+    detectSubject();
+  }, [video]);
 
   useEffect(() => {
     const fetchDims = async () => {
@@ -148,115 +202,74 @@ export function CropOverlay({
       newX = Math.max(0, Math.min(100 - newW, dragStart.current.boxX + deltaX));
       newY = Math.max(0, Math.min(100 - newH, dragStart.current.boxY + deltaY));
     } else {
-      if (dragHandle.includes('left')) {
-        const maxX = dragStart.current.boxX + dragStart.current.boxW - 10;
-        newX = Math.max(0, Math.min(maxX, dragStart.current.boxX + deltaX));
-        newW = dragStart.current.boxX + dragStart.current.boxW - newX;
-      }
       if (dragHandle.includes('right')) {
-        newW = Math.max(10, Math.min(100 - dragStart.current.boxX, dragStart.current.boxW + deltaX));
-      }
-      if (dragHandle.includes('top')) {
-        const maxY = dragStart.current.boxY + dragStart.current.boxH - 10;
-        newY = Math.max(0, Math.min(maxY, dragStart.current.boxY + deltaY));
-        newH = dragStart.current.boxY + dragStart.current.boxH - newY;
+        newW = Math.max(2, Math.min(100 - dragStart.current.boxX, dragStart.current.boxW + deltaX));
       }
       if (dragHandle.includes('bottom')) {
-        newH = Math.max(10, Math.min(100 - dragStart.current.boxY, dragStart.current.boxH + deltaY));
+        newH = Math.max(2, Math.min(100 - dragStart.current.boxY, dragStart.current.boxH + deltaY));
+      }
+      if (dragHandle.includes('left')) {
+        const rawNewX = Math.max(0, Math.min(dragStart.current.boxX + dragStart.current.boxW - 2, dragStart.current.boxX + deltaX));
+        newW = dragStart.current.boxX + dragStart.current.boxW - rawNewX;
+        newX = rawNewX;
+      }
+      if (dragHandle.includes('top')) {
+        const rawNewY = Math.max(0, Math.min(dragStart.current.boxY + dragStart.current.boxH - 2, dragStart.current.boxY + deltaY));
+        newH = dragStart.current.boxY + dragStart.current.boxH - rawNewY;
+        newY = rawNewY;
       }
 
       if (targetRatio) {
-        if (dragHandle.includes('left') || dragHandle.includes('right')) {
-          newH = newW / targetRatio;
-          if (dragHandle.includes('top')) {
-            newY = dragStart.current.boxY + dragStart.current.boxH - newH;
-          }
-        } else {
-          newW = newH * targetRatio;
-          if (dragHandle.includes('left')) {
-            newX = dragStart.current.boxX + dragStart.current.boxW - newW;
-          }
-        }
-
-        if (newX < 0) {
-          newX = 0;
-          newW = dragStart.current.boxX + dragStart.current.boxW;
-          newH = newW / targetRatio;
-          if (dragHandle.includes('top')) {
-            newY = dragStart.current.boxY + dragStart.current.boxH - newH;
-          }
-        }
-        if (newY < 0) {
-          newY = 0;
-          newH = dragStart.current.boxY + dragStart.current.boxH;
-          newW = newH * targetRatio;
-          if (dragHandle.includes('left')) {
-            newX = dragStart.current.boxX + dragStart.current.boxW - newW;
-          }
-        }
-        if (newX + newW > 100) {
-          newW = 100 - newX;
-          newH = newW / targetRatio;
-        }
-        if (newY + newH > 100) {
-          newH = 100 - newY;
-          newW = newH * targetRatio;
-        }
+        if (dragHandle === 'right' || dragHandle === 'left') newH = newW / targetRatio;
+        else if (dragHandle === 'bottom' || dragHandle === 'top') newW = newH * targetRatio;
+        else newH = newW / targetRatio;
       }
     }
 
     setCropBox({
-      x: Math.round(newX * 10) / 10,
-      y: Math.round(newY * 10) / 10,
-      w: Math.round(newW * 10) / 10,
-      h: Math.round(newH * 10) / 10
+      x: Math.max(0, Math.min(100 - newW, newX)),
+      y: Math.max(0, Math.min(100 - newH, newY)),
+      w: Math.max(2, Math.min(100 - newX, newW)),
+      h: Math.max(2, Math.min(100 - newY, newH))
     });
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (isDragging) {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch (_) {}
       setIsDragging(false);
       setDragHandle(null);
     }
   };
 
   return (
-    <div 
+    <div
       ref={containerRef}
+      className="crop-overlay-container"
       style={{
         position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        background: 'rgba(0,0,0,0.4)',
+        inset: 0,
+        zIndex: 200000,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        overflow: 'hidden',
-        zIndex: 200000
+        overflow: 'hidden'
       }}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
     >
       <div
-        id="crop-visible-container"
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
         style={{
           position: 'absolute',
           left: `${offsetX}px`,
           top: `${offsetY}px`,
           width: `${visibleW}px`,
-          height: `${visibleH}px`,
-          touchAction: 'none',
-          userSelect: 'none'
+          height: `${visibleH}px`
         }}
       >
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: `${cropBox.y}%`, background: 'rgba(0,0,0,0.65)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: `${100 - (cropBox.y + cropBox.h)}%`, background: 'rgba(0,0,0,0.65)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', top: `${cropBox.y}%`, left: 0, width: `${cropBox.x}%`, height: `${cropBox.h}%`, background: 'rgba(0,0,0,0.65)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', top: `${cropBox.y}%`, right: 0, width: `${100 - (cropBox.x + cropBox.w)}%`, height: `${cropBox.h}%`, background: 'rgba(0,0,0,0.65)', pointerEvents: 'none' }} />
-
+        {/* Crop Selection Rectangle */}
         <div
           style={{
             position: 'absolute',
@@ -264,34 +277,38 @@ export function CropOverlay({
             top: `${cropBox.y}%`,
             width: `${cropBox.w}%`,
             height: `${cropBox.h}%`,
-            border: '2px solid var(--accent)',
-            boxShadow: '0 0 20px rgba(0, 255, 136, 0.3)',
-            cursor: 'grab'
+            border: '2px solid var(--accent, #00ff88)',
+            boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.75)',
+            cursor: 'move'
           }}
           onPointerDown={(e) => handlePointerDown(e, 'move')}
         >
-          <div style={{ position: 'absolute', left: '33.33%', top: 0, width: 0, height: '100%', borderLeft: '1px dashed rgba(255,255,255,0.3)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', left: '66.66%', top: 0, width: 0, height: '100%', borderLeft: '1px dashed rgba(255,255,255,0.3)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', top: '33.33%', left: 0, height: 0, width: '100%', borderTop: '1px dashed rgba(255,255,255,0.3)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', top: '66.66%', left: 0, height: 0, width: '100%', borderTop: '1px dashed rgba(255,255,255,0.3)', pointerEvents: 'none' }} />
+          {/* Grid overlay */}
+          <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gridTemplateRows: '1fr 1fr 1fr', pointerEvents: 'none' }}>
+            {[...Array(9)].map((_, i) => (
+              <div key={i} style={{ border: '0.5px solid rgba(255, 255, 255, 0.2)' }} />
+            ))}
+          </div>
 
+          {/* Corner Handles */}
           <div
             onPointerDown={(e) => handlePointerDown(e, 'top-left')}
-            style={{ position: 'absolute', top: '-6px', left: '-6px', width: '12px', height: '12px', background: 'var(--accent)', border: '2px solid #000', borderRadius: '50%', cursor: 'nwse-resize', zIndex: 10 }}
+            style={{ position: 'absolute', top: '-6px', left: '-6px', width: '14px', height: '14px', background: 'var(--accent)', border: '1.5px solid #000', borderRadius: '3px', cursor: 'nwse-resize', zIndex: 10 }}
           />
           <div
             onPointerDown={(e) => handlePointerDown(e, 'top-right')}
-            style={{ position: 'absolute', top: '-6px', right: '-6px', width: '12px', height: '12px', background: 'var(--accent)', border: '2px solid #000', borderRadius: '50%', cursor: 'nesw-resize', zIndex: 10 }}
+            style={{ position: 'absolute', top: '-6px', right: '-6px', width: '14px', height: '14px', background: 'var(--accent)', border: '1.5px solid #000', borderRadius: '3px', cursor: 'nesw-resize', zIndex: 10 }}
           />
           <div
             onPointerDown={(e) => handlePointerDown(e, 'bottom-left')}
-            style={{ position: 'absolute', bottom: '-6px', left: '-6px', width: '12px', height: '12px', background: 'var(--accent)', border: '2px solid #000', borderRadius: '50%', cursor: 'nesw-resize', zIndex: 10 }}
+            style={{ position: 'absolute', bottom: '-6px', left: '-6px', width: '14px', height: '14px', background: 'var(--accent)', border: '1.5px solid #000', borderRadius: '3px', cursor: 'nesw-resize', zIndex: 10 }}
           />
           <div
             onPointerDown={(e) => handlePointerDown(e, 'bottom-right')}
-            style={{ position: 'absolute', bottom: '-6px', right: '-6px', width: '12px', height: '12px', background: 'var(--accent)', border: '2px solid #000', borderRadius: '50%', cursor: 'nwse-resize', zIndex: 10 }}
+            style={{ position: 'absolute', bottom: '-6px', right: '-6px', width: '14px', height: '14px', background: 'var(--accent)', border: '1.5px solid #000', borderRadius: '3px', cursor: 'nwse-resize', zIndex: 10 }}
           />
 
+          {/* Edge Handles */}
           <div
             onPointerDown={(e) => handlePointerDown(e, 'top')}
             style={{ position: 'absolute', top: '-6px', left: '50%', transform: 'translateX(-50%)', width: '20px', height: '8px', background: 'var(--accent)', border: '1.5px solid #000', borderRadius: '4px', cursor: 'ns-resize', zIndex: 9 }}
@@ -315,24 +332,24 @@ export function CropOverlay({
         className="presets-hud"
         style={{
           position: 'absolute',
-          bottom: '30px',
+          bottom: '20px',
           left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(10, 10, 12, 0.85)',
-          backdropFilter: 'blur(20px) saturate(180%)',
+          background: 'rgba(10, 10, 12, 0.88)',
+          backdropFilter: 'blur(16px) saturate(180%)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '30px',
-          padding: '8px 24px',
+          borderRadius: '20px',
+          padding: '5px 14px',
           display: 'flex',
           alignItems: 'center',
-          gap: '20px',
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8)',
+          gap: '10px',
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.7)',
           zIndex: 200001,
           userSelect: 'none'
         }}
       >
-        <span style={{ fontSize: '11px', color: '#888', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Aspect Ratio:</span>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <span style={{ fontSize: '9px', color: '#777', textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 700, whiteSpace: 'nowrap' }}>Ratio:</span>
+        <div style={{ display: 'flex', gap: '4px' }}>
           {(['free', '1:1', '16:9', '4:3'] as const).map(ratio => (
             <button
               key={ratio}
@@ -361,15 +378,16 @@ export function CropOverlay({
                 }
               }}
               style={{
-                background: aspectRatio === ratio ? 'var(--accent)' : 'rgba(255, 255, 255, 0.08)',
+                background: aspectRatio === ratio ? 'var(--accent)' : 'rgba(255, 255, 255, 0.07)',
                 border: 'none',
-                color: aspectRatio === ratio ? '#000' : '#fff',
-                padding: '4px 12px',
-                borderRadius: '15px',
-                fontSize: '11px',
-                fontWeight: 'bold',
+                color: aspectRatio === ratio ? '#000' : 'rgba(255,255,255,0.8)',
+                padding: '3px 8px',
+                borderRadius: '10px',
+                fontSize: '9px',
+                fontWeight: 700,
                 cursor: 'pointer',
-                transition: 'all 0.2s'
+                transition: 'all 0.15s',
+                letterSpacing: '0.3px'
               }}
             >
               {ratio.toUpperCase()}
@@ -377,7 +395,72 @@ export function CropOverlay({
           ))}
         </div>
 
-        <div style={{ width: '1px', height: '20px', background: 'rgba(255, 255, 255, 0.15)' }} />
+        <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
+
+        {/* AI Auto-Detect Person Button */}
+        <button
+          onClick={detectSubject}
+          disabled={isDetecting}
+          title="Intelligently detect person and snap crop rectangle around them"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            background: 'rgba(0, 255, 136, 0.12)',
+            border: '1px solid rgba(0, 255, 136, 0.4)',
+            color: 'var(--accent, #00ff88)',
+            padding: '3px 9px',
+            borderRadius: '10px',
+            fontSize: '9px',
+            fontWeight: 700,
+            letterSpacing: '0.3px',
+            cursor: isDetecting ? 'wait' : 'pointer',
+            transition: 'all 0.15s',
+            opacity: isDetecting ? 0.7 : 1,
+            whiteSpace: 'nowrap'
+          }}
+          onMouseOver={e => !isDetecting && (e.currentTarget.style.background = 'rgba(0, 255, 136, 0.22)')}
+          onMouseOut={e => !isDetecting && (e.currentTarget.style.background = 'rgba(0, 255, 136, 0.12)')}
+        >
+          {isDetecting ? (
+            <Loader2 size={10} className="spin-slow" />
+          ) : (
+            <Sparkles size={10} />
+          )}
+          {isDetecting ? 'Detecting...' : 'AI Person'}
+        </button>
+
+        <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
+
+        <button
+          onClick={() => useStore.getState().setWhatsAppShareTarget(video)}
+          style={{
+            background: 'rgba(37, 211, 102, 0.15)',
+            border: '1px solid rgba(37, 211, 102, 0.4)',
+            color: '#25D366',
+            padding: '3px 9px',
+            borderRadius: '10px',
+            fontSize: '9px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            transition: 'all 0.15s'
+          }}
+          onMouseOver={e => {
+            e.currentTarget.style.background = 'rgba(37, 211, 102, 0.28)';
+            e.currentTarget.style.borderColor = '#25D366';
+          }}
+          onMouseOut={e => {
+            e.currentTarget.style.background = 'rgba(37, 211, 102, 0.15)';
+            e.currentTarget.style.borderColor = 'rgba(37, 211, 102, 0.4)';
+          }}
+          title="Quick Share (WhatsApp, Telegram, Phone...)"
+        >
+          <Share2 size={10} />
+          Share
+        </button>
 
         <button
           onClick={onSave}
@@ -385,37 +468,67 @@ export function CropOverlay({
             background: 'var(--accent)',
             border: 'none',
             color: '#000',
-            padding: '6px 16px',
-            borderRadius: '20px',
-            fontSize: '12px',
-            fontWeight: 'bold',
+            padding: '3px 10px',
+            borderRadius: '10px',
+            fontSize: '9px',
+            fontWeight: 700,
             cursor: 'pointer',
-            boxShadow: '0 0 15px rgba(0, 255, 136, 0.3)',
-            transition: 'all 0.2s'
+            transition: 'all 0.15s',
+            letterSpacing: '0.3px'
           }}
         >
-          SAVE CROP
+          Save
         </button>
 
         <button
           onClick={onCancel}
           style={{
-            background: 'rgba(255, 255, 255, 0.1)',
+            background: 'rgba(255, 255, 255, 0.07)',
             border: 'none',
-            color: '#fff',
-            padding: '6px 16px',
-            borderRadius: '20px',
-            fontSize: '12px',
-            fontWeight: 'bold',
+            color: 'rgba(255,255,255,0.7)',
+            padding: '3px 10px',
+            borderRadius: '10px',
+            fontSize: '9px',
+            fontWeight: 600,
             cursor: 'pointer',
-            transition: 'all 0.2s'
+            transition: 'all 0.15s'
           }}
-          onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
-          onMouseOut={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+          onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'}
+          onMouseOut={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.07)'}
         >
-          CANCEL
+          Cancel
         </button>
       </div>
+
+      {/* Floating Detection Status Notification */}
+      {detectionLabel && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '60px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(10, 20, 15, 0.92)',
+            border: '1px solid rgba(0, 255, 136, 0.35)',
+            borderRadius: '12px',
+            padding: '4px 12px',
+            fontSize: '9px',
+            fontWeight: 600,
+            color: '#00ff88',
+            backdropFilter: 'blur(12px)',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
+            zIndex: 200002,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            pointerEvents: 'none',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+        >
+          <User size={10} />
+          <span>{detectionLabel}</span>
+        </div>
+      )}
     </div>
   );
 }

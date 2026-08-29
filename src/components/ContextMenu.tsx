@@ -3,7 +3,7 @@ import {
   Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, CheckSquare, Volume2, VolumeX, 
   ExternalLink, Info, Edit2, ChevronLeft, ChevronRight, 
   Minimize2, Repeat, Repeat1, Crop, Sparkles, Save, Sliders, Copy, ShieldAlert,
-  ChevronDown, ChevronUp, Share2, RefreshCw
+  ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, MessageSquare
 } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { isValidPictureExtension, isTauri } from '../utils/videoUtils';
@@ -289,6 +289,10 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               </div>
               {!isDemo ? (
                 <>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('trim_crop')} style={{ fontWeight: 'bold' }}>
+                    <Scissors size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Trim & Crop Studio...</span>
+                  </div>
                   <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
                     <Sparkles size={14} />
                     <span>AI Upscale</span>
@@ -335,6 +339,10 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <span>Mirror Horizontally</span>
                   </div>
 
+                  <div className="context-menu-item accent-text" onClick={() => onAction('paste_image')} style={{ fontWeight: 'bold' }}>
+                    <Copy size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Paste Screenshot / Image into Tile</span>
+                  </div>
                   <div className="context-menu-item" onClick={() => onAction('crop')}>
                     <Crop size={14} />
                     <span>Crop Image</span>
@@ -403,7 +411,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
             <Trash2 size={14} />
             <span>Remove from Grid</span>
           </div>
-          {isTauri() && !video.url.includes('/demos/') && (
+          {isTauri() && (!video.url || !video.url.includes('/demos/')) && (
             <>
               <div className="context-menu-item danger" onClick={() => onAction('annihilate')}>
                 <Trash2 size={14} />
@@ -441,6 +449,10 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               </div>
               {!isDemo ? (
                 <>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('trim_crop')} style={{ fontWeight: 'bold' }}>
+                    <Scissors size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Trim & Crop Studio...</span>
+                  </div>
                   <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
                     <Sparkles size={14} />
                     <span>AI Upscale</span>
@@ -550,9 +562,9 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                 <Copy size={14} style={{ color: 'var(--accent, #00ff88)' }} />
                 <span style={{ color: 'var(--accent, #00ff88)' }}>{selectedCount > 1 && isSelected ? `Copy Selected (${selectedCount})` : 'Copy to Folder...'}</span>
               </div>
-              <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'share_selected' : 'share_file')}>
+              <div className="context-menu-item" onClick={() => onAction('whatsapp_share')}>
                 <Share2 size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span style={{ color: 'var(--accent, #00ff88)' }}>{selectedCount > 1 && isSelected ? `Wi-Fi Share Selected (${selectedCount})` : 'Wi-Fi Share...'}</span>
+                <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 600 }}>{selectedCount > 1 && isSelected ? `Share Selected (${selectedCount})...` : 'Share...'}</span>
               </div>
             </>
           )}
@@ -571,7 +583,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
             <Trash2 size={14} />
             <span>Remove from Grid</span>
           </div>
-          {isTauri() && !video.url.includes('/demos/') && (
+          {isTauri() && (!video.url || !video.url.includes('/demos/')) && (
             <>
               <div className="context-menu-item danger" onClick={() => onAction('annihilate')}>
                 <Trash2 size={14} />

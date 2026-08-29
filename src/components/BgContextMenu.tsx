@@ -15,9 +15,10 @@ interface BgContextMenuProps {
   onPurge: () => void;
   onSelectAll?: () => void;
   onRefreshTiles?: () => void;
+  onPasteImage?: () => void;
 }
 
-export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge, onSelectAll, onRefreshTiles }: BgContextMenuProps) {
+export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge, onSelectAll, onRefreshTiles, onPasteImage }: BgContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLDivElement>(null);
   const columnsTriggerRef = useRef<HTMLDivElement>(null);
@@ -190,6 +191,13 @@ export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge,
           <Plus size={13} />
           <span>Add Single Media</span>
         </div>
+
+        {onPasteImage && (
+          <div className="context-menu-item accent-text" onClick={() => { onPasteImage(); onClose(); }}>
+            <Plus size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+            <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 'bold' }}>Paste Image as New Tile</span>
+          </div>
+        )}
 
         {onSelectAll && (
           <div className="context-menu-item" onClick={() => { onSelectAll(); onClose(); }}>

@@ -37,11 +37,7 @@ export function toCosmoUrl(absolutePathOrUrl: string): string {
   const realPath = toRealPath(absolutePathOrUrl) || absolutePathOrUrl;
 
   if (isTauri()) {
-    try {
-      return convertFileSrc(realPath);
-    } catch (e) {
-      console.warn("Tauri convertFileSrc failed, falling back to path:", e);
-    }
+    return `http://cosmo.localhost/${encodeURIComponent(realPath)}`;
   }
   return realPath;
 }
@@ -349,4 +345,187 @@ export function generateUUID(): string {
     const r = (Math.random() * 16) | 0;
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
+}
+
+/**
+ * Safely sets an item in localStorage without throwing QuotaExceededError when data is large (e.g. 12MB datasets).
+ */
+export function safeSetLocalStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn(`[Storage Warning] localStorage quota exceeded for key '${key}' (${(value.length / 1024 / 1024).toFixed(2)} MB). Saved via Tauri disk persistence instead.`, err);
+  }
+}
+
+/**
+ * Normalizes any disk path or custom URL into a canonical lowercase forward-slash key
+ * for 100% reliable deduplication across the entire application.
+ */
+export function normalizeMediaKey(urlOrPath: string): string {
+  if (!urlOrPath) return '';
+  const real = toRealPath(urlOrPath) || urlOrPath;
+  return real
+    .replace(/\x00/g, '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Checks if a given media path/URL already exists anywhere in the active workspace.
+ * Checks individual tiles, realPaths, displayUrls, and inside folder unit children.
+ */
+export function isMediaAlreadyInWorkspace(candidatePathOrUrl: string, videos: VideoItem[]): boolean {
+  if (!candidatePathOrUrl || !videos || videos.length === 0) return false;
+  const targetKey = normalizeMediaKey(candidatePathOrUrl);
+  if (!targetKey) return false;
+
+  for (const v of videos) {
+    if (v.realPath && normalizeMediaKey(v.realPath) === targetKey) return true;
+    if (v.url && normalizeMediaKey(v.url) === targetKey) return true;
+    if (v.folderFiles && v.folderFiles.length > 0) {
+      for (const f of v.folderFiles) {
+        if (f.path && normalizeMediaKey(f.path) === targetKey) return true;
+        if (f.url && normalizeMediaKey(f.url) === targetKey) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Smart Fuzzy Search & Scoring Algorithm
+ * Supports:
+ * - Direct substring matching (High Priority)
+ * - Multi-token word matching in any order (e.g. "astrid boy" -> "Astrid S - Such A Boy")
+ * - Decade/Era aliases (e.g. "70" -> "70s", "1970", "1970s", "seventies")
+ * - Typo tolerance via Levenshtein edit distance
+ * - Subsequence matching
+ */
+export function fuzzyMatchScore(target: string, query: string): number {
+  if (!query || !target) return 0;
+  
+  const cleanTarget = target.toLowerCase().trim();
+  const cleanQuery = query.toLowerCase().trim();
+
+  // 1. Exact match
+  if (cleanTarget === cleanQuery) return 10000;
+
+  // 2. Starts with query
+  if (cleanTarget.startsWith(cleanQuery)) return 5000;
+
+  // 3. Exact Substring match
+  if (cleanTarget.includes(cleanQuery)) {
+    return 3000 + (cleanQuery.length / cleanTarget.length) * 500;
+  }
+
+  // 4. Era / Decade expansion (e.g. "70" <-> "70s", "1970", "1970s")
+  const eraMap: Record<string, string[]> = {
+    '70': ['70s', "70's", '1970', '1970s', 'seventies'],
+    '70s': ['70', "70's", '1970', '1970s', 'seventies'],
+    '80': ['80s', "80's", '1980', '1980s', 'eighties'],
+    '80s': ['80', "80's", '1980', '1980s', 'eighties'],
+    '90': ['90s', "90's", '1990', '1990s', 'nineties'],
+    '90s': ['90', "90's", '1990', '1990s', 'nineties'],
+    '00': ['00s', "00's", '2000', '2000s', 'two thousands'],
+    '00s': ['00', "00's", '2000', '2000s', 'two thousands'],
+    '60': ['60s', "60's", '1960', '1960s', 'sixties'],
+    '60s': ['60', "60's", '1960', '1960s', 'sixties'],
+  };
+
+  const tokens = cleanQuery.split(/[\s,._\-+()[\]{}]+/).filter(Boolean);
+  if (tokens.length === 0) return 0;
+
+  let allTokensMatched = true;
+  let tokenScore = 0;
+
+  for (const token of tokens) {
+    let tokenFound = false;
+
+    // Direct token substring
+    if (cleanTarget.includes(token)) {
+      tokenFound = true;
+      tokenScore += 500;
+    } else {
+      // Era check
+      const aliases = eraMap[token] || [];
+      for (const alias of aliases) {
+        if (cleanTarget.includes(alias)) {
+          tokenFound = true;
+          tokenScore += 450;
+          break;
+        }
+      }
+    }
+
+    // Fuzzy token check (typo tolerance)
+    if (!tokenFound && token.length >= 3) {
+      const targetWords = cleanTarget.split(/[\s,._\-+()[\]{}]+/).filter(Boolean);
+      for (const word of targetWords) {
+        if (isFuzzyWordMatch(token, word)) {
+          tokenFound = true;
+          tokenScore += 250;
+          break;
+        }
+      }
+    }
+
+    if (!tokenFound) {
+      allTokensMatched = false;
+      break;
+    }
+  }
+
+  if (allTokensMatched) {
+    return 1000 + tokenScore;
+  }
+
+  // 5. Subsequence Match Fallback (e.g. "dms" -> "dimash")
+  if (cleanQuery.length >= 3 && isSubsequence(cleanQuery, cleanTarget)) {
+    return 200 + cleanQuery.length * 10;
+  }
+
+  return 0;
+}
+
+function isFuzzyWordMatch(queryWord: string, targetWord: string): boolean {
+  if (Math.abs(queryWord.length - targetWord.length) > 2) return false;
+  const maxDistance = queryWord.length >= 6 ? 2 : 1;
+  return levenshteinDistance(queryWord, targetWord) <= maxDistance;
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+function isSubsequence(sub: string, str: string): boolean {
+  let subIdx = 0;
+  for (let i = 0; i < str.length && subIdx < sub.length; i++) {
+    if (str[i] === sub[subIdx]) {
+      subIdx++;
+    }
+  }
+  return subIdx === sub.length;
 }

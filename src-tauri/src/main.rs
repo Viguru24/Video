@@ -16,7 +16,7 @@ pub struct AppState {
 pub struct LaunchArgs(pub Mutex<Option<String>>);
 
 pub struct DirectoryWatcherState {
-    pub watcher: std::sync::Mutex<Option<(String, notify::RecommendedWatcher)>>,
+    pub watchers: std::sync::Mutex<std::collections::HashMap<String, notify::RecommendedWatcher>>,
 }
 
 fn spawn_symphony_backend() {
@@ -86,6 +86,45 @@ fn spawn_symphony_backend() {
 }
 
 pub static POPOUT_MEDIA_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Zero-overhead embedded EXIF JPEG thumbnail extractor.
+/// Searches the first 128KB header for an embedded JPEG preview without decoding full raw bitmap.
+fn extract_exif_jpeg_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
+    if bytes.len() < 100 || &bytes[0..2] != b"\xFF\xD8" {
+        return None;
+    }
+    let search_limit = bytes.len().min(131072);
+    let mut offset = 2;
+    while offset + 4 < search_limit {
+        if bytes[offset] != 0xFF {
+            offset += 1;
+            continue;
+        }
+        let marker = bytes[offset + 1];
+        if marker == 0xE1 { // APP1 (EXIF segment)
+            let len = ((bytes[offset + 2] as usize) << 8) | (bytes[offset + 3] as usize);
+            let app1_end = (offset + 2 + len).min(bytes.len());
+            let app1_slice = &bytes[offset + 4..app1_end];
+            // Locate embedded JPEG payload inside EXIF (starts with 0xFF 0xD8, ends with 0xFF 0xD9)
+            if let Some(thumb_start) = app1_slice.windows(2).position(|w| w == b"\xFF\xD8") {
+                let thumb_data = &app1_slice[thumb_start..];
+                if let Some(thumb_end_rel) = thumb_data.windows(2).rposition(|w| w == b"\xFF\xD9") {
+                    let full_thumb = &thumb_data[..thumb_end_rel + 2];
+                    if full_thumb.len() > 1024 {
+                        return Some(full_thumb.to_vec());
+                    }
+                }
+            }
+            break;
+        } else if marker == 0xDA || marker == 0xD9 {
+            break;
+        } else {
+            let len = ((bytes[offset + 2] as usize) << 8) | (bytes[offset + 3] as usize);
+            offset += 2 + len;
+        }
+    }
+    None
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -240,8 +279,9 @@ fn main() {
             }
 
             let uri_str = request.uri().to_string();
-            println!("Cosmo Protocol Request: {}", uri_str);
-            let path_raw = uri_str
+            // Separate URL path from query string parameters (e.g. ?t=1.0)
+            let url_path_only = uri_str.split('?').next().unwrap_or(&uri_str);
+            let path_raw = url_path_only
                 .replace("cosmo://localhost/", "") 
                 .replace("cosmo://media/", "")
                 .replace("cosmo://video/", "")
@@ -253,73 +293,92 @@ fn main() {
 
             let path_decoded = match urlencoding::decode(&path_raw) {
                 Ok(decoded) => decoded.into_owned(),
-                Err(_) => return tauri::http::Response::builder().status(400).body(Vec::new()).unwrap(),
+                Err(_) => return tauri::http::Response::builder().status(400).body(Vec::new()).unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
             };
 
-            // Remove any leading slashes or backslashes that arise from Webview2 custom scheme normalization
-            let mut clean_path = path_decoded.as_str();
-            while clean_path.starts_with('/') || clean_path.starts_with('\\') {
-                clean_path = &clean_path[1..];
+            // Remove any leading slashes or backslashes from Webview2 custom scheme normalization (e.g. "/G:/..." -> "G:/...")
+            let mut clean_path = path_decoded.trim();
+            while (clean_path.starts_with('/') || clean_path.starts_with('\\')) && !clean_path.starts_with("\\\\") {
+                if clean_path.len() >= 3 && clean_path.chars().nth(2) == Some(':') {
+                    clean_path = &clean_path[1..];
+                } else if clean_path.starts_with('/') || clean_path.starts_with('\\') {
+                    clean_path = &clean_path[1..];
+                } else {
+                    break;
+                }
             }
 
-            // SECURITY: Proper path traversal prevention with canonicalization
-            let mut components = Vec::new();
-            let mut has_prefix = false;
-            
-            for component in std::path::Path::new(&clean_path).components() {
-                match component {
-                    std::path::Component::Prefix(p) => {
-                        components.push(p.as_os_str());
-                        has_prefix = true;
+            let mut path = std::path::PathBuf::from(clean_path);
+
+            if !path.exists() {
+                // Auto-resolve temporary or yt-dlp intermediate filenames to their final merged files
+                let mut resolved = false;
+                let path_str = path.to_string_lossy().to_string();
+                
+                if path_str.ends_with(".temp.mp4") {
+                    let fallback = path_str.replace(".temp.mp4", ".mp4");
+                    let p = std::path::PathBuf::from(&fallback);
+                    if p.exists() {
+                        path = p;
+                        resolved = true;
                     }
-                    std::path::Component::RootDir => {
-                        // Preserve RootDir if it's the first or after a prefix
-                        if components.is_empty() || has_prefix {
-                            components.push(component.as_os_str());
+                } else if let Some(pos) = path_str.rfind(".f") {
+                    if let Some(dot_pos) = path_str[pos + 1..].find('.') {
+                        let format_part = &path_str[pos + 2..pos + 1 + dot_pos];
+                        if !format_part.is_empty() && format_part.chars().all(|c| c.is_ascii_digit() || c == '-' || c == 's' || c == 'r') {
+                            let fallback = format!("{}{}", &path_str[..pos], &path_str[pos + 1 + dot_pos..]);
+                            let p = std::path::PathBuf::from(&fallback);
+                            if p.exists() {
+                                path = p;
+                                resolved = true;
+                            }
                         }
                     }
-                    std::path::Component::Normal(name) => components.push(name),
-                    std::path::Component::CurDir => continue,
-                    std::path::Component::ParentDir => {
-                        if !components.is_empty() {
-                            components.pop();
-                        } else {
-                            return tauri::http::Response::builder()
-                                .status(403) // Forbidden
-                                .body(Vec::new())
-                                .unwrap();
+                }
+
+                if !resolved && !path.exists() {
+                    println!("[Cosmo Protocol] File not found: {:?}", path);
+                    return tauri::http::Response::builder()
+                        .status(404)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(Vec::new())
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+                }
+            }
+
+            // ULTRA-FAST EMBEDDED EXIF THUMBNAIL EXTRACTION
+            let is_thumb_request = uri_str.contains("thumb=1");
+            if is_thumb_request {
+                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+                if ext == "jpg" || ext == "jpeg" || ext == "nef" || ext == "cr2" || ext == "cr3" || ext == "arw" || ext == "dng" {
+                    if let Ok(mut file) = std::fs::File::open(&path) {
+                        use std::io::Read;
+                        let mut header_buf = vec![0u8; 131072];
+                        if let Ok(n) = file.read(&mut header_buf) {
+                            header_buf.truncate(n);
+                            if let Some(thumb_bytes) = extract_exif_jpeg_thumbnail(&header_buf) {
+                                let thumb_len = thumb_bytes.len();
+                                return tauri::http::Response::builder()
+                                    .status(200)
+                                    .header("Content-Type", "image/jpeg")
+                                    .header("Content-Length", thumb_len)
+                                    .header("Cache-Control", "public, max-age=86400, immutable")
+                                    .header("Access-Control-Allow-Origin", "*")
+                                    .header("Access-Control-Allow-Private-Network", "true")
+                                    .body(thumb_bytes)
+                                    .unwrap();
+                            }
                         }
                     }
                 }
             }
 
-            // Reconstruct safe path
-            let mut safe_path = std::path::PathBuf::new();
-            for comp in components {
-                safe_path.push(comp);
-            }
-
-            // Ensure path is absolute
-            if !safe_path.is_absolute() {
-                return tauri::http::Response::builder()
-                    .status(400)
-                    .body(Vec::new())
-                    .unwrap();
-            }
-
-            if !safe_path.exists() {
-                return tauri::http::Response::builder()
-                    .status(404)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .body(Vec::new())
-                    .unwrap();
-            }
-
-            let path = safe_path;
-
             // Using standard fs here for metadata, but we'll use tokio for the stream
             let file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             
+            let ext_lower = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
+            let is_image = matches!(ext_lower.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "tiff" | "tif" | "heic" | "heif" | "avif" | "jxl" | "cr2" | "cr3" | "nef" | "arw" | "dng" | "tga");
+
             let range = request
                 .headers()
                 .get("range")
@@ -339,19 +398,25 @@ fn main() {
                 (0, file_len.saturating_sub(1))
             };
 
-            // Progressive streaming logic with a safe chunk cap (4MB) to prevent OOM
+            let max_allowed = if is_image { 24 * 1024 * 1024 } else { 4 * 1024 * 1024 };
             let mut end = end;
-            let max_chunk = 4 * 1024 * 1024; // 4MB maximum buffer allocation size
-            if end - start + 1 > max_chunk as u64 {
-                end = start + max_chunk as u64 - 1;
+            if end - start + 1 > max_allowed as u64 {
+                end = start + max_allowed as u64 - 1;
             }
             if end >= file_len {
                 end = file_len.saturating_sub(1);
             }
 
-            let chunk_size = (end - start + 1) as usize;
+            let chunk_size = ((end.saturating_sub(start)) + 1).min(max_allowed as u64) as usize;
+            if chunk_size == 0 {
+                return tauri::http::Response::builder()
+                    .status(404)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(Vec::new())
+                    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+            }
             
-            let mime = match path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).as_deref().unwrap_or("") {
+            let mime = match ext_lower.as_str() {
                 "mp4" | "m4v" => "video/mp4",
                 "webm" => "video/webm",
                 "mov" => "video/quicktime",
@@ -393,7 +458,7 @@ fn main() {
                     .status(404)
                     .header("Access-Control-Allow-Origin", "*")
                     .body(Vec::new())
-                    .unwrap();
+                    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
             }
 
             buffer.truncate(bytes_read);
@@ -405,12 +470,13 @@ fn main() {
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Length", bytes_read)
                 .header("Content-Range", format!("bytes {}-{}/{}", start, response_end, file_len))
+                .header("Cache-Control", "public, max-age=3600")
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Methods", "GET, OPTIONS, RANGE")
                 .header("Access-Control-Allow-Headers", "Range, Content-Type")
                 .header("Access-Control-Allow-Private-Network", "true")
                 .body(buffer)
-                .unwrap()
+                .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
         })
         .manage(AppState {
             sys: Mutex::new(System::new_with_specifics(
@@ -419,9 +485,12 @@ fn main() {
             last_refresh: Mutex::new(std::time::Instant::now()),
         })
         .manage(LaunchArgs(Mutex::new(None)))
-        .manage(DirectoryWatcherState { watcher: std::sync::Mutex::new(None) })
+        .manage(DirectoryWatcherState { watchers: std::sync::Mutex::new(std::collections::HashMap::new()) })
         .invoke_handler(tauri::generate_handler![
+            commands::filesystem::check_path_drive_status,
+            commands::filesystem::save_pasted_clipboard_image,
             commands::filesystem::watch_directory,
+            commands::filesystem::unwatch_directory,
             commands::system::get_launch_args,
             commands::system::cosmo_log,
             commands::filesystem::select_folder_cmd,
@@ -461,9 +530,11 @@ fn main() {
             commands::filesystem::file_exists,
             commands::filesystem::duplicate_file_on_disk,
             commands::media::crop_image_on_disk,
+            commands::media::trim_crop_video,
             commands::media::get_media_dimensions,
             commands::media::resize_image_on_disk,
             commands::filesystem::secure_delete_file,
+            commands::filesystem::secure_delete_files_batch,
             commands::system::exit_app,
             commands::system::check_dependencies,
             commands::system::install_dependencies,
@@ -477,9 +548,12 @@ fn main() {
             commands::system::open_external_url,
             commands::media::upscale_video,
             commands::media::cancel_video_upscale,
+            commands::media::detect_person_crop,
             commands::filesystem::get_file_stats,
             commands::server::set_wifi_shared_files,
-            commands::server::download_shared_file_to_downloads
+            commands::server::download_shared_file_to_downloads,
+            commands::system::share_to_whatsapp,
+            commands::system::share_media_file
         ])
         .setup(move |app| {
             use tauri::Manager;
@@ -615,6 +689,12 @@ fn main() {
             let app_handle_clone = app.handle().clone();
             std::thread::spawn(move || {
                 let _ = commands::system::copy_demo_files_to_app_data(&app_handle_clone);
+            });
+
+            // Pre-warm AI Enhancement & Upscale Server in background so first upscale is immediately ready
+            let app_handle_ai = app.handle().clone();
+            std::thread::spawn(move || {
+                let _ = commands::media::upscale::spawn_enhancement_server(Some(&app_handle_ai));
             });
 
             if let Some(window) = app.get_webview_window("main") {

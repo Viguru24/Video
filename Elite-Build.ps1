@@ -1,6 +1,6 @@
-# Cosmo Symphony: Automated MSIX Build & Signature Tool
-# This script handles building the Tauri app and manually signing the MSIX package 
-# using signtool.exe, resolving any path/space parsing issues in msixbundle-cli.
+param(
+    [switch]$Install
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -74,3 +74,12 @@ Write-Host "`n=============================================" -ForegroundColor Gr
 Write-Host " BUILD & SIGNING COMPLETE!" -ForegroundColor Green
 Write-Host " Packages are ready in: $targetPkgDir" -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Green
+
+# 5. Clean Uninstall and Fresh Install if requested
+if ($Install) {
+    Write-Host "`n[5/5] Executing Clean Installation (Uninstalling previous version first)..." -ForegroundColor Yellow
+    $installerScript = Join-Path $targetPkgDir "Install-Clean.ps1"
+    if (Test-Path $installerScript) {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $installerScript
+    }
+}

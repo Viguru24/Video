@@ -47,6 +47,15 @@ os.environ["OPENBLAS_NUM_THREADS"] = "2"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "2"
 os.environ["NUMEXPR_NUM_THREADS"] = "2"
 
+# Throttling priority on Windows: BELOW_NORMAL_PRIORITY_CLASS (0x00004000)
+# Ensures DWM (Desktop Window Manager), mouse cursor, and audio are never starved during AI processing
+if sys.platform == 'win32':
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00004000)
+    except Exception:
+        pass
+
 import base64
 import json
 import numpy as np
@@ -169,9 +178,22 @@ def init_models():
             
         model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
 
-        # Use a conservative tile size of 128 to prevent VRAM memory allocation overhead crashes/freezes on laptop GPUs
-        gpu_tile = 128
-        print(f"Using conservative tile size: {gpu_tile} for model inference", file=sys.stderr)
+        # Dynamically determine tile size based on available VRAM
+        gpu_tile = 256
+        if device == 'cuda':
+            try:
+                vram_mb = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
+                if vram_mb < 4000:
+                    gpu_tile = 128
+                elif vram_mb < 8000:
+                    gpu_tile = 256
+                else:
+                    gpu_tile = 512
+                print(f"Using tile size: {gpu_tile} (total VRAM: {int(vram_mb)} MB)", file=sys.stderr)
+            except Exception:
+                gpu_tile = 256
+        else:
+            gpu_tile = 128
 
         upscaler = RealESRGANer(
             scale=4,
@@ -180,7 +202,7 @@ def init_models():
             tile=gpu_tile,
             tile_pad=10,
             pre_pad=0,
-            half=(device == 'cuda'),   # FP16 FP16 for ~2x speed — only supported/stable on CUDA
+            half=(device == 'cuda'),   # FP16 for ~2x speed — only supported/stable on CUDA
             device=device
         )
         
@@ -237,7 +259,23 @@ def process_enhance(img_or_bytes, fidelity=0.5):
     img = safe_read_image(img_or_bytes)
     if img is None:
         raise ValueError("Could not decode or read the input image.")
-        
+
+    h_in, w_in = img.shape[:2]
+
+    # SAFETY GUARDRAIL: Pre-scale large input images BEFORE running 4x neural super-resolution!
+    # Real-ESRGAN scales the image 4x in width and 4x in height (16x pixel count).
+    # For high-resolution photos (e.g., 9000x8000), 4x produces 36000x32000 (1.15 GIGAPIXELS),
+    # which exhausts >19 GB of RAM/VRAM and crashes Windows.
+    # Capping max input dimension to 1280px ensures the 4x super-resolved output is safely capped
+    # at up to 5120x2880 (5K), maintaining pristine sharpness while keeping memory strictly under 500 MB.
+    MAX_INPUT_DIM = 1280
+    if max(h_in, w_in) > MAX_INPUT_DIM:
+        scale_factor = MAX_INPUT_DIM / float(max(h_in, w_in))
+        new_in_w = max(1, int(w_in * scale_factor))
+        new_in_h = max(1, int(h_in * scale_factor))
+        print(f"Safety Pre-scale: Clamping input from {w_in}x{h_in} to {new_in_w}x{new_in_h} (caps 4x output to {new_in_w*4}x{new_in_h*4})", file=sys.stderr)
+        img = cv2.resize(img, (new_in_w, new_in_h), interpolation=cv2.INTER_AREA)
+
     # Run GFPGAN & Real-ESRGAN or Fallback to bilateral unsharp filter.
     # GPU work is dispatched to _gpu_executor (background thread) so the HTTP
     # server event loop is never blocked and Windows driver heartbeats continue.
@@ -256,27 +294,26 @@ def process_enhance(img_or_bytes, fidelity=0.5):
                 )
             _, _, restored_img = _gpu_executor.submit(_run_gpu).result()
             print("GPU Model inference successful! Releasing VRAM back to OS...", file=sys.stderr)
-            # Release VRAM back to OS immediately
-            import torch
-            torch.cuda.empty_cache()
             
-            # Capping maximum resolution to 8K max (7680x4320) or 2x original dimensions
-            h_out, w_out = restored_img.shape[:2]
-            h_in, w_in = img.shape[:2]
-            max_width = max(7680, w_in * 2)
-            max_height = max(4320, h_in * 2)
-            if w_out > max_width or h_out > max_height:
-                scale = min(max_width / w_out, max_height / h_out)
-                new_w = int(w_out * scale)
-                new_h = int(h_out * scale)
-                restored_img = cv2.resize(restored_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                print(f"Downscaled upscaled image from {w_out}x{h_out} to {new_w}x{new_h} (max 8K cap)", file=sys.stderr)
-
+            # Release VRAM back to OS immediately
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            
             # Brief yield — lets Windows compositor catch up after heavy GPU load
-            time.sleep(0.05)
+            time.sleep(0.02)
             return restored_img, True
         except Exception as e:
             print(f"Model inference failed: {e}. Falling back to high-fidelity resize filter.", file=sys.stderr)
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
             
     # Resilient high-fidelity CPU fallback:
     smoothed = cv2.bilateralFilter(img, 9, 75, 75)
@@ -284,13 +321,11 @@ def process_enhance(img_or_bytes, fidelity=0.5):
     unsharp_lowres = cv2.addWeighted(smoothed, 1.5, gaussian, -0.5, 0)
     h, w = img.shape[:2]
     
-    # Cap CPU fallback to 8K as well!
     target_w = w * 4
     target_h = h * 4
-    max_width = max(7680, w * 2)
-    max_height = max(4320, h * 2)
-    if target_w > max_width or target_h > max_height:
-        scale = min(max_width / target_w, max_height / target_h)
+    max_dim = 5120
+    if max(target_w, target_h) > max_dim:
+        scale = max_dim / float(max(target_w, target_h))
         target_w = int(target_w * scale)
         target_h = int(target_h * scale)
         
@@ -754,6 +789,116 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                             lf.write("===================================\n")
                 except Exception:
                     pass
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+        elif self.path == '/detect_subject':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length)
+                payload = json.loads(post_data.decode('utf-8'))
+                
+                img_path = payload['path']
+                
+                # Load image supporting Unicode paths on Windows
+                img = safe_read_image(img_path)
+                if img is None:
+                    raise ValueError(f"Could not load image from: {img_path}")
+                
+                h, w = img.shape[:2]
+                detected = False
+                box = {"x": 15.0, "y": 15.0, "w": 70.0, "h": 70.0}
+                label = "Center Focus"
+                
+                # Priority 1: AI Foreground Segmentation via rembg (BiRefNet / U2Net)
+                try:
+                    from rembg import remove
+                    result = remove(img, only_mask=True)
+                    # result is 2D mask (grayscale uint8) or RGBA
+                    mask = result if result.ndim == 2 else (result[:, :, 3] if result.shape[2] == 4 else cv2.cvtColor(result, cv2.COLOR_BGR2GRAY))
+                    pts = np.argwhere(mask > 20)
+                    if pts.size > 100: # Significant foreground detected
+                        y_min, x_min = pts.min(axis=0)
+                        y_max, x_max = pts.max(axis=0)
+                        
+                        sub_w = x_max - x_min
+                        sub_h = y_max - y_min
+                        
+                        if sub_w > 10 and sub_h > 10:
+                            # Add pleasant padding (8% around subject)
+                            pad_x = max(int(sub_w * 0.08), int(w * 0.02))
+                            pad_y = max(int(sub_h * 0.08), int(h * 0.02))
+                            
+                            x_min_pad = max(0, x_min - pad_x)
+                            y_min_pad = max(0, y_min - pad_y)
+                            x_max_pad = min(w, x_max + pad_x)
+                            y_max_pad = min(h, y_max + pad_y)
+                            
+                            crop_x = round((x_min_pad / w) * 100.0, 2)
+                            crop_y = round((y_min_pad / h) * 100.0, 2)
+                            crop_w = round(((x_max_pad - x_min_pad) / w) * 100.0, 2)
+                            crop_h = round(((y_max_pad - y_min_pad) / h) * 100.0, 2)
+                            
+                            box = {"x": crop_x, "y": crop_y, "w": crop_w, "h": crop_h}
+                            detected = True
+                            label = "Person / Subject Detected"
+                except Exception as seg_err:
+                    print(f"rembg subject detection note: {seg_err}. Trying OpenCV detectors...", file=sys.stderr)
+                
+                # Priority 2: OpenCV Face & Body Detectors if rembg didn't find or errored
+                if not detected:
+                    try:
+                        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                        
+                        # Haar Face Detector
+                        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+                        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
+                        
+                        if len(faces) > 0:
+                            # Compute union of detected faces
+                            fx_min = min(f[0] for f in faces)
+                            fy_min = min(f[1] for f in faces)
+                            fx_max = max(f[0] + f[2] for f in faces)
+                            fy_max = max(f[1] + f[3] for f in faces)
+                            
+                            face_w = fx_max - fx_min
+                            face_h = fy_max - fy_min
+                            
+                            # Expand to capture upper body / torso and head
+                            pad_top = int(face_h * 0.4)
+                            pad_bottom = int(face_h * 2.5) # include torso
+                            pad_sides = int(face_w * 0.8)
+                            
+                            x1 = max(0, fx_min - pad_sides)
+                            y1 = max(0, fy_min - pad_top)
+                            x2 = min(w, fx_max + pad_sides)
+                            y2 = min(h, fy_max + pad_bottom)
+                            
+                            box = {
+                                "x": round((x1 / w) * 100.0, 2),
+                                "y": round((y1 / h) * 100.0, 2),
+                                "w": round(((x2 - x1) / w) * 100.0, 2),
+                                "h": round(((y2 - y1) / h) * 100.0, 2)
+                            }
+                            detected = True
+                            label = "Person (Face & Body) Detected"
+                    except Exception as cv_err:
+                        print(f"OpenCV face detection note: {cv_err}", file=sys.stderr)
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'status': 'success',
+                    'box': box,
+                    'detected': detected,
+                    'label': label
+                }).encode('utf-8'))
+                
+            except Exception as e:
                 self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')

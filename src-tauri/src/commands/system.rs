@@ -194,6 +194,12 @@ pub async fn set_always_on_top(app: AppHandle, flag: bool) {
     }
 }
 
+static POPOUT_URLS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
+
+fn get_popout_urls_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+    POPOUT_URLS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 #[tauri::command]
 pub async fn pop_out(app: AppHandle, url: String, title: String) -> Result<(), String> {
     let timestamp = std::time::SystemTime::now()
@@ -202,18 +208,17 @@ pub async fn pop_out(app: AppHandle, url: String, title: String) -> Result<(), S
         .as_millis();
     let label = format!("pop-{}", timestamp);
 
-    // Clean up any existing pop-out windows to ensure only one is active at a time.
-    // Because the new window uses a unique timestamp-based label, there will be no
-    // namespace clash during construction.
-    for win in app.webview_windows().values() {
-        let win_label = win.label();
-        if win_label.starts_with("pop-") {
-            let _ = win.destroy();
-        }
+    // Save URL to the thread-safe map for this specific window label
+    if let Ok(mut map) = get_popout_urls_map().lock() {
+        map.insert(label.clone(), url.clone());
     }
 
     println!("Creating dynamic pop-out window with label: {} for URL: {}", label, url);
-    let mut parsed_url = WebviewUrl::App("index.html".into());
+    let query = format!("index.html?popout=true&url={}&title={}", 
+        urlencoding::encode(&url),
+        urlencoding::encode(&title)
+    );
+    let mut parsed_url = WebviewUrl::App(query.clone().into());
     
     if let Some(main_win) = app.get_webview_window("main") {
         if let Ok(main_url) = main_win.url() {
@@ -225,7 +230,7 @@ pub async fn pop_out(app: AppHandle, url: String, title: String) -> Result<(), S
                && (host == "localhost" || host == "127.0.0.1") 
                && port.is_some() 
             {
-                if let Ok(popout_url) = main_url.join("index.html") {
+                if let Ok(popout_url) = main_url.join(&query) {
                     println!("Development server detected, loading popout from: {}", popout_url);
                     parsed_url = WebviewUrl::External(popout_url);
                 }
@@ -235,7 +240,7 @@ pub async fn pop_out(app: AppHandle, url: String, title: String) -> Result<(), S
     
     let win_builder = WebviewWindowBuilder::new(&app, &label, parsed_url)
         .title(&title)
-        .inner_size(850.0, 500.0)
+        .inner_size(1280.0, 720.0)
         .resizable(true)
         .decorations(false)
         .maximized(false)
@@ -243,6 +248,7 @@ pub async fn pop_out(app: AppHandle, url: String, title: String) -> Result<(), S
 
     match win_builder.build() {
         Ok(window) => {
+            let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
             println!("Successfully created same-process pop-out window: {}", label);
@@ -257,11 +263,21 @@ pub async fn pop_out(app: AppHandle, url: String, title: String) -> Result<(), S
 
 #[tauri::command]
 pub async fn close_popout(window: tauri::Window) {
+    let label = window.label().to_string();
+    if let Ok(mut map) = get_popout_urls_map().lock() {
+        map.remove(&label);
+    }
     let _ = window.destroy();
 }
 
 #[tauri::command]
-pub fn get_popout_url() -> Option<String> {
+pub fn get_popout_url(window: tauri::Window) -> Option<String> {
+    let label = window.label();
+    if let Ok(map) = get_popout_urls_map().lock() {
+        if let Some(url) = map.get(label) {
+            return Some(url.clone());
+        }
+    }
     crate::POPOUT_MEDIA_URL.get().cloned()
 }
 
@@ -1476,4 +1492,120 @@ pub fn copy_demo_files_to_app_data(app: &AppHandle) -> Result<(), String> {
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn share_media_file(path: String, platform: String, mode: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let clean_path = crate::commands::filesystem::clean_local_path(&path);
+        let file_path = std::path::PathBuf::from(&clean_path);
+        if !file_path.exists() {
+            return Err(format!("File does not exist: {}", clean_path));
+        }
+
+        let is_image = match file_path.extension().and_then(|ext| ext.to_str()).map(|e| e.to_lowercase()).as_deref() {
+            Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "avif" | "tiff" | "ico") => true,
+            _ => false,
+        };
+
+        let media_type_label = if is_image { "Image" } else { "Video" };
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+
+            // Strategy: Copy file to Windows Clipboard using PowerShell Set-Clipboard
+            // This copies the actual CF_HDROP file item onto the clipboard for instant Ctrl+V pasting!
+            let ps_script = format!(
+                "Set-Clipboard -Path '{}'",
+                clean_path.replace("'", "''")
+            );
+
+            let mut ps_cmd = std::process::Command::new("powershell.exe");
+            ps_cmd.arg("-NoProfile")
+                  .arg("-NonInteractive")
+                  .arg("-Command")
+                  .arg(&ps_script);
+            ps_cmd.creation_flags(0x08000000);
+
+            let _ = ps_cmd.output();
+
+            match platform.to_lowercase().as_str() {
+                "whatsapp" => {
+                    if mode == "web" {
+                        let mut open_cmd = std::process::Command::new("cmd.exe");
+                        open_cmd.arg("/c").arg("start").arg("https://web.whatsapp.com");
+                        open_cmd.creation_flags(0x08000000);
+                        let _ = open_cmd.spawn();
+                        Ok(format!("{} copied to clipboard & WhatsApp Web opened! Press Ctrl+V in your chat.", media_type_label))
+                    } else {
+                        let mut open_cmd = std::process::Command::new("cmd.exe");
+                        open_cmd.arg("/c").arg("start").arg("whatsapp://");
+                        open_cmd.creation_flags(0x08000000);
+                        let _ = open_cmd.spawn();
+                        Ok(format!("{} copied to clipboard & WhatsApp opened! Press Ctrl+V in your chat.", media_type_label))
+                    }
+                },
+                "telegram" => {
+                    if mode == "web" {
+                        let mut open_cmd = std::process::Command::new("cmd.exe");
+                        open_cmd.arg("/c").arg("start").arg("https://web.telegram.org");
+                        open_cmd.creation_flags(0x08000000);
+                        let _ = open_cmd.spawn();
+                        Ok(format!("{} copied to clipboard & Telegram Web opened! Press Ctrl+V in your chat.", media_type_label))
+                    } else {
+                        let mut open_cmd = std::process::Command::new("cmd.exe");
+                        open_cmd.arg("/c").arg("start").arg("tg://");
+                        open_cmd.creation_flags(0x08000000);
+                        let _ = open_cmd.spawn();
+                        Ok(format!("{} copied to clipboard & Telegram opened! Press Ctrl+V in your chat.", media_type_label))
+                    }
+                },
+                "discord" => {
+                    if mode == "web" {
+                        let mut open_cmd = std::process::Command::new("cmd.exe");
+                        open_cmd.arg("/c").arg("start").arg("https://discord.com/app");
+                        open_cmd.creation_flags(0x08000000);
+                        let _ = open_cmd.spawn();
+                        Ok(format!("{} copied to clipboard & Discord Web opened! Press Ctrl+V in your channel.", media_type_label))
+                    } else {
+                        let mut open_cmd = std::process::Command::new("cmd.exe");
+                        open_cmd.arg("/c").arg("start").arg("discord://");
+                        open_cmd.creation_flags(0x08000000);
+                        let _ = open_cmd.spawn();
+                        Ok(format!("{} copied to clipboard & Discord opened! Press Ctrl+V in your channel.", media_type_label))
+                    }
+                },
+                "email" => {
+                    let mut open_cmd = std::process::Command::new("cmd.exe");
+                    open_cmd.arg("/c").arg("start").arg("mailto:");
+                    open_cmd.creation_flags(0x08000000);
+                    let _ = open_cmd.spawn();
+                    Ok(format!("{} copied to clipboard & Email client opened! Press Ctrl+V to attach.", media_type_label))
+                },
+                "clipboard" => {
+                    Ok(format!("{} copied to clipboard! Switch to any app and press Ctrl+V to paste.", media_type_label))
+                },
+                "explorer" => {
+                    let mut exp_cmd = std::process::Command::new("explorer.exe");
+                    exp_cmd.arg("/select,").arg(&clean_path);
+                    let _ = exp_cmd.spawn();
+                    Ok(format!("{} located in File Explorer. Drag & drop anywhere!", media_type_label))
+                },
+                _ => {
+                    Ok(format!("{} ready for sharing.", media_type_label))
+                }
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(format!("{} ready for sharing.", media_type_label))
+        }
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn share_to_whatsapp(path: String, mode: String) -> Result<String, String> {
+    share_media_file(path, "whatsapp".to_string(), mode).await
+}
+
 

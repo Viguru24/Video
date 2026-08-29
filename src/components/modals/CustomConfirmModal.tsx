@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { AlertCircle } from 'lucide-react';
 
@@ -14,6 +15,26 @@ export function CustomConfirmModal({
   kind = 'warning',
   onResolve,
 }: CustomConfirmModalProps) {
+  useEffect(() => {
+    const mountTime = Date.now();
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent capturing the triggering keypress that opened the modal
+      if (Date.now() - mountTime < 150) return;
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        onResolve(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onResolve(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onResolve]);
   return (
     <div className="modal-overlay" style={{ zIndex: 2000000 }}>
       <motion.div
@@ -90,10 +111,22 @@ export function CustomConfirmModal({
               fontWeight: 600,
               fontSize: '11px',
               letterSpacing: '0.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
             }}
             onClick={() => onResolve(false)}
           >
-            CANCEL
+            <span>CANCEL</span>
+            <kbd style={{
+              fontSize: '9px',
+              padding: '1px 5px',
+              borderRadius: '3px',
+              background: 'rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              color: 'var(--text-muted)',
+              fontFamily: 'var(--font-mono)',
+            }}>ESC</kbd>
           </button>
           <button
             className="premium-btn"
@@ -107,6 +140,9 @@ export function CustomConfirmModal({
               fontWeight: 700,
               fontSize: '11px',
               letterSpacing: '0.5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
               boxShadow:
                 kind === 'error'
                   ? '0 0 15px rgba(239, 68, 68, 0.35)'
@@ -114,7 +150,17 @@ export function CustomConfirmModal({
             }}
             onClick={() => onResolve(true)}
           >
-            PROCEED
+            <span>PROCEED</span>
+            <kbd style={{
+              fontSize: '9px',
+              padding: '1px 5px',
+              borderRadius: '3px',
+              background: kind === 'error' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.2)',
+              border: kind === 'error' ? '1px solid rgba(255, 255, 255, 0.3)' : '1px solid rgba(0, 0, 0, 0.25)',
+              color: kind === 'error' ? '#ffffff' : '#000000',
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 800,
+            }}>↵ ENTER</kbd>
           </button>
         </div>
       </motion.div>

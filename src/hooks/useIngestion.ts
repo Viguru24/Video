@@ -9,11 +9,13 @@ import {
   requiresConversion,
   maybeConvertMedia,
   generateUUID,
+  normalizeMediaKey
 } from '../utils/videoUtils';
 import type { VideoItem } from '../types';
 
 interface UseIngestionProps {
   mediaMode: 'all' | 'video' | 'picture';
+  setMediaMode: (mode: 'all' | 'video' | 'picture') => void;
   setVideos: React.Dispatch<React.SetStateAction<VideoItem[]>>;
   addLog: (msg: string) => void;
   masterPlayingRef: React.MutableRefObject<boolean>;
@@ -270,14 +272,45 @@ export function useIngestion({
           setConvertingStatus(null);
 
           if (newVids.length > 0) {
-            setVideos(prev => [...prev, ...newVids]);
+            setVideos(prev => {
+              const existingKeys = new Set<string>();
+              for (const v of prev) {
+                if (v.realPath) existingKeys.add(normalizeMediaKey(v.realPath));
+                if (v.url) existingKeys.add(normalizeMediaKey(v.url));
+                if (v.folderFiles && v.folderFiles.length > 0) {
+                  for (const f of v.folderFiles) {
+                    if (f.path) existingKeys.add(normalizeMediaKey(f.path));
+                    if (f.url) existingKeys.add(normalizeMediaKey(f.url));
+                  }
+                }
+              }
+
+              const uniqueNew = newVids.filter(item => {
+                const itemKey = normalizeMediaKey(item.realPath || item.url);
+                if (itemKey && !existingKeys.has(itemKey)) {
+                  existingKeys.add(itemKey);
+                  return true;
+                }
+                return false;
+              });
+
+              if (uniqueNew.length === 0) return prev;
+              return [...prev, ...uniqueNew];
+            });
             if (videoCount > 0 && pictureCount > 0) {
+              setMediaMode('all');
               addLog(
-                `System: Sorted ${videoCount} videos → Video tab, ${pictureCount} images → Stills tab.`,
+                `System: Dropped ${videoCount} videos & ${pictureCount} images → Auto-switched to Both tab.`,
               );
-            } else {
+            } else if (pictureCount > 0) {
+              setMediaMode('picture');
               addLog(
-                `System: Successfully ingested ${newVids.length} ${videoCount > 0 ? 'video' : 'image'}${newVids.length > 1 ? 's' : ''}.`,
+                `System: Dropped ${pictureCount} image(s) → Auto-switched to Stills tab.`,
+              );
+            } else if (videoCount > 0) {
+              setMediaMode('video');
+              addLog(
+                `System: Dropped ${videoCount} video(s) → Auto-switched to Video tab.`,
               );
             }
           }

@@ -9,11 +9,13 @@ import {
   requiresConversion,
   maybeConvertMedia,
   isTauri,
-  generateUUID
+  generateUUID,
+  normalizeMediaKey
 } from '../utils/videoUtils';
 
 interface UseMediaImportProps {
   mediaMode: 'all' | 'video' | 'picture';
+  setMediaMode: (mode: 'all' | 'video' | 'picture') => void;
   masterPlaying: boolean;
   masterMuted: boolean;
   setVideos: React.Dispatch<React.SetStateAction<VideoItem[]>>;
@@ -25,6 +27,7 @@ interface UseMediaImportProps {
 
 export function useMediaImport({
   mediaMode,
+  setMediaMode,
   masterPlaying,
   masterMuted,
   setVideos,
@@ -235,15 +238,41 @@ export function useMediaImport({
 
     if (newItems.length > 0) {
       setVideos(prev => {
-        const next = [...prev, ...newItems];
+        const existingKeys = new Set<string>();
+        for (const v of prev) {
+          if (v.realPath) existingKeys.add(normalizeMediaKey(v.realPath));
+          if (v.url) existingKeys.add(normalizeMediaKey(v.url));
+          if (v.folderFiles && v.folderFiles.length > 0) {
+            for (const f of v.folderFiles) {
+              if (f.path) existingKeys.add(normalizeMediaKey(f.path));
+              if (f.url) existingKeys.add(normalizeMediaKey(f.url));
+            }
+          }
+        }
+
+        const uniqueNew: VideoItem[] = [];
+        for (const item of newItems) {
+          const itemKey = normalizeMediaKey(item.realPath || item.url);
+          if (itemKey && !existingKeys.has(itemKey)) {
+            existingKeys.add(itemKey);
+            uniqueNew.push(item);
+          }
+        }
+
+        if (uniqueNew.length === 0) {
+          console.log("[useMediaImport] All incoming items already exist in grid, skipping duplicates.");
+          return prev;
+        }
+        const next = [...prev, ...uniqueNew];
         console.log("[useMediaImport] setVideos called. Prev count:", prev.length, "New count:", next.length);
         return next;
       });
-      addLog(`System: Ingested ${newItems.length} file(s) from in-app browser.`);
+
+      addLog(`System: Ingested ${newItems.length} file(s) into workspace.`);
     } else {
       console.warn("[useMediaImport] No items added to videos state (newItems is empty).");
     }
-  }, [masterPlaying, masterMuted, setVideos, addLog, setConvertingStatus]);
+  }, [masterPlaying, masterMuted, setVideos, setMediaMode, addLog, setConvertingStatus]);
 
   const loadToastPathFolder = useCallback(async (path: string) => {
     try {
@@ -293,6 +322,17 @@ export function useMediaImport({
           }
         ]);
         
+        const folderVideos = convertedVids.filter(v => isValidMediaExtension(v.url, 'video')).length;
+        const folderPictures = convertedVids.filter(v => isValidMediaExtension(v.url, 'picture')).length;
+
+        if (folderVideos > 0 && folderPictures > 0) {
+          setMediaMode('all');
+        } else if (folderPictures > 0) {
+          setMediaMode('picture');
+        } else if (folderVideos > 0) {
+          setMediaMode('video');
+        }
+
         setSelectedIds(new Set([newFolderId]));
         setFocusedId(newFolderId);
         
@@ -303,7 +343,7 @@ export function useMediaImport({
     } catch (err) {
       addLog(`ERROR: Failed to load folder: ${err}`);
     }
-  }, [mediaMode, processFolderConversion, setVideos, setSelectedIds, setFocusedId, addLog]);
+  }, [mediaMode, setMediaMode, processFolderConversion, setVideos, setSelectedIds, setFocusedId, addLog]);
 
   const handleSidebarAddFolder = useCallback(async () => {
     if (isTauri()) {
@@ -325,6 +365,19 @@ export function useMediaImport({
               modified: v.modified,
               created: v.created
             }));
+
+            const folderVideos = convertedVids.filter(v => isValidMediaExtension(v.url, 'video')).length;
+            const folderPictures = convertedVids.filter(v => isValidMediaExtension(v.url, 'picture')).length;
+
+            let detectedMode: 'all' | 'video' | 'picture' = 'all';
+            if (folderVideos > 0 && folderPictures > 0) {
+              detectedMode = 'all';
+            } else if (folderPictures > 0) {
+              detectedMode = 'picture';
+            } else if (folderVideos > 0) {
+              detectedMode = 'video';
+            }
+
             setVideos((p) => [
               ...p,
               {
@@ -337,7 +390,7 @@ export function useMediaImport({
                 cols: 1,
                 folderFiles: folderWithUrls,
                 folderPath: path,
-                folderMode: mediaMode,
+                folderMode: detectedMode,
                 currentIdx: 0,
                 playing: masterPlaying,
                 muted: masterMuted,
@@ -346,7 +399,9 @@ export function useMediaImport({
                 created: convertedVids[0].created
               },
             ]);
-            addLog(`Added folder: ${path}`);
+
+            setMediaMode(detectedMode);
+            addLog(`Added folder: ${path} → Auto-switched to ${detectedMode === 'picture' ? 'Stills' : detectedMode === 'video' ? 'Video' : 'Both'} tab`);
           }
         }
       } catch (e) {
@@ -355,7 +410,7 @@ export function useMediaImport({
     } else {
       addLog("Local Ingestion is optimized for Cosmo Symphony Native Desktop.");
     }
-  }, [mediaMode, processFolderConversion, setVideos, masterPlaying, masterMuted, addLog]);
+  }, [mediaMode, setMediaMode, processFolderConversion, setVideos, masterPlaying, masterMuted, addLog]);
 
   const handleAddMediaFiles = useCallback(async () => {
     if (isTauri()) {

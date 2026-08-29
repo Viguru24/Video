@@ -58,6 +58,97 @@ pub fn debug_log(msg: &str) {
     println!("{}", msg);
 }
 
+use std::sync::OnceLock;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HwEncoder {
+    Nvenc,    // NVIDIA GPU (h264_nvenc)
+    Qsv,      // Intel QuickSync (h264_qsv)
+    Amf,      // AMD AMF (h264_amf)
+    Software, // CPU Multithreaded libx264
+}
+
+static DETECTED_ENCODER: OnceLock<HwEncoder> = OnceLock::new();
+
+pub fn get_optimal_video_encoder(app: Option<&AppHandle>) -> HwEncoder {
+    *DETECTED_ENCODER.get_or_init(|| {
+        let ffmpeg_path = resolve_ffmpeg_path(app);
+        
+        // 1. Probe NVIDIA NVENC
+        let mut nvenc_cmd = new_hidden_command(&ffmpeg_path);
+        nvenc_cmd.args(["-v", "quiet", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.1", "-c:v", "h264_nvenc", "-f", "null", "-"]);
+        if let Ok(st) = nvenc_cmd.status() {
+            if st.success() {
+                println!("[FFmpeg HW-Accel] ✅ NVIDIA NVENC (h264_nvenc) active for ultra-fast GPU encoding!");
+                return HwEncoder::Nvenc;
+            }
+        }
+
+        // 2. Probe Intel QSV
+        let mut qsv_cmd = new_hidden_command(&ffmpeg_path);
+        qsv_cmd.args(["-v", "quiet", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.1", "-c:v", "h264_qsv", "-f", "null", "-"]);
+        if let Ok(st) = qsv_cmd.status() {
+            if st.success() {
+                println!("[FFmpeg HW-Accel] ✅ Intel QuickSync (h264_qsv) active for hardware encoding!");
+                return HwEncoder::Qsv;
+            }
+        }
+
+        // 3. Probe AMD AMF
+        let mut amf_cmd = new_hidden_command(&ffmpeg_path);
+        amf_cmd.args(["-v", "quiet", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.1", "-c:v", "h264_amf", "-f", "null", "-"]);
+        if let Ok(st) = amf_cmd.status() {
+            if st.success() {
+                println!("[FFmpeg HW-Accel] ✅ AMD AMF (h264_amf) active for hardware encoding!");
+                return HwEncoder::Amf;
+            }
+        }
+
+        println!("[FFmpeg HW-Accel] ⚡ CPU multithreaded libx264 active.");
+        HwEncoder::Software
+    })
+}
+
+pub fn apply_optimal_video_encoding_args(cmd: &mut Command, encoder: HwEncoder) {
+    match encoder {
+        HwEncoder::Nvenc => {
+            cmd.args([
+                "-c:v", "h264_nvenc",
+                "-preset", "p4",
+                "-cq", "19",
+                "-pix_fmt", "yuv420p"
+            ]);
+        },
+        HwEncoder::Qsv => {
+            cmd.args([
+                "-c:v", "h264_qsv",
+                "-preset", "veryfast",
+                "-global_quality", "20",
+                "-pix_fmt", "nv12"
+            ]);
+        },
+        HwEncoder::Amf => {
+            cmd.args([
+                "-c:v", "h264_amf",
+                "-quality", "speed",
+                "-rc", "cqp",
+                "-qp_i", "19",
+                "-qp_p", "20",
+                "-pix_fmt", "yuv420p"
+            ]);
+        },
+        HwEncoder::Software => {
+            cmd.args([
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-crf", "18",
+                "-threads", "0",
+                "-pix_fmt", "yuv420p"
+            ]);
+        }
+    }
+}
+
 pub fn safe_recycle_file(path: &Path, retries: u32) -> Result<(), String> {
     for attempt in 0..retries {
         match trash::delete(path) {

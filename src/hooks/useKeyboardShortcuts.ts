@@ -130,6 +130,10 @@ export function useKeyboardShortcuts({
           if (menu) { setMenu(null); triggerGlobalHud?.('MENU', 'CLOSED'); return; }
           
           if (immersive || focusedId) {
+            if (selectedIds && selectedIds.size > 0) {
+              setSelectedIds(new Set());
+              setSelectionMode?.(false);
+            }
             if (setIsSlideshowActive) setIsSlideshowActive(false);
             if (exitSoloMode) {
               exitSoloMode();
@@ -139,6 +143,13 @@ export function useKeyboardShortcuts({
             }
             if (immersive) triggerGlobalHud?.('IMMERSIVE', 'OFF');
             triggerGlobalHud?.('SOLO VIEW', 'EXITED');
+            return;
+          }
+
+          if (selectedIds && selectedIds.size > 0) {
+            setSelectedIds(new Set());
+            setSelectionMode?.(false);
+            triggerGlobalHud?.('SELECTION', 'CLEARED');
             return;
           }
           return;

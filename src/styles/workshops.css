@@ -79,7 +79,7 @@
   z-index: 5;
 }
 
-.video-overlay.visible, .video-card:hover .video-overlay {
+.video-overlay.visible {
   opacity: 1;
 }
 

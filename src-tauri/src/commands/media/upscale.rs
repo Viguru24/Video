@@ -48,7 +48,8 @@ pub fn spawn_enhancement_server(app: Option<&AppHandle>) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
+        // 0x08000000 (CREATE_NO_WINDOW) | 0x00004000 (BELOW_NORMAL_PRIORITY_CLASS)
+        cmd.creation_flags(0x08000000 | 0x00004000);
     }
     
     cmd.spawn().map_err(|e| format!("Failed to spawn AI enhancement server: {}", e))?;
@@ -341,95 +342,112 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
     Err("Failed to process background removal. Make sure 'rembg' Python library is fully installed.".into())
 }
 
-pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Result<String, String> {
-    let path = clean_local_path(&path);
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct AutoCropBox {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub detected: bool,
+    pub label: String,
+}
 
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let p = Path::new(&path);
+pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<AutoCropBox, String> {
+    use std::net::TcpStream;
+    use std::io::{Read, Write};
+
+    let clean_path = clean_local_path(&path);
+    let p = Path::new(&clean_path);
     if !p.exists() {
-        return Err("File does not exist".into());
+        return Err(format!("File does not exist: {}", clean_path));
     }
 
-    let ext = p.extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("png")
-        .to_lowercase();
-    let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
-        return Err("Invalid file name".into());
-    };
+    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let is_video = ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov" || ext == "webm";
 
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-
-    let output_path = if overwrite {
-        let parent = p.parent().unwrap_or_else(|| Path::new("."));
-        let temp_file_name = format!("{}_upscale_temp_{}.{}", stem, timestamp, ext);
-        parent.join(&temp_file_name)
+    let target_img_path = if is_video {
+        let temp_dir = std::env::temp_dir().join("cosmo_crop_frames");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let frame_path = temp_dir.join(format!("frame_{}.jpg", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()));
+        
+        let mut cmd = new_hidden_ffmpeg_command(Some(&app));
+        cmd.args(["-y", "-ss", "0.5", "-i", &clean_path, "-vframes", "1", "-q:v", "2", frame_path.to_str().unwrap()]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let _ = cmd.output();
+        if frame_path.exists() {
+            frame_path.to_string_lossy().to_string()
+        } else {
+            clean_path.clone()
+        }
     } else {
-        let parent = p.parent().unwrap_or_else(|| Path::new("."));
-        get_next_upscale_filename(parent, stem, &ext)
+        clean_path.clone()
     };
 
-    let out_str = output_path.to_string_lossy().to_string();
-
-    let mut stream_connected = std::net::TcpStream::connect("127.0.0.1:12000").is_ok();
-    
+    let mut stream_connected = TcpStream::connect("127.0.0.1:12000").is_ok();
     if !stream_connected {
-        println!("AI enhancer server offline. Spawning background server...");
+        println!("AI enhancer server offline. Spawning background server for person detection...");
         if spawn_enhancement_server(Some(&app)).is_ok() {
-            for _ in 0..100 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if std::net::TcpStream::connect("127.0.0.1:12000").is_ok() {
+            for _ in 0..60 {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                if TcpStream::connect("127.0.0.1:12000").is_ok() {
                     stream_connected = true;
-                    println!("AI Enhancement Server booted and connected on port 12000!");
                     break;
                 }
             }
         }
     }
 
-    let mut server_success = false;
-    let mut server_used_ai = false;
+    if !stream_connected {
+        return Ok(AutoCropBox {
+            x: 15.0,
+            y: 15.0,
+            w: 70.0,
+            h: 70.0,
+            detected: false,
+            label: "Center Default (AI Offline)".to_string(),
+        });
+    }
 
-    if stream_connected {
-        if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(180)));
-            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(180)));
-            use std::io::{Write, Read};
-            let json_payload = serde_json::json!({
-                "path": path,
-                "output_path": out_str,
-                "fidelity": 0.5
-            }).to_string();
+    if let Ok(mut stream) = TcpStream::connect("127.0.0.1:12000") {
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
+        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
+        let json_payload = serde_json::json!({
+            "path": target_img_path
+        }).to_string();
 
-            let request = format!(
-                "POST /enhance HTTP/1.1\r\n\
-                 Host: 127.0.0.1:12000\r\n\
-                 Content-Type: application/json\r\n\
-                 Content-Length: {}\r\n\
-                 Connection: close\r\n\r\n\
-                 {}",
-                json_payload.len(),
-                json_payload
-            );
+        let request = format!(
+            "POST /detect_subject HTTP/1.1\r\n\
+             Host: 127.0.0.1:12000\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             Connection: close\r\n\r\n\
+             {}",
+            json_payload.len(),
+            json_payload
+        );
 
-            if stream.write_all(request.as_bytes()).is_ok() {
-                let mut response = Vec::new();
-                if stream.read_to_end(&mut response).is_ok() {
-                    let response_str = String::from_utf8_lossy(&response);
-                    if let Some(pos) = response_str.find("\r\n\r\n") {
-                        let body = &response_str[pos + 4..];
-                        if let Ok(parsed) = serde_json::from_str::<Value>(body) {
-                            if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
-                                let used_ai = parsed.get("used_ai").and_then(|v| v.as_bool()).unwrap_or(false);
-                                if !used_ai {
-                                    println!("WARNING: Upscale completed but AI models were NOT loaded — fallback resize was used.");
-                                }
-                                server_success = true;
-                                server_used_ai = used_ai;
-                            }
+        if stream.write_all(request.as_bytes()).is_ok() {
+            let mut response = Vec::new();
+            if stream.read_to_end(&mut response).is_ok() {
+                let response_str = String::from_utf8_lossy(&response);
+                if let Some(pos) = response_str.find("\r\n\r\n") {
+                    let body = &response_str[pos + 4..];
+                    if let Ok(parsed) = serde_json::from_str::<Value>(body) {
+                        if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
+                            let box_obj = parsed.get("box");
+                            let x = box_obj.and_then(|b| b.get("x")).and_then(|v| v.as_f64()).unwrap_or(15.0);
+                            let y = box_obj.and_then(|b| b.get("y")).and_then(|v| v.as_f64()).unwrap_or(15.0);
+                            let w = box_obj.and_then(|b| b.get("w")).and_then(|v| v.as_f64()).unwrap_or(70.0);
+                            let h = box_obj.and_then(|b| b.get("h")).and_then(|v| v.as_f64()).unwrap_or(70.0);
+                            let detected = parsed.get("detected").and_then(|v| v.as_bool()).unwrap_or(false);
+                            let label = parsed.get("label").and_then(|v| v.as_str()).unwrap_or("Person Detected").to_string();
+
+                            return Ok(AutoCropBox { x, y, w, h, detected, label });
                         }
                     }
                 }
@@ -437,8 +455,269 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
         }
     }
 
-    if server_success {
-        let prefix = if !server_used_ai { "[FALLBACK]" } else { "" };
+    Ok(AutoCropBox {
+        x: 15.0,
+        y: 15.0,
+        w: 70.0,
+        h: 70.0,
+        detected: false,
+        label: "Center Default".to_string(),
+    })
+}
+
+pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = clean_local_path(&path);
+
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let p = Path::new(&path);
+        if !p.exists() {
+            return Err("File does not exist".into());
+        }
+
+        let ext = p.extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("png")
+            .to_lowercase();
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
+            return Err("Invalid file name".into());
+        };
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+
+        let output_path = if overwrite {
+            let parent = p.parent().unwrap_or_else(|| Path::new("."));
+            let temp_file_name = format!("{}_upscale_temp_{}.{}", stem, timestamp, ext);
+            parent.join(&temp_file_name)
+        } else {
+            let parent = p.parent().unwrap_or_else(|| Path::new("."));
+            get_next_upscale_filename(parent, stem, &ext)
+        };
+
+        let out_str = output_path.to_string_lossy().to_string();
+
+        let mut stream_connected = std::net::TcpStream::connect("127.0.0.1:12000").is_ok();
+        
+        if !stream_connected {
+            println!("AI enhancer server offline. Spawning background server...");
+            if spawn_enhancement_server(Some(&app)).is_ok() {
+                for _ in 0..100 {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if std::net::TcpStream::connect("127.0.0.1:12000").is_ok() {
+                        stream_connected = true;
+                        println!("AI Enhancement Server booted and connected on port 12000!");
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut server_success = false;
+        let mut server_used_ai = false;
+
+        if stream_connected {
+            if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(180)));
+                let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(180)));
+                use std::io::{Write, Read};
+                let json_payload = serde_json::json!({
+                    "path": path,
+                    "output_path": out_str,
+                    "fidelity": 0.5
+                }).to_string();
+
+                let request = format!(
+                    "POST /enhance HTTP/1.1\r\n\
+                     Host: 127.0.0.1:12000\r\n\
+                     Content-Type: application/json\r\n\
+                     Content-Length: {}\r\n\
+                     Connection: close\r\n\r\n\
+                     {}",
+                    json_payload.len(),
+                    json_payload
+                );
+
+                if stream.write_all(request.as_bytes()).is_ok() {
+                    let mut response = Vec::new();
+                    if stream.read_to_end(&mut response).is_ok() {
+                        let response_str = String::from_utf8_lossy(&response);
+                        if let Some(pos) = response_str.find("\r\n\r\n") {
+                            let body = &response_str[pos + 4..];
+                            if let Ok(parsed) = serde_json::from_str::<Value>(body) {
+                                if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
+                                    let used_ai = parsed.get("used_ai").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    if !used_ai {
+                                        println!("WARNING: Upscale completed but AI models were NOT loaded — fallback resize was used.");
+                                    }
+                                    server_success = true;
+                                    server_used_ai = used_ai;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if server_success {
+            let prefix = if !server_used_ai { "[FALLBACK]" } else { "" };
+            let final_saved_path = if overwrite {
+                if let Err(e) = fs::copy(&output_path, &p) {
+                    let _ = fs::remove_file(&output_path);
+                    return Err(format!("Failed to overwrite original file: {}", e));
+                }
+                let _ = fs::remove_file(&output_path);
+                path.clone()
+            } else {
+                out_str.clone()
+            };
+
+            register_upscale_history(&app, &final_saved_path, server_used_ai);
+
+            return Ok(format!("{}{}", prefix, final_saved_path));
+        }
+
+        println!("HTTP server upscale failed or server couldn't start. Falling back to CLI mode...");
+        
+        let mut run_native_fallback = true;
+        let mut cli_used_ai = false;
+
+        if let Ok((runner, mut args)) = resolve_enhancer_command(Some(&app)) {
+            args.push(path.clone());
+            args.push(output_path.to_string_lossy().to_string());
+
+            let mut cmd = new_hidden_command(&runner);
+            cmd.args(&args);
+
+            if let Ok(app_data) = app.path().app_data_dir() {
+                let _ = fs::create_dir_all(&app_data);
+                cmd.current_dir(&app_data);
+            }
+
+            if let Some(models_dir) = resolve_models_dir(Some(&app)) {
+                cmd.env("COSMO_MODELS_DIR", &models_dir);
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000 | 0x00004000);
+            }
+
+            let log_file = app.path().app_data_dir()
+                .ok()
+                .map(|mut d| { d.push("upscale.log"); d });
+
+            if let Ok(output) = cmd.output() {
+                if let Some(ref log_path) = log_file {
+                    if let Some(parent) = log_path.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    let _ = fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(log_path)
+                        .and_then(|mut f| {
+                            use std::io::Write;
+                            let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                            writeln!(f, "[{}] exit={} stdout={} stderr={}",
+                                t,
+                                output.status.code().unwrap_or(-1),
+                                String::from_utf8_lossy(&output.stdout),
+                                String::from_utf8_lossy(&output.stderr)
+                            )
+                        });
+                }
+
+                if output.status.success() {
+                    let stdout_str = String::from_utf8_lossy(&output.stdout);
+                    cli_used_ai = stdout_str.contains("[USED_AI=True]") || stdout_str.contains("[USED_AI=true]");
+                    run_native_fallback = false;
+                } else {
+                    println!("CLI upscaler returned error status. Falling back to high-performance FFmpeg upscaler.");
+                }
+            } else {
+                println!("Failed to run CLI upscaler command. Falling back to high-performance FFmpeg upscaler.");
+            }
+        } else {
+            println!("Could not resolve CLI upscaler command. Falling back to high-performance FFmpeg upscaler.");
+        }
+
+        if run_native_fallback {
+            println!("Performing high-performance hardware-accelerated FFmpeg image upscale (Lanczos)...");
+            
+            let temp_dir = std::env::temp_dir();
+            let temp_render_path = temp_dir.join(format!("upscale_render_{}_{}.{}", stem, timestamp, ext));
+            
+            // Use FFmpeg for ultra-fast, zero-memory-crash, SIMD Lanczos image scaling
+            let mut ffmpeg_cmd = new_hidden_ffmpeg_command(Some(&app));
+            ffmpeg_cmd.arg("-y")
+                      .arg("-nostdin")
+                      .arg("-i").arg(&path)
+                      .arg("-vf").arg("scale=iw*2:ih*2:flags=lanczos+accurate_rnd")
+                      .arg("-frames:v").arg("1")
+                      .arg("-update").arg("1")
+                      .arg("-q:v").arg("2")
+                      .arg(&temp_render_path);
+
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                ffmpeg_cmd.creation_flags(0x08000000);
+            }
+
+            let ffmpeg_status = ffmpeg_cmd.status();
+            let mut success = false;
+
+            if let Ok(st) = ffmpeg_status {
+                if st.success() && temp_render_path.exists() {
+                    success = true;
+                }
+            }
+
+            if !success {
+                // Secondary fallback: Bilinear fast scale via FFmpeg
+                let mut fallback_cmd = new_hidden_ffmpeg_command(Some(&app));
+                fallback_cmd.arg("-y")
+                            .arg("-nostdin")
+                            .arg("-i").arg(&path)
+                            .arg("-vf").arg("scale=iw*2:ih*2")
+                            .arg("-frames:v").arg("1")
+                            .arg("-update").arg("1")
+                            .arg(&temp_render_path);
+
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    fallback_cmd.creation_flags(0x08000000);
+                }
+
+                if let Ok(st2) = fallback_cmd.status() {
+                    if st2.success() && temp_render_path.exists() {
+                        success = true;
+                    }
+                }
+            }
+
+            if !success {
+                let _ = fs::remove_file(&temp_render_path);
+                if overwrite && output_path.exists() {
+                    let _ = fs::remove_file(&output_path);
+                }
+                return Err("Failed to upscale image with fallback scaler.".to_string());
+            }
+
+            // Move completed file to destination
+            if let Err(e) = fs::copy(&temp_render_path, &output_path) {
+                let _ = fs::remove_file(&temp_render_path);
+                return Err(format!("Failed to finalize upscaled file: {}", e));
+            }
+            let _ = fs::remove_file(&temp_render_path);
+        }
+
         let final_saved_path = if overwrite {
             if let Err(e) = fs::copy(&output_path, &p) {
                 let _ = fs::remove_file(&output_path);
@@ -447,132 +726,14 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
             let _ = fs::remove_file(&output_path);
             path.clone()
         } else {
-            out_str.clone()
+            output_path.to_string_lossy().to_string()
         };
 
-        register_upscale_history(&app, &final_saved_path, server_used_ai);
+        register_upscale_history(&app, &final_saved_path, cli_used_ai);
 
-        return Ok(format!("{}{}", prefix, final_saved_path));
-    }
-
-    println!("HTTP server upscale failed or server couldn't start. Falling back to CLI mode...");
-    
-    let mut run_native_fallback = true;
-    let mut cli_used_ai = false;
-
-    if let Ok((runner, mut args)) = resolve_enhancer_command(Some(&app)) {
-        args.push(path.clone());
-        args.push(output_path.to_string_lossy().to_string());
-
-        let mut cmd = new_hidden_command(&runner);
-        cmd.args(&args);
-
-        if let Ok(app_data) = app.path().app_data_dir() {
-            let _ = fs::create_dir_all(&app_data);
-            cmd.current_dir(&app_data);
-        }
-
-        if let Some(models_dir) = resolve_models_dir(Some(&app)) {
-            cmd.env("COSMO_MODELS_DIR", &models_dir);
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-
-        let log_file = app.path().app_data_dir()
-            .ok()
-            .map(|mut d| { d.push("upscale.log"); d });
-
-        if let Ok(output) = cmd.output() {
-            if let Some(ref log_path) = log_file {
-                if let Some(parent) = log_path.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                let _ = fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(log_path)
-                    .and_then(|mut f| {
-                        use std::io::Write;
-                        let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-                        writeln!(f, "[{}] exit={} stdout={} stderr={}",
-                            t,
-                            output.status.code().unwrap_or(-1),
-                            String::from_utf8_lossy(&output.stdout),
-                            String::from_utf8_lossy(&output.stderr)
-                        )
-                    });
-            }
-
-            if output.status.success() {
-                let stdout_str = String::from_utf8_lossy(&output.stdout);
-                cli_used_ai = stdout_str.contains("[USED_AI=True]") || stdout_str.contains("[USED_AI=true]");
-                run_native_fallback = false;
-            } else {
-                println!("CLI upscaler returned error status. Falling back to native Rust upscaler.");
-            }
-        } else {
-            println!("Failed to run CLI upscaler command. Falling back to native Rust upscaler.");
-        }
-    } else {
-        println!("Could not resolve CLI upscaler command. Falling back to native Rust upscaler.");
-    }
-
-    if run_native_fallback {
-        println!("Performing native Rust image upscale fallback (Lanczos3)...");
-        match image::ImageReader::open(&path)
-            .map_err(|e| format!("Failed to open source image: {}", e))
-            .and_then(|r| r.decode().map_err(|e| format!("Failed to decode source image: {}", e)))
-        {
-            Ok(img) => {
-                let (w, h) = (img.width(), img.height());
-                let target_w = w * 4;
-                let target_h = h * 4;
-                let max_width = (7680).max(w * 2);
-                let max_height = (4320).max(h * 2);
-
-                let (final_w, final_h) = if target_w > max_width || target_h > max_height {
-                    let scale = (max_width as f64 / target_w as f64).min(max_height as f64 / target_h as f64);
-                    ((target_w as f64 * scale) as u32, (target_h as f64 * scale) as u32)
-                } else {
-                    (target_w, target_h)
-                };
-
-                let resized = img.resize(final_w, final_h, image::imageops::FilterType::Lanczos3);
-                if let Err(e) = resized.save(&output_path) {
-                    if overwrite && output_path.exists() {
-                        let _ = fs::remove_file(&output_path);
-                    }
-                    return Err(format!("Failed to save downscaled native fallback image: {}", e));
-                }
-            }
-            Err(e) => {
-                if overwrite && output_path.exists() {
-                    let _ = fs::remove_file(&output_path);
-                }
-                return Err(format!("Native upscaler fallback failed: {}", e));
-            }
-        }
-    }
-
-    let final_saved_path = if overwrite {
-        if let Err(e) = fs::copy(&output_path, &p) {
-            let _ = fs::remove_file(&output_path);
-            return Err(format!("Failed to overwrite original file: {}", e));
-        }
-        let _ = fs::remove_file(&output_path);
-        path.clone()
-    } else {
-        output_path.to_string_lossy().to_string()
-    };
-
-    register_upscale_history(&app, &final_saved_path, cli_used_ai);
-
-    let prefix = if !cli_used_ai { "[FALLBACK]" } else { "" };
-    Ok(format!("{}{}", prefix, final_saved_path))
+        let prefix = if !cli_used_ai { "[FALLBACK]" } else { "" };
+        Ok(format!("{}{}", prefix, final_saved_path))
+    }).await.map_err(|e| e.to_string())?
 }
 
 pub fn cancel_video_upscale() {
@@ -580,241 +741,248 @@ pub fn cancel_video_upscale() {
 }
 
 pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Result<String, String> {
-    let path = clean_local_path(&path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = clean_local_path(&path);
 
-    use std::time::{SystemTime, UNIX_EPOCH};
-    
-    CANCEL_UPSCALE.store(false, Ordering::SeqCst);
-    
-    let p = Path::new(&path);
-    if !p.exists() {
-        return Err("File does not exist".into());
-    }
-    
-    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("mp4").to_lowercase();
-    let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
-        return Err("Invalid file name".into());
-    };
-    
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
-    let parent = p.parent().unwrap_or_else(|| Path::new("."));
-    
-    let output_path = if overwrite {
-        let temp_file_name = format!("{}_upscale_temp_{}.{}", stem, timestamp, ext);
-        parent.join(&temp_file_name)
-    } else {
-        let base_prefix = crate::commands::filesystem::extract_base_prefix(&stem);
-        let next_num = crate::commands::filesystem::get_next_sequence_num(parent, &base_prefix, &ext);
-        let mut final_path = parent.join(format!("{}_{:03}.{}", base_prefix, next_num, ext));
-        let mut counter = next_num;
-        while final_path.exists() {
-            counter += 1;
-            final_path = parent.join(format!("{}_{:03}.{}", base_prefix, counter, &ext));
-        }
-        final_path
-    };
-    
-    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let temp_frames_dir = app_data.join(format!("video_upscale_{}", timestamp));
-    fs::create_dir_all(&temp_frames_dir).map_err(|e| format!("Failed to create temp frames dir: {}", e))?;
-    
-    let _ = app.emit("upscale-progress", UpscaleProgress { frame: 0, total: 100, stage: "extracting".into() });
-    
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    
-    let mut fps_cmd = new_hidden_ffprobe_command(Some(&app));
-    fps_cmd.args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", &path]);
-    #[cfg(windows)]
-    fps_cmd.creation_flags(CREATE_NO_WINDOW);
-
-    let fps_out = fps_cmd.output().map_err(|e| format!("ffprobe failed to resolve framerate: {}", e))?;
-    let fps_str = String::from_utf8_lossy(&fps_out.stdout).trim().to_string();
-    
-    let mut frames_cmd = new_hidden_ffprobe_command(Some(&app));
-    frames_cmd.args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=nb_frames", "-of", "default=noprint_wrappers=1:nokey=1", &path]);
-    #[cfg(windows)]
-    frames_cmd.creation_flags(CREATE_NO_WINDOW);
-
-    let frames_out = frames_cmd.output().map_err(|e| format!("ffprobe failed to resolve frame count: {}", e))?;
-    let frames_str = String::from_utf8_lossy(&frames_out.stdout).trim().to_string();
-    let total_frames: u32 = frames_str.parse().unwrap_or(0);
-    
-    if total_frames == 0 {
-        let _ = secure_delete_dir_all(&temp_frames_dir);
-        return Err("Could not determine total frame count of video".into());
-    }
-    
-    let mut ext_cmd = new_hidden_ffmpeg_command(Some(&app));
-    ext_cmd.args(["-y", "-i", &path, "-q:v", "2", &temp_frames_dir.join("frame_%06d.png").to_string_lossy().to_string()]);
-    #[cfg(windows)]
-    ext_cmd.creation_flags(CREATE_NO_WINDOW);
-
-    let extract_status = ext_cmd.status().map_err(|e| format!("Failed to start ffmpeg for extraction: {}", e))?;
+        use std::time::{SystemTime, UNIX_EPOCH};
         
-    if !extract_status.success() {
-        let _ = secure_delete_dir_all(&temp_frames_dir);
-        return Err("Failed to extract video frames".into());
-    }
-    
-    let mut stream_connected = std::net::TcpStream::connect("127.0.0.1:12000").is_ok();
-    if !stream_connected {
-        if spawn_enhancement_server(Some(&app)).is_ok() {
-            for _ in 0..100 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if std::net::TcpStream::connect("127.0.0.1:12000").is_ok() {
-                    stream_connected = true;
-                    break;
+        CANCEL_UPSCALE.store(false, Ordering::SeqCst);
+        
+        let p = Path::new(&path);
+        if !p.exists() {
+            return Err("File does not exist".into());
+        }
+        
+        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("mp4").to_lowercase();
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
+            return Err("Invalid file name".into());
+        };
+        
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+        let parent = p.parent().unwrap_or_else(|| Path::new("."));
+        
+        let output_path = if overwrite {
+            let temp_file_name = format!("{}_upscale_temp_{}.{}", stem, timestamp, ext);
+            parent.join(&temp_file_name)
+        } else {
+            let base_prefix = crate::commands::filesystem::extract_base_prefix(&stem);
+            let next_num = crate::commands::filesystem::get_next_sequence_num(parent, &base_prefix, &ext);
+            let mut final_path = parent.join(format!("{}_{:03}.{}", base_prefix, next_num, ext));
+            let mut counter = next_num;
+            while final_path.exists() {
+                counter += 1;
+                final_path = parent.join(format!("{}_{:03}.{}", base_prefix, counter, &ext));
+            }
+            final_path
+        };
+        
+        let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let temp_frames_dir = app_data.join(format!("video_upscale_{}", timestamp));
+        fs::create_dir_all(&temp_frames_dir).map_err(|e| format!("Failed to create temp frames dir: {}", e))?;
+        
+        let _ = app.emit("upscale-progress", UpscaleProgress { frame: 0, total: 100, stage: "extracting".into() });
+        
+        const CREATE_NO_WINDOW_LOW_PRIORITY: u32 = 0x08000000 | 0x00004000;
+        
+        let mut fps_cmd = new_hidden_ffprobe_command(Some(&app));
+        fps_cmd.args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", &path]);
+        #[cfg(windows)]
+        fps_cmd.creation_flags(CREATE_NO_WINDOW_LOW_PRIORITY);
+
+        let fps_out = fps_cmd.output().map_err(|e| format!("ffprobe failed to resolve framerate: {}", e))?;
+        let fps_str = String::from_utf8_lossy(&fps_out.stdout).trim().to_string();
+        
+        let mut frames_cmd = new_hidden_ffprobe_command(Some(&app));
+        frames_cmd.args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=nb_frames", "-of", "default=noprint_wrappers=1:nokey=1", &path]);
+        #[cfg(windows)]
+        frames_cmd.creation_flags(CREATE_NO_WINDOW_LOW_PRIORITY);
+
+        let frames_out = frames_cmd.output().map_err(|e| format!("ffprobe failed to resolve frame count: {}", e))?;
+        let frames_str = String::from_utf8_lossy(&frames_out.stdout).trim().to_string();
+        let total_frames: u32 = frames_str.parse().unwrap_or(0);
+        
+        if total_frames == 0 {
+            let _ = secure_delete_dir_all(&temp_frames_dir);
+            return Err("Could not determine total frame count of video".into());
+        }
+
+        if total_frames > 3600 {
+            let _ = secure_delete_dir_all(&temp_frames_dir);
+            return Err("Video exceeds maximum limit for local AI super-resolution (capped at 3,600 frames / ~2 minutes to protect system memory and disk space).".into());
+        }
+        
+        let mut ext_cmd = new_hidden_ffmpeg_command(Some(&app));
+        ext_cmd.args(["-y", "-i", &path, "-q:v", "2", &temp_frames_dir.join("frame_%06d.jpg").to_string_lossy().to_string()]);
+        #[cfg(windows)]
+        ext_cmd.creation_flags(CREATE_NO_WINDOW_LOW_PRIORITY);
+
+        let extract_status = ext_cmd.status().map_err(|e| format!("Failed to start ffmpeg for extraction: {}", e))?;
+            
+        if !extract_status.success() {
+            let _ = secure_delete_dir_all(&temp_frames_dir);
+            return Err("Failed to extract video frames".into());
+        }
+        
+        let mut stream_connected = std::net::TcpStream::connect("127.0.0.1:12000").is_ok();
+        if !stream_connected {
+            if spawn_enhancement_server(Some(&app)).is_ok() {
+                for _ in 0..100 {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if std::net::TcpStream::connect("127.0.0.1:12000").is_ok() {
+                        stream_connected = true;
+                        break;
+                    }
                 }
             }
         }
-    }
-    
-    if !stream_connected {
-        let _ = secure_delete_dir_all(&temp_frames_dir);
-        return Err("AI Enhancement server is offline or failed to boot".into());
-    }
-    
-    let mut used_ai_global = false;
-    for i in 1..=total_frames {
-        if CANCEL_UPSCALE.load(Ordering::SeqCst) {
+        
+        if !stream_connected {
             let _ = secure_delete_dir_all(&temp_frames_dir);
-            return Err("Upscaling cancelled by user".into());
+            return Err("AI Enhancement server is offline or failed to boot".into());
         }
         
-        let frame_name = format!("frame_{:06}.png", i);
-        let frame_path = temp_frames_dir.join(&frame_name);
-        
-        if !frame_path.exists() {
-            break;
-        }
-        
-        let _ = app.emit("upscale-progress", UpscaleProgress {
-            frame: i,
-            total: total_frames,
-            stage: "upscaling".into(),
-        });
-        
-        let frame_path_str = frame_path.to_string_lossy().to_string();
-        let mut server_success = false;
-        
-        if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
-            let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
-            use std::io::{Write, Read};
-            let json_payload = serde_json::json!({
-                "path": frame_path_str,
-                "output_path": frame_path_str,
-                "fidelity": 0.5
-            }).to_string();
+        let mut used_ai_global = false;
+        for i in 1..=total_frames {
+            if CANCEL_UPSCALE.load(Ordering::SeqCst) {
+                let _ = secure_delete_dir_all(&temp_frames_dir);
+                return Err("Upscaling cancelled by user".into());
+            }
+            
+            let frame_name = format!("frame_{:06}.jpg", i);
+            let frame_path = temp_frames_dir.join(&frame_name);
+            
+            if !frame_path.exists() {
+                break;
+            }
+            
+            let _ = app.emit("upscale-progress", UpscaleProgress {
+                frame: i,
+                total: total_frames,
+                stage: "upscaling".into(),
+            });
+            
+            let frame_path_str = frame_path.to_string_lossy().to_string();
+            let mut server_success = false;
+            
+            if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:12000") {
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
+                let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
+                use std::io::{Write, Read};
+                let json_payload = serde_json::json!({
+                    "path": frame_path_str,
+                    "output_path": frame_path_str,
+                    "fidelity": 0.5
+                }).to_string();
 
-            let request = format!(
-                "POST /enhance HTTP/1.1\r\n\
-                 Host: 127.0.0.1:12000\r\n\
-                 Content-Type: application/json\r\n\
-                 Content-Length: {}\r\n\
-                 Connection: close\r\n\r\n\
-                 {}",
-                json_payload.len(),
-                json_payload
-            );
+                let request = format!(
+                    "POST /enhance HTTP/1.1\r\n\
+                     Host: 127.0.0.1:12000\r\n\
+                     Content-Type: application/json\r\n\
+                     Content-Length: {}\r\n\
+                     Connection: close\r\n\r\n\
+                     {}",
+                    json_payload.len(),
+                    json_payload
+                );
 
-            if stream.write_all(request.as_bytes()).is_ok() {
-                let mut response = Vec::new();
-                if stream.read_to_end(&mut response).is_ok() {
-                    let response_str = String::from_utf8_lossy(&response);
-                    if let Some(pos) = response_str.find("\r\n\r\n") {
-                        let body = &response_str[pos + 4..];
-                        if let Ok(parsed) = serde_json::from_str::<Value>(body) {
-                            if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
-                                let used_ai = parsed.get("used_ai").and_then(|v| v.as_bool()).unwrap_or(false);
-                                if used_ai {
-                                    used_ai_global = true;
+                if stream.write_all(request.as_bytes()).is_ok() {
+                    let mut response = Vec::new();
+                    if stream.read_to_end(&mut response).is_ok() {
+                        let response_str = String::from_utf8_lossy(&response);
+                        if let Some(pos) = response_str.find("\r\n\r\n") {
+                            let body = &response_str[pos + 4..];
+                            if let Ok(parsed) = serde_json::from_str::<Value>(body) {
+                                if parsed.get("status").and_then(|s| s.as_str()) == Some("success") {
+                                    let used_ai = parsed.get("used_ai").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    if used_ai {
+                                        used_ai_global = true;
+                                    }
+                                    server_success = true;
                                 }
-                                server_success = true;
                             }
                         }
                     }
                 }
             }
-        }
-        
-        if !server_success {
-            let (runner, mut args) = resolve_enhancer_command(Some(&app))?;
-            args.push(frame_path_str.clone());
-            args.push(frame_path_str.clone());
-            let mut cmd = new_hidden_command(&runner);
-            cmd.args(&args);
-            cmd.current_dir(&app_data);
-            if let Some(models_dir) = resolve_models_dir(Some(&app)) {
-                cmd.env("COSMO_MODELS_DIR", &models_dir);
-            }
-            #[cfg(windows)]
-            cmd.creation_flags(CREATE_NO_WINDOW);
+            
+            if !server_success {
+                let (runner, mut args) = resolve_enhancer_command(Some(&app))?;
+                args.push(frame_path_str.clone());
+                args.push(frame_path_str.clone());
+                let mut cmd = new_hidden_command(&runner);
+                cmd.args(&args);
+                cmd.current_dir(&app_data);
+                if let Some(models_dir) = resolve_models_dir(Some(&app)) {
+                    cmd.env("COSMO_MODELS_DIR", &models_dir);
+                }
+                #[cfg(windows)]
+                cmd.creation_flags(CREATE_NO_WINDOW_LOW_PRIORITY);
 
-            let out = cmd.output();
-            let mut fallback_success = false;
-            if let Ok(ref output) = out {
-                if output.status.success() {
-                    let stdout_str = String::from_utf8_lossy(&output.stdout);
-                    let cli_used_ai = stdout_str.contains("[USED_AI=True]") || stdout_str.contains("[USED_AI=true]");
-                    if cli_used_ai {
-                        used_ai_global = true;
+                let out = cmd.output();
+                let mut fallback_success = false;
+                if let Ok(ref output) = out {
+                    if output.status.success() {
+                        let stdout_str = String::from_utf8_lossy(&output.stdout);
+                        let cli_used_ai = stdout_str.contains("[USED_AI=True]") || stdout_str.contains("[USED_AI=true]");
+                        if cli_used_ai {
+                            used_ai_global = true;
+                        }
+                        fallback_success = true;
                     }
-                    fallback_success = true;
+                }
+                if !fallback_success {
+                    let _ = secure_delete_dir_all(&temp_frames_dir);
+                    return Err("Upscaling failed: Both server and CLI fallback failed to process frame. Your GPU may be out of VRAM or CUDA errored.".into());
                 }
             }
-            if !fallback_success {
-                let _ = secure_delete_dir_all(&temp_frames_dir);
-                return Err("Upscaling failed: Both server and CLI fallback failed to process frame. Your GPU may be out of VRAM or CUDA errored.".into());
-            }
         }
-    }
-    
-    let _ = app.emit("upscale-progress", UpscaleProgress { frame: total_frames, total: total_frames, stage: "assembling".into() });
-    
-    let out_str = output_path.to_string_lossy().to_string();
-    
-    let mut stitch_cmd = new_hidden_ffmpeg_command(Some(&app));
-    stitch_cmd.args([
-        "-y",
-        "-f", "image2",
-        "-framerate", &fps_str,
-        "-i", &temp_frames_dir.join("frame_%06d.png").to_string_lossy().to_string(),
-        "-i", &path,
-        "-map", "0:v:0",
-        "-map", "1:a:0?",
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-movflags", "+faststart",
-        &out_str
-    ]);
-    #[cfg(windows)]
-    stitch_cmd.creation_flags(CREATE_NO_WINDOW);
-
-    let stitch_status = stitch_cmd.status().map_err(|e| format!("Failed to stitch upscaled video: {}", e))?;
         
-    let _ = secure_delete_dir_all(&temp_frames_dir);
-    
-    if !stitch_status.success() {
-        return Err("FFmpeg stitching failed".into());
-    }
-    
-    let final_saved_path = if overwrite {
-        if let Err(e) = fs::copy(&output_path, &p) {
-            let _ = secure_delete_file(&output_path);
-            return Err(format!("Failed to overwrite original video file: {}", e));
+        let _ = app.emit("upscale-progress", UpscaleProgress { frame: total_frames, total: total_frames, stage: "assembling".into() });
+        
+        let out_str = output_path.to_string_lossy().to_string();
+        
+        let mut stitch_cmd = new_hidden_ffmpeg_command(Some(&app));
+        stitch_cmd.args([
+            "-y",
+            "-f", "image2",
+            "-framerate", &fps_str,
+            "-i", &temp_frames_dir.join("frame_%06d.jpg").to_string_lossy().to_string(),
+            "-i", &path,
+            "-map", "0:v:0",
+            "-map", "1:a:0?",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            &out_str
+        ]);
+        #[cfg(windows)]
+        stitch_cmd.creation_flags(CREATE_NO_WINDOW_LOW_PRIORITY);
+
+        let stitch_status = stitch_cmd.status().map_err(|e| format!("Failed to stitch upscaled video: {}", e))?;
+            
+        let _ = secure_delete_dir_all(&temp_frames_dir);
+        
+        if !stitch_status.success() {
+            return Err("FFmpeg stitching failed".into());
         }
-        let _ = secure_delete_file(&output_path);
-        path.clone()
-    } else {
-        out_str.clone()
-    };
-    
-    register_upscale_history(&app, &final_saved_path, used_ai_global);
-    
-    let prefix = if !used_ai_global { "[FALLBACK]" } else { "" };
-    Ok(format!("{}{}", prefix, final_saved_path))
+        
+        let final_saved_path = if overwrite {
+            if let Err(e) = fs::copy(&output_path, &p) {
+                let _ = secure_delete_file(&output_path);
+                return Err(format!("Failed to overwrite original video file: {}", e));
+            }
+            let _ = secure_delete_file(&output_path);
+            path.clone()
+        } else {
+            out_str.clone()
+        };
+        
+        register_upscale_history(&app, &final_saved_path, used_ai_global);
+        
+        let prefix = if !used_ai_global { "[FALLBACK]" } else { "" };
+        Ok(format!("{}{}", prefix, final_saved_path))
+    }).await.map_err(|e| e.to_string())?
 }
 
 pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String, String> {
