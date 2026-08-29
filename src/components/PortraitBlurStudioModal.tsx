@@ -122,6 +122,18 @@ export function PortraitBlurStudioModal({
     return () => window.removeEventListener('resize', updateSize);
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showSplitView) {
+        e.preventDefault();
+        setShowSplitView(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, showSplitView]);
+
   const renderCanvas = () => {
     const canvas = canvasRef.current;
     const origImg = originalImgRef.current;
@@ -462,16 +474,50 @@ export function PortraitBlurStudioModal({
           </button>
         </div>
       )}
+       {/* Floating Split View Status Banner */}
+      {showSplitView && (
+        <div
+          onClick={() => setShowSplitView(false)}
+          style={{
+            position: 'absolute',
+            top: '64px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(0, 0, 0, 0.85)',
+            border: '1px solid rgba(0, 255, 136, 0.6)',
+            borderRadius: '20px',
+            padding: '5px 14px',
+            color: 'var(--accent, #00ff88)',
+            fontSize: '11px',
+            fontWeight: 800,
+            cursor: 'pointer',
+            zIndex: 250004,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: '0 6px 24px rgba(0, 0, 0, 0.9)'
+          }}
+          title="Click anywhere to dismiss Split View"
+        >
+          <span>↔️ Split View Active</span>
+          <span style={{ color: '#fff', opacity: 0.7, fontSize: '10px' }}>(Click anywhere on image to dismiss)</span>
+          <span style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '50%', width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '10px' }}>✕</span>
+        </div>
+      )}
 
       {/* Main Canvas Viewport */}
       {!isLoadingAi && !aiError && (
         <div
+          onClick={() => {
+            if (showSplitView) setShowSplitView(false);
+          }}
           style={{
             width: `${visibleW}px`,
             height: `${visibleH}px`,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            cursor: showSplitView ? 'pointer' : 'default'
           }}
         >
           <canvas
@@ -506,80 +552,49 @@ export function PortraitBlurStudioModal({
           }}
         >
           {/* Background Blur Slider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)', fontWeight: 700, whiteSpace: 'nowrap' }}>Bokeh:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '9px', color: 'rgba(255, 255, 255, 0.6)', fontWeight: 700 }}>Blur:</span>
             <input
               type="range"
               min="0"
-              max="60"
+              max="50"
               value={blurRadius}
-              onChange={(e) => setBlurRadius(parseInt(e.target.value))}
+              onChange={(e) => {
+                setBlurRadius(parseInt(e.target.value));
+                if (showSplitView) setShowSplitView(false);
+              }}
               style={{ width: '80px', accentColor: 'var(--accent, #00ff88)' }}
             />
-            <span style={{ fontSize: '9px', color: 'var(--accent, #00ff88)', fontWeight: 700, minWidth: '24px' }}>
+            <span style={{ fontSize: '9px', color: 'var(--accent, #00ff88)', fontWeight: 800, width: '22px' }}>
               {blurRadius}px
             </span>
           </div>
 
-          <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)' }} />
-
-          {/* Edge Matte Trim (Choke) Slider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)', fontWeight: 700 }}>Edge:</span>
-            <input
-              type="range"
-              min="0"
-              max="8"
-              value={edgeTrim}
-              onChange={(e) => setEdgeTrim(parseInt(e.target.value))}
-              style={{ width: '60px', accentColor: 'var(--accent, #00ff88)' }}
-              title="Trim edge fringe/halo around chin, face and hair"
-            />
-            <span style={{ fontSize: '9px', color: 'var(--accent, #00ff88)', fontWeight: 700, minWidth: '20px' }}>
-              {edgeTrim}px
-            </span>
-          </div>
-
-          <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)' }} />
-
-          {/* Anti-Halo Erase Toggle */}
-          <button
-            onClick={() => setAntiHaloBleed(!antiHaloBleed)}
-            style={{
-              background: antiHaloBleed ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 255, 255, 0.07)',
-              border: antiHaloBleed ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(255, 255, 255, 0.12)',
-              color: antiHaloBleed ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.8)',
-              padding: '3px 8px',
-              borderRadius: '8px',
-              fontSize: '9px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap'
-            }}
-            title="Erase subject skin color from background before blurring to prevent light halos"
-          >
-            {antiHaloBleed ? '✨ Anti-Halo: ON' : '✨ Anti-Halo'}
-          </button>
-
-          {/* Subject Pop Brightness Slider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)', fontWeight: 700 }}>Pop:</span>
+          {/* Subject Brightness / Pop Slider */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '9px', color: 'rgba(255, 255, 255, 0.6)', fontWeight: 700 }}>Pop:</span>
             <input
               type="range"
               min="0.8"
               max="1.3"
               step="0.05"
               value={subjectBrightness}
-              onChange={(e) => setSubjectBrightness(parseFloat(e.target.value))}
-              style={{ width: '55px', accentColor: 'var(--accent, #00ff88)' }}
+              onChange={(e) => {
+                setSubjectBrightness(parseFloat(e.target.value));
+                if (showSplitView) setShowSplitView(false);
+              }}
+              style={{ width: '70px', accentColor: 'var(--accent, #00ff88)' }}
             />
+            <span style={{ fontSize: '9px', color: 'var(--accent, #00ff88)', fontWeight: 800, width: '28px' }}>
+              {Math.round(subjectBrightness * 100)}%
+            </span>
           </div>
-
-          <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)' }} />
 
           {/* Interactive Split View Toggle */}
           <button
             onClick={() => setShowSplitView(!showSplitView)}
+            onPointerDown={() => setShowSplitView(true)}
+            onPointerUp={() => setShowSplitView(false)}
             style={{
               background: showSplitView ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.07)',
               border: 'none',
@@ -591,9 +606,12 @@ export function PortraitBlurStudioModal({
               cursor: 'pointer',
               whiteSpace: 'nowrap'
             }}
+            title="Click or Hold to Compare (Auto-dismisses on click elsewhere)"
           >
             {showSplitView ? '↔️ Split: ON' : '↔️ Split'}
           </button>
+
+          <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)' }} />
 
           {/* Save Actions */}
           <button

@@ -141,6 +141,11 @@ export function ReshapeStudioModal({
   }, [isOpen]);
 
   const handlePointerDownContainer = (e: React.PointerEvent) => {
+    // If split view is on, clicking anywhere dismisses split view
+    if (showSplitView) {
+      setShowSplitView(false);
+    }
+
     // Right click (button 2), Middle click (button 1), or Space held down for Pan
     if (e.button === 2 || e.button === 1 || e.shiftKey) {
       e.preventDefault();
@@ -246,11 +251,16 @@ export function ReshapeStudioModal({
         e.preventDefault();
         const delta = e.shiftKey ? 5 : (brushSize < 10 ? 1 : 3);
         setBrushSize(prev => Math.min(600, prev + delta));
+      } else if (e.key === 'Escape') {
+        if (showSplitView) {
+          e.preventDefault();
+          setShowSplitView(false);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, historyStep, historyStack, brushSize]);
+  }, [isOpen, historyStep, historyStack, brushSize, showSplitView]);
 
   const renderCanvas = () => {
     const mainCanvas = canvasRef.current;
@@ -410,6 +420,11 @@ export function ReshapeStudioModal({
   };
 
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // If split view is on, clicking anywhere on the image immediately dismisses split view
+    if (showSplitView) {
+      setShowSplitView(false);
+    }
+
     if (activeTab !== 'sculpt') return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -697,6 +712,37 @@ export function ReshapeStudioModal({
         </div>
       </div>
 
+      {/* Floating Split View Status Banner */}
+      {showSplitView && (
+        <div
+          onClick={() => setShowSplitView(false)}
+          style={{
+            position: 'absolute',
+            top: '64px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(0, 0, 0, 0.85)',
+            border: '1px solid rgba(0, 229, 255, 0.6)',
+            borderRadius: '20px',
+            padding: '5px 14px',
+            color: '#00e5ff',
+            fontSize: '11px',
+            fontWeight: 800,
+            cursor: 'pointer',
+            zIndex: 250004,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: '0 6px 24px rgba(0, 0, 0, 0.9)'
+          }}
+          title="Click anywhere to dismiss Split View"
+        >
+          <span>↔️ Split View Active</span>
+          <span style={{ color: '#fff', opacity: 0.7, fontSize: '10px' }}>(Click anywhere on image to dismiss)</span>
+          <span style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '50%', width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '10px' }}>✕</span>
+        </div>
+      )}
+
       {/* Render Canvas Wrapper with Viewport Zoom and Pan */}
       <div
         style={{
@@ -800,6 +846,8 @@ export function ReshapeStudioModal({
             </button>
             <button
               onClick={() => setShowSplitView(!showSplitView)}
+              onPointerDown={() => setShowSplitView(true)}
+              onPointerUp={() => setShowSplitView(false)}
               style={{
                 background: showSplitView ? '#00e5ff' : 'rgba(255,255,255,0.07)',
                 color: showSplitView ? '#000' : 'rgba(255,255,255,0.8)',
@@ -810,9 +858,9 @@ export function ReshapeStudioModal({
                 fontWeight: 700,
                 cursor: 'pointer'
               }}
-              title="Compare Original vs Edited side-by-side"
+              title="Click or Hold to Compare (Auto-dismisses on click or sculpt)"
             >
-              ↔️ Split
+              {showSplitView ? '↔️ Split: ON' : '↔️ Split'}
             </button>
           </div>
 
