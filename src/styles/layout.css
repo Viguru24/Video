@@ -690,7 +690,6 @@
     transform: translateX(8px) !important;
     opacity: 0 !important;
   }
-  .grid-item-wrap:hover .overlay-footer, 
   .video-overlay.visible .overlay-footer,
   .video-card.focused .overlay-footer { 
     opacity: 1 !important; 

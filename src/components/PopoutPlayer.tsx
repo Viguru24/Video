@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Sliders, Crop, Sparkles, Pause, Play, RefreshCw, Volume2, VolumeX } from 'lucide-react';
+import { Sliders, Crop, Sparkles, Pause, Play, RefreshCw, Volume2, VolumeX, ChevronLeft, ChevronRight, Repeat, Repeat1, Minimize2, ZoomIn, RotateCcw } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { DEFAULT_COLOR_FILTERS } from '../types';
+import { useStore } from '../store/useStore';
 import { 
   toCosmoUrl, 
   isValidPictureExtension, 
@@ -12,7 +13,8 @@ import {
   convertToVideoUrl,
   pathsEqual,
   extractBasePrefix,
-  isTauri
+  isTauri,
+  safeSetLocalStorage
 } from '../utils/videoUtils';
 import { ColorFilterDefs } from './ColorFilterDefs';
 import { CropOverlay } from './CropOverlay';
@@ -37,10 +39,16 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   
+  // Safe media URL & type checks (guaranteed before any hooks)
+  const displayUrl = activeVideo ? toCosmoUrl(activeVideo.url) : toCosmoUrl(url);
+  const cleanActiveUrl = (activeVideo?.url || url).split('?')[0];
+  const isImage = isValidPictureExtension(cleanActiveUrl);
+  
   // Custom video states
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [videoPlaying, setVideoPlaying] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
   const isScrubbing = useRef(false);
   const popoutVolumeContainerRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState(() => {
@@ -51,6 +59,26 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     const saved = localStorage.getItem('cosmo-muted');
     return saved === 'true';
   });
+
+  const { slideshowInterval, setSlideshowInterval, enableSlideshowPanZoom } = useStore();
+
+  // High-Fidelity Pan & Zoom State (Lightroom Protocol)
+  const [zoomScale, setZoomScale] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const startPanRef = useRef({ x: 0, y: 0 });
+  const zoomScaleRef = useRef(1);
+  const panOffsetRef = useRef({ x: 0, y: 0 });
+  const currentMediaIdRef = useRef<string | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    zoomScaleRef.current = zoomScale;
+  }, [zoomScale]);
+
+  useEffect(() => {
+    panOffsetRef.current = panOffset;
+  }, [panOffset]);
 
   // Slideshow state
   const [isSlideshowActive, setIsSlideshowActive] = useState(false);
@@ -162,6 +190,19 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     };
   }, [url]);
 
+  // Auto-focus container and auto-unminimize/maximize window when loading media or folder
+  useEffect(() => {
+    rootRef.current?.focus();
+    if (isTauri()) {
+      const win = getCurrentWindow();
+      win.unminimize()
+        .then(() => win.show())
+        .then(() => win.setFocus())
+        .then(() => win.maximize())
+        .catch(err => console.warn("Auto-maximize popout window error:", err));
+    }
+  }, [activeVideo?.id, url]);
+
   // Listen to external workspace changes (both localstorage and Tauri event bus)
   useEffect(() => {
     const updatePlaylist = (parsed: any[]) => {
@@ -216,7 +257,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const onUpdateVideo = useCallback((id: string, updates: Partial<VideoItem>) => {
     setPlaylist(prev => {
       const updated = prev.map(v => v.id === id ? { ...v, ...updates } : v);
-      localStorage.setItem('cosmo-v2', JSON.stringify(updated));
+      safeSetLocalStorage('cosmo-v2', JSON.stringify(updated));
       return updated;
     });
     setActiveVideo(current => {
@@ -230,7 +271,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const mockSetVideos = useCallback((setter: any) => {
     setPlaylist(prev => {
       const next = typeof setter === 'function' ? setter(prev) : setter;
-      localStorage.setItem('cosmo-v2', JSON.stringify(next));
+      safeSetLocalStorage('cosmo-v2', JSON.stringify(next));
       return next;
     });
   }, []);
@@ -291,52 +332,209 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
 
   // Navigation Logic
   const navigate = useCallback((direction: 1 | -1) => {
-    if (playlist.length <= 1 || !activeVideo) return;
+    if (!activeVideo) return;
     
-    const activeClean = toCosmoUrl(activeVideo.url || '');
-    const activeIsImage = isValidPictureExtension((activeClean || '').split('?')[0]);
+    // 1. If the popped out unit is a Folder Unit with multiple files inside
+    if (activeVideo.folderFiles && activeVideo.folderFiles.length > 1) {
+      const currentIdx = activeVideo.currentIdx || 0;
+      const nextIdx = (currentIdx + direction + activeVideo.folderFiles.length) % activeVideo.folderFiles.length;
+      const nextFile = activeVideo.folderFiles[nextIdx];
+      if (nextFile) {
+        const nextPath = nextFile.path || nextFile.url;
+        onUpdateVideo(activeVideo.id, {
+          currentIdx: nextIdx,
+          url: toCosmoUrl(nextPath),
+          realPath: nextFile.path || nextPath,
+          title: nextFile.name
+        });
+        showHudNotification("FILE", `${nextIdx + 1} / ${activeVideo.folderFiles.length}: ${nextFile.name}`);
+        return;
+      }
+    }
 
-    // Filter playlist to keep items of the same type
-    const sameTypeItems = playlist.filter(v => {
-      const vClean = toCosmoUrl(v.url || '');
-      const vIsImage = isValidPictureExtension((vClean || '').split('?')[0]);
-      return vIsImage === activeIsImage;
-    });
+    // 2. Otherwise navigate to the next/prev item in the workspace playlist
+    if (playlist.length <= 1) return;
 
-    if (sameTypeItems.length <= 1) return;
-
-    const currentIdx = sameTypeItems.findIndex(v => v.id === activeVideo.id);
+    const currentIdx = playlist.findIndex(v => v.id === activeVideo.id);
     if (currentIdx === -1) return;
     
-    let nextIdx = currentIdx + direction;
-    if (nextIdx < 0) nextIdx = sameTypeItems.length - 1;
-    if (nextIdx >= sameTypeItems.length) nextIdx = 0;
-    
-    const nextVideo = sameTypeItems[nextIdx];
-    setActiveVideo(nextVideo);
-    
-    // Auto-play videos, stop slideshows
-    if (isValidPictureExtension((nextVideo.url || '').split('?')[0])) {
-      setVideoPlaying(false);
-    } else {
-      setVideoPlaying(true);
-      setIsSlideshowActive(false);
+    const nextIdx = (currentIdx + direction + playlist.length) % playlist.length;
+    const nextVideo = playlist[nextIdx];
+    if (nextVideo) {
+      setActiveVideo(nextVideo);
+      showHudNotification("MEDIA", nextVideo.title);
+      
+      const nextClean = toCosmoUrl(nextVideo.url || '');
+      const nextIsImage = isValidPictureExtension((nextClean || '').split('?')[0]);
+      if (nextIsImage) {
+        setVideoPlaying(false);
+      } else {
+        setVideoPlaying(true);
+        setIsSlideshowActive(false);
+      }
+      
+      // Close panels and reset zoom during navigation
+      setIsCropping(false);
+      setColorAdjustId(null);
+      setZoomScale(1);
+      setPanOffset({ x: 0, y: 0 });
+      setIsPanning(false);
     }
-    
-    // Close panels during navigation
-    setIsCropping(false);
-    setColorAdjustId(null);
-  }, [playlist, activeVideo]);
+  }, [playlist, activeVideo, onUpdateVideo, showHudNotification]);
 
-  // Slideshow Logic
+  // Slideshow Logic - uses configured slideshowInterval
   useEffect(() => {
     if (!isSlideshowActive || playlist.length <= 1) return;
-    const intervalSec = parseInt(localStorage.getItem('cosmo-rot-int') || '10');
+    const intervalSec = Math.max(1, slideshowInterval || 5);
     const timer = setInterval(() => {
       navigate(1);
     }, intervalSec * 1000);
     return () => clearInterval(timer);
-  }, [isSlideshowActive, playlist, navigate]);
+  }, [isSlideshowActive, playlist, navigate, slideshowInterval]);
+
+  // Reset Zoom strictly on navigating to a DIFFERENT item
+  useEffect(() => {
+    const id = activeVideo?.id || url;
+    if (currentMediaIdRef.current && currentMediaIdRef.current !== id) {
+      setZoomScale(1);
+      setPanOffset({ x: 0, y: 0 });
+      zoomScaleRef.current = 1;
+      panOffsetRef.current = { x: 0, y: 0 };
+      setIsPanning(false);
+    }
+    currentMediaIdRef.current = id;
+  }, [activeVideo?.id, url]);
+
+  // Unified High-Fidelity Wheel Zoom Engine for Popout Viewport
+  const performZoom = useCallback((deltaY: number, clientX?: number, clientY?: number) => {
+    const el = viewportRef.current;
+    let mouseX = 0;
+    let mouseY = 0;
+    if (el && typeof clientX === 'number' && typeof clientY === 'number') {
+      const rect = el.getBoundingClientRect();
+      mouseX = clientX - (rect.left + rect.width / 2);
+      mouseY = clientY - (rect.top + rect.height / 2);
+    }
+
+    const currentZoom = zoomScaleRef.current;
+    const currentPan = panOffsetRef.current;
+
+    const factor = deltaY < 0 ? 1.25 : 0.8;
+    const nextZoom = Math.max(1, Math.min(10, currentZoom * factor));
+
+    if (nextZoom <= 1.02) {
+      setZoomScale(1);
+      setPanOffset({ x: 0, y: 0 });
+      zoomScaleRef.current = 1;
+      panOffsetRef.current = { x: 0, y: 0 };
+      showHudNotification('ZOOM', '100%');
+      return;
+    }
+
+    const ratio = nextZoom / currentZoom;
+    const newPanX = mouseX - (mouseX - currentPan.x) * ratio;
+    const newPanY = mouseY - (mouseY - currentPan.y) * ratio;
+
+    const nextPan = { x: newPanX, y: newPanY };
+    setZoomScale(nextZoom);
+    setPanOffset(nextPan);
+    zoomScaleRef.current = nextZoom;
+    panOffsetRef.current = nextPan;
+    showHudNotification('ZOOM', `${Math.round(nextZoom * 100)}%`);
+  }, [showHudNotification]);
+
+  // Global mouse panning tracker
+  useEffect(() => {
+    if (!isPanning) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (zoomScaleRef.current > 1) {
+        const nextPan = {
+          x: e.clientX - startPanRef.current.x,
+          y: e.clientY - startPanRef.current.y
+        };
+        setPanOffset(nextPan);
+        panOffsetRef.current = nextPan;
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsPanning(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isPanning]);
+
+  const handleViewportMouseDown = (e: React.MouseEvent) => {
+    if (isCropping) return;
+
+    // Alt + Click to toggle 2.5x Zoom
+    if (e.altKey && e.button === 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const mouseX = e.clientX - (rect.left + rect.width / 2);
+      const mouseY = e.clientY - (rect.top + rect.height / 2);
+      if (zoomScaleRef.current > 1) {
+        setZoomScale(1);
+        setPanOffset({ x: 0, y: 0 });
+        zoomScaleRef.current = 1;
+        panOffsetRef.current = { x: 0, y: 0 };
+        showHudNotification('ZOOM', '100%');
+      } else {
+        const nextScale = 2.5;
+        const ratio = nextScale / 1;
+        const nextPan = { x: mouseX - mouseX * ratio, y: mouseY - mouseY * ratio };
+        setPanOffset(nextPan);
+        setZoomScale(nextScale);
+        zoomScaleRef.current = nextScale;
+        panOffsetRef.current = nextPan;
+        showHudNotification('ZOOM', '250%');
+      }
+      return;
+    }
+
+    // Drag to pan when zoomed
+    if (zoomScaleRef.current > 1 && e.button === 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsPanning(true);
+      startPanRef.current = { x: e.clientX - panOffsetRef.current.x, y: e.clientY - panOffsetRef.current.y };
+    }
+  };
+
+  const handleDoubleClickViewport = (e: React.MouseEvent) => {
+    if (isCropping) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (zoomScaleRef.current > 1) {
+      setZoomScale(1);
+      setPanOffset({ x: 0, y: 0 });
+      zoomScaleRef.current = 1;
+      panOffsetRef.current = { x: 0, y: 0 };
+      showHudNotification('ZOOM', '100%');
+    } else {
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const mouseX = e.clientX - (rect.left + rect.width / 2);
+      const mouseY = e.clientY - (rect.top + rect.height / 2);
+      const nextScale = 2.5;
+      const ratio = nextScale / 1;
+      const nextPan = { x: mouseX - mouseX * ratio, y: mouseY - mouseY * ratio };
+      setPanOffset(nextPan);
+      setZoomScale(nextScale);
+      zoomScaleRef.current = nextScale;
+      panOffsetRef.current = nextPan;
+      showHudNotification('ZOOM', '250%');
+    }
+  };
 
   // UI Visibility Auto-Hide
   const triggerUIVisibility = useCallback(() => {
@@ -358,14 +556,27 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     };
   }, [triggerUIVisibility]);
 
-  // Scroll wheel navigation
+  // Main scroll wheel handler: Zoom by default, Shift+Wheel navigates, Ctrl+Wheel on video changes speed
   const lastScrollTime = useRef(0);
   const handleWheel = (e: React.WheelEvent) => {
     if (isCropping || colorAdjustId || showSaveCropOptions || showSaveUpscaleOptions) return;
-    
+
+    // Shift + Wheel = Navigate files
+    if (e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastScrollTime.current > 400) {
+        navigate(e.deltaY > 0 ? 1 : -1);
+        lastScrollTime.current = now;
+      }
+      return;
+    }
+
     const activeClean = toCosmoUrl(activeVideo?.url || '');
     const activeIsImage = isValidPictureExtension((activeClean || '').split('?')[0]);
 
+    // Ctrl + Wheel on video = adjust speed
     if (e.ctrlKey && !activeIsImage) {
       e.preventDefault();
       e.stopPropagation();
@@ -378,26 +589,24 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
       return;
     }
 
+    // Default: Smooth Zoom on Images and Videos!
     e.preventDefault();
     e.stopPropagation();
-    const now = Date.now();
-    if (now - lastScrollTime.current > 600) {
-      if (e.deltaY > 0) {
-        navigate(1);
-        lastScrollTime.current = now;
-      } else if (e.deltaY < 0) {
-        navigate(-1);
-        lastScrollTime.current = now;
-      }
-    }
+    performZoom(e.deltaY, e.clientX, e.clientY);
   };
 
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing inside form input fields
+      if (['input', 'textarea'].includes((e.target as HTMLElement)?.tagName?.toLowerCase())) {
+        return;
+      }
+
       const key = e.key.toLowerCase();
       
-      if (key === ' ') {
+      // Space / Key K / MediaPlayPause -> Toggle Play / Pause
+      if (key === ' ' || key === 'k' || key === 'mediaplaypause') {
         e.preventDefault();
         e.stopPropagation();
         const activeClean = toCosmoUrl(activeVideo?.url || '');
@@ -407,7 +616,114 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
         } else {
           setIsSlideshowActive(p => !p);
         }
-      } else if (key === 'escape') {
+      } 
+      // ArrowRight / ArrowDown / PageDown / MediaTrackNext -> Next File (or frame step forward if Shift held)
+      else if (key === 'arrowright' || key === 'arrowdown' || key === 'pagedown' || key === 'mediatracknext') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey && videoRef.current) {
+          const stepTime = 1 / 30;
+          videoRef.current.currentTime = Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + stepTime);
+          setCurrentTime(videoRef.current.currentTime);
+        } else {
+          navigate(1);
+        }
+      } 
+      // ArrowLeft / ArrowUp / PageUp / MediaTrackPrevious -> Previous File (or frame step back if Shift held)
+      else if (key === 'arrowleft' || key === 'arrowup' || key === 'pageup' || key === 'mediatrackprevious') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey && videoRef.current) {
+          const stepTime = 1 / 30;
+          videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - stepTime);
+          setCurrentTime(videoRef.current.currentTime);
+        } else {
+          navigate(-1);
+        }
+      } 
+      // Comma (,) / Less Than (<) -> Step Back 1 Frame
+      else if (key === ',' || key === '<') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (videoRef.current) {
+          setVideoPlaying(false);
+          videoRef.current.pause();
+          const stepTime = 1 / 30;
+          videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - stepTime);
+          setCurrentTime(videoRef.current.currentTime);
+        }
+      } 
+      // Period (.) / Greater Than (>) -> Step Forward 1 Frame
+      else if (key === '.' || key === '>') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (videoRef.current) {
+          setVideoPlaying(false);
+          videoRef.current.pause();
+          const stepTime = 1 / 30;
+          videoRef.current.currentTime = Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + stepTime);
+          setCurrentTime(videoRef.current.currentTime);
+        }
+      } 
+      // Mute / Unmute (Key M)
+      else if (key === 'm') {
+        e.preventDefault();
+        e.stopPropagation();
+        setMuted(prev => !prev);
+      } 
+      // Repeat Mode Toggle (Key R)
+      else if (key === 'r') {
+        e.preventDefault();
+        e.stopPropagation();
+        const currentMode = activeVideo?.repeatMode || (localStorage.getItem('cosmo-repeat') || 'folder');
+        let nextMode: 'none' | 'always' | 'folder' = 'none';
+        if (currentMode === 'none') nextMode = 'always';
+        else if (currentMode === 'always') nextMode = 'folder';
+        else nextMode = 'none';
+
+        if (activeVideo) {
+          onUpdateVideo(activeVideo.id, { repeatMode: nextMode });
+        }
+        localStorage.setItem('cosmo-repeat', nextMode);
+        const label = nextMode === 'always' ? "Repeat One" : nextMode === 'folder' ? "Repeat All" : "Off";
+        showHudNotification("REPEAT MODE", label);
+      } 
+      // Fullscreen Toggle (Key F / F11)
+      else if (key === 'f' || key === 'f11') {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const win = getCurrentWindow();
+          const isFS = await win.isFullscreen();
+          await win.setFullscreen(!isFS);
+        } catch (err) {
+          console.error("Fullscreen toggle failed:", err);
+        }
+      } 
+      // Crop Mode Toggle (Key C)
+      else if (key === 'c') {
+        const activeClean = toCosmoUrl(activeVideo?.url || '');
+        const activeIsImage = isValidPictureExtension((activeClean || '').split('?')[0]);
+        if (activeIsImage) {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsCropping(prev => !prev);
+          if (!isCropping) {
+            setCropBox({ x: 15, y: 15, w: 70, h: 70 });
+            setAspectRatio('free');
+          }
+        }
+      } 
+      // Color Adjust Panel Toggle (Key S)
+      else if (key === 's') {
+        if (activeVideo) {
+          e.preventDefault();
+          e.stopPropagation();
+          setColorAdjustId(prev => prev ? null : activeVideo.id);
+        }
+      } 
+      // Escape Key
+      else if (key === 'escape') {
         e.preventDefault();
         e.stopPropagation();
         if (isCropping) {
@@ -437,7 +753,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [activeVideo, isCropping, colorAdjustId]);
+  }, [activeVideo, isCropping, colorAdjustId, navigate, onUpdateVideo, showHudNotification]);
 
   const toggleMaximize = async () => {
     try {
@@ -504,6 +820,43 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Frame Stepping Logic
+  const frameStepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const frameStepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startFrameStep = (action: 'stepforward' | 'stepback') => {
+    if (!videoRef.current) return;
+    setVideoPlaying(false);
+    videoRef.current.pause();
+
+    const stepTime = 1 / 30;
+    if (action === 'stepforward') {
+      videoRef.current.currentTime = Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + stepTime);
+    } else {
+      videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - stepTime);
+    }
+    setCurrentTime(videoRef.current.currentTime);
+
+    frameStepTimeoutRef.current = setTimeout(() => {
+      frameStepIntervalRef.current = setInterval(() => {
+        if (!videoRef.current) return;
+        if (action === 'stepforward') {
+          videoRef.current.currentTime = Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + stepTime);
+        } else {
+          videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - stepTime);
+        }
+        setCurrentTime(videoRef.current.currentTime);
+      }, 50);
+    }, 400);
+  };
+
+  const stopFrameStep = () => {
+    if (frameStepTimeoutRef.current) clearTimeout(frameStepTimeoutRef.current);
+    if (frameStepIntervalRef.current) clearInterval(frameStepIntervalRef.current);
+    frameStepTimeoutRef.current = null;
+    frameStepIntervalRef.current = null;
   };
 
   const handleTimeUpdate = () => {
@@ -685,7 +1038,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
               } else {
                 updated = [...prev, newUnit];
               }
-              localStorage.setItem('cosmo-v2', JSON.stringify(updated));
+              safeSetLocalStorage('cosmo-v2', JSON.stringify(updated));
               return updated;
             });
             setActiveVideo(newUnit);
@@ -804,7 +1157,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
           } else {
             updated = [...prev, newUnit];
           }
-          localStorage.setItem('cosmo-v2', JSON.stringify(updated));
+          safeSetLocalStorage('cosmo-v2', JSON.stringify(updated));
           return updated;
         });
         setActiveVideo(newUnit);
@@ -843,10 +1196,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     addLog('Enhancement cancelled by user.');
   }, [addLog]);
 
-  // Safe checks
-  const displayUrl = activeVideo ? toCosmoUrl(activeVideo.url) : toCosmoUrl(url);
-  const cleanActiveUrl = (activeVideo?.url || url).split('?')[0];
-  const isImage = isValidPictureExtension(cleanActiveUrl);
+  // Color filters calculation
 
   const filters = (activeVideo && activeVideo.colorFilters) || DEFAULT_COLOR_FILTERS;
   const rTemp = filters.temp > 0 ? 1.0 + (filters.temp / 100) * 0.3 : 1.0 + (filters.temp / 100) * 0.15;
@@ -863,9 +1213,15 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
 
   return (
     <div 
+      ref={rootRef}
+      tabIndex={0}
+      autoFocus
       className="popout-root" 
       onWheel={handleWheel}
       onDoubleClick={toggleMaximize}
+      onClick={() => {
+        rootRef.current?.focus();
+      }}
       style={{ 
         background: '#000', 
         width: '100vw', 
@@ -876,6 +1232,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
         justifyContent: 'center', 
         position: 'relative',
         overflow: 'hidden',
+        outline: 'none',
         cursor: showUI ? 'default' : 'none'
       }}
     >
@@ -1013,7 +1370,22 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
       )}
 
       {/* Main viewport */}
-      <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div 
+        ref={viewportRef}
+        onMouseDown={handleViewportMouseDown}
+        onDoubleClick={handleDoubleClickViewport}
+        style={{ 
+          position: 'relative', 
+          width: '100%', 
+          height: '100%', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          overflow: 'hidden',
+          cursor: zoomScale > 1 ? (isPanning ? 'grabbing' : 'grab') : (isImage ? 'zoom-in' : 'default'),
+          userSelect: 'none'
+        }}
+      >
         {isImage ? (
           <img 
             className="popout-image"
@@ -1025,6 +1397,9 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
               height: '100%', 
               objectFit: 'contain', 
               outline: 'none',
+              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomScale}) ${activeVideo?.flipped ? 'scaleX(-1) ' : ''}rotate(${activeVideo?.rotation || 0}deg)`,
+              transformOrigin: 'center center',
+              transition: isPanning ? 'none' : 'transform 0.12s cubic-bezier(0.16, 1, 0.3, 1)',
               filter: activeVideo && activeVideo.colorFilters 
                 ? `url(#filter-${filterId}) brightness(${filters.brightness}) contrast(${filters.contrast}) saturate(${filters.saturation}) hue-rotate(${filters.hue}deg)` 
                 : undefined
@@ -1071,11 +1446,65 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
               height: '100%', 
               objectFit: 'contain', 
               outline: 'none',
+              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomScale}) ${activeVideo?.flipped ? 'scaleX(-1) ' : ''}rotate(${activeVideo?.rotation || 0}deg)`,
+              transformOrigin: 'center center',
+              transition: isPanning ? 'none' : 'transform 0.12s cubic-bezier(0.16, 1, 0.3, 1)',
               filter: activeVideo && activeVideo.colorFilters 
                 ? `url(#filter-${filterId}) brightness(${filters.brightness}) contrast(${filters.contrast}) saturate(${filters.saturation}) hue-rotate(${filters.hue}deg)` 
                 : undefined
             }} 
           />
+        )}
+
+        {/* Floating Zoom HUD Badge & Quick Reset */}
+        {zoomScale > 1 && !isCropping && (
+          <div 
+            style={{
+              position: 'absolute',
+              top: '60px',
+              right: '24px',
+              zIndex: 90,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: 'rgba(10, 15, 29, 0.85)',
+              border: '1px solid var(--accent, #00ff88)',
+              borderRadius: '20px',
+              padding: '4px 10px',
+              boxShadow: '0 4px 15px rgba(0, 255, 136, 0.25)',
+              backdropFilter: 'blur(10px)',
+              pointerEvents: 'auto'
+            }}
+          >
+            <ZoomIn size={12} style={{ color: 'var(--accent, #00ff88)' }} />
+            <span style={{ fontSize: '11px', fontWeight: 800, color: '#fff', fontFamily: 'monospace' }}>
+              {Math.round(zoomScale * 100)}%
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoomScale(1);
+                setPanOffset({ x: 0, y: 0 });
+                showHudNotification('ZOOM', '100%');
+              }}
+              title="Reset Zoom to 100%"
+              style={{
+                background: 'rgba(255, 255, 255, 0.15)',
+                border: 'none',
+                borderRadius: '50%',
+                width: '18px',
+                height: '18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                cursor: 'pointer',
+                marginLeft: '2px'
+              }}
+            >
+              <RotateCcw size={10} />
+            </button>
+          </div>
         )}
 
         {/* Cropping overlay */}
@@ -1193,10 +1622,10 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             backdropFilter: 'blur(20px) saturate(180%)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '30px',
-            padding: '6px 18px',
+            padding: '4px 14px',
             display: 'flex',
             alignItems: 'center',
-            gap: '20px',
+            gap: '10px',
             boxShadow: '0 12px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
             opacity: showUI ? 1 : 0,
             transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -1204,6 +1633,59 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             pointerEvents: showUI ? 'auto' : 'none'
           }}
         >
+          {/* Previous Sibling Button */}
+          <button 
+            onClick={() => navigate(-1)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px',
+              borderRadius: '50%',
+              transition: 'background 0.2s',
+              pointerEvents: 'auto'
+            }}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+            onMouseOut={e => e.currentTarget.style.background = 'none'}
+            title="Previous Media"
+          >
+            <ChevronLeft size={14} />
+          </button>
+
+          {/* Frame Step Back (1 frame) */}
+          {!isImage && (
+            <button 
+              onClick={(e) => e.preventDefault()}
+              onMouseDown={(e) => {
+                if (e.button === 0) startFrameStep('stepback');
+              }}
+              onMouseUp={stopFrameStep}
+              onMouseLeave={stopFrameStep}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#fff',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px',
+                borderRadius: '50%',
+                transition: 'background 0.2s'
+              }}
+              onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+              onMouseOut={e => e.currentTarget.style.background = 'none'}
+              title="Step Back (1 Frame)"
+            >
+              <ChevronLeft size={12} />
+            </button>
+          )}
+
+          {/* Play / Pause Toggle Button */}
           <button 
             onClick={() => {
               if (isImage) {
@@ -1212,41 +1694,173 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
                 setVideoPlaying(!videoPlaying);
               }
             }}
+            onWheel={(e) => {
+              if (isImage) {
+                e.stopPropagation();
+                const direction = e.deltaY < 0 ? 1 : -1;
+                const next = Math.max(1, Math.min(60, (slideshowInterval || 5) + direction));
+                setSlideshowInterval(next);
+                showHudNotification('SLIDESHOW', `${next}s`);
+              }
+            }}
             style={{
-              background: '#00d2ff',
+              background: '#ffffff',
               border: 'none',
               color: '#000',
-              width: '36px',
-              height: '36px',
+              width: '28px',
+              height: '28px',
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               transition: 'all 0.2s',
               cursor: 'pointer',
-              boxShadow: '0 0 12px rgba(0, 210, 255, 0.4)'
+              boxShadow: '0 0 10px rgba(255, 255, 255, 0.4)'
             }}
             onMouseOver={e => {
               e.currentTarget.style.transform = 'scale(1.08)';
-              e.currentTarget.style.boxShadow = '0 0 18px rgba(0, 210, 255, 0.6)';
+              e.currentTarget.style.boxShadow = '0 0 14px rgba(255, 255, 255, 0.6)';
             }}
             onMouseOut={e => {
               e.currentTarget.style.transform = 'scale(1)';
-              e.currentTarget.style.boxShadow = '0 0 12px rgba(0, 210, 255, 0.4)';
+              e.currentTarget.style.boxShadow = '0 0 10px rgba(255, 255, 255, 0.4)';
             }}
-            title={isImage ? (isSlideshowActive ? "Pause Slideshow" : "Play Slideshow") : (videoPlaying ? "Pause Video" : "Play Video")}
+            title={isImage ? `${isSlideshowActive ? "Pause Slideshow" : "Play Slideshow"} (${slideshowInterval}s - scroll to adjust)` : (videoPlaying ? "Pause Video" : "Play Video")}
           >
             {isImage ? (
-              isSlideshowActive ? <Pause size={16} fill="black" stroke="black" /> : <Play size={16} fill="black" stroke="black" />
+              isSlideshowActive ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />
             ) : (
-              videoPlaying ? <Pause size={16} fill="black" stroke="black" /> : <Play size={16} fill="black" stroke="black" />
+              videoPlaying ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />
             )}
           </button>
 
+          {/* Frame Step Forward (1 frame) */}
+          {!isImage && (
+            <button 
+              onClick={(e) => e.preventDefault()}
+              onMouseDown={(e) => {
+                if (e.button === 0) startFrameStep('stepforward');
+              }}
+              onMouseUp={stopFrameStep}
+              onMouseLeave={stopFrameStep}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#fff',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px',
+                borderRadius: '50%',
+                transition: 'background 0.2s'
+              }}
+              onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+              onMouseOut={e => e.currentTarget.style.background = 'none'}
+              title="Step Forward (1 Frame)"
+            >
+              <ChevronRight size={12} />
+            </button>
+          )}
+
+          {/* Next Sibling Button */}
+          <button 
+            onClick={() => navigate(1)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px',
+              borderRadius: '50%',
+              transition: 'background 0.2s',
+              pointerEvents: 'auto'
+            }}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+            onMouseOut={e => e.currentTarget.style.background = 'none'}
+            title="Next Media"
+          >
+            <ChevronRight size={14} />
+          </button>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
+
+          {/* Repeat One (Loop Single Video) */}
+          <button 
+            onClick={() => {
+              const current = activeVideo?.repeatMode || (localStorage.getItem('cosmo-repeat') || 'folder');
+              const nextMode = current === 'always' ? 'none' : 'always';
+              if (activeVideo) {
+                onUpdateVideo(activeVideo.id, { repeatMode: nextMode });
+              }
+              localStorage.setItem('cosmo-repeat', nextMode);
+              showHudNotification("REPEAT MODE", nextMode === 'always' ? "Repeat One" : "Off");
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: (activeVideo?.repeatMode === 'always' || localStorage.getItem('cosmo-repeat') === 'always') 
+                ? 'var(--accent, #00ff88)' 
+                : '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px',
+              borderRadius: '50%',
+              transition: 'all 0.2s'
+            }}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+            onMouseOut={e => e.currentTarget.style.background = 'none'}
+            title="Repeat One (Loop Video)"
+          >
+            <Repeat1 size={14} />
+          </button>
+
+          {/* Repeat All (Loop Playlist / Folder) */}
+          <button 
+            onClick={() => {
+              const current = activeVideo?.repeatMode || (localStorage.getItem('cosmo-repeat') || 'folder');
+              const nextMode = current === 'folder' ? 'none' : 'folder';
+              if (activeVideo) {
+                onUpdateVideo(activeVideo.id, { repeatMode: nextMode });
+              }
+              localStorage.setItem('cosmo-repeat', nextMode);
+              showHudNotification("REPEAT MODE", nextMode === 'folder' ? "Repeat All" : "Off");
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: (activeVideo?.repeatMode === 'folder' || localStorage.getItem('cosmo-repeat') === 'folder') 
+                ? 'var(--accent, #00ff88)' 
+                : '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px',
+              borderRadius: '50%',
+              transition: 'all 0.2s'
+            }}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+            onMouseOut={e => e.currentTarget.style.background = 'none'}
+            title="Repeat All (Loop Folder)"
+          >
+            <Repeat size={14} />
+          </button>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
+
+          {/* Volume Control Group */}
           {!isImage && (
             <div 
               ref={popoutVolumeContainerRef}
-              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <button 
                 onClick={() => setMuted(prev => !prev)}
@@ -1258,7 +1872,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: '6px',
+                  padding: '4px',
                   borderRadius: '50%',
                   transition: 'background 0.2s, transform 0.1s'
                 }}
@@ -1272,7 +1886,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
                 }}
                 title={muted ? "Unmute" : "Mute"}
               >
-                {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
               </button>
               <input 
                 type="range"
@@ -1301,6 +1915,10 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             </div>
           )}
 
+          {/* Divider */}
+          <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
+
+          {/* Tools: Color Adjust */}
           <button 
             onClick={() => setColorAdjustId(activeVideo.id)}
             style={{
@@ -1311,7 +1929,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '6px',
+              padding: '4px',
               borderRadius: '50%',
               transition: 'background 0.2s, transform 0.1s'
             }}
@@ -1325,7 +1943,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             }}
             title="Color adjustment"
           >
-            <Sliders size={18} />
+            <Sliders size={14} />
           </button>
 
           {isImage && (

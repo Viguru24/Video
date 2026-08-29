@@ -55,7 +55,7 @@ export function Sidebar({
             setShowCollageCanvas(false);
           }}
         >
-          <div className="sidebar-nav-item-icon"><LayoutGrid size={16} /></div>
+          <div className="sidebar-nav-item-icon"><LayoutGrid size={14} /></div>
           <span className="sidebar-nav-item-label">Media Grid</span>
         </div>
 
@@ -71,7 +71,7 @@ export function Sidebar({
             setShowHelp(false);
           }}
         >
-          <div className="sidebar-nav-item-icon"><Layers size={16} /></div>
+          <div className="sidebar-nav-item-icon"><Layers size={14} /></div>
           <span className="sidebar-nav-item-label">Collage Canvas</span>
         </div>
 
@@ -87,7 +87,7 @@ export function Sidebar({
             setShowHelp(false);
           }}
         >
-          <div className="sidebar-nav-item-icon"><Bookmark size={16} /></div>
+          <div className="sidebar-nav-item-icon"><Bookmark size={14} /></div>
           <span className="sidebar-nav-item-label">Sets & Collections</span>
         </div>
 
@@ -103,7 +103,7 @@ export function Sidebar({
             setShowHelp(false);
           }}
         >
-          <div className="sidebar-nav-item-icon"><Hash size={16} /></div>
+          <div className="sidebar-nav-item-icon"><Hash size={14} /></div>
           <span className="sidebar-nav-item-label">Console Logs</span>
         </div>
 
@@ -119,7 +119,7 @@ export function Sidebar({
             setShowHelp(false);
           }}
         >
-          <div className="sidebar-nav-item-icon"><Settings size={16} /></div>
+          <div className="sidebar-nav-item-icon"><Settings size={14} /></div>
           <span className="sidebar-nav-item-label">System Settings</span>
         </div>
       </nav>
@@ -127,7 +127,7 @@ export function Sidebar({
       {/* QUICK INGESTION TRIGGER */}
       <div className="sidebar-ingest-container">
         <button className="sidebar-ingest-btn" onClick={handleSidebarAddFolder} title="Add Folder Asset">
-          <Plus size={14} />
+          <Plus size={13} />
           <span>Add Folder</span>
         </button>
       </div>
@@ -135,7 +135,7 @@ export function Sidebar({
       {/* SIDEBAR FOOTER / COLLAPSE TOGGLE */}
       <div className="sidebar-footer">
         <button className="sidebar-toggle-btn" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
-          {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          {sidebarCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
         </button>
       </div>
     </aside>

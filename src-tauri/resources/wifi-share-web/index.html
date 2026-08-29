@@ -383,6 +383,20 @@
         </div>
       </header>
 
+      <!-- Android App Download Banner -->
+      <div style="background: rgba(0, 255, 136, 0.08); border: 1px solid rgba(0, 255, 136, 0.25); border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.2rem;">📱</span>
+          <div>
+            <div style="font-size: 0.8rem; font-weight: 800; color: var(--accent);">CosmoShare v1.3.7 Android APK</div>
+            <div style="font-size: 0.7rem; color: var(--text-secondary);">Single-upload fix & high-speed transfer</div>
+          </div>
+        </div>
+        <a href="/CosmoShare-v1.3.7.apk" download="CosmoShare-v1.3.7.apk" class="btn btn-primary btn-small" style="text-decoration: none; font-size: 0.75rem; padding: 6px 12px; white-space: nowrap;">
+          ⬇ Download APK
+        </a>
+      </div>
+
       <!-- 1. Shared From PC Section -->
       <div class="card">
         <div class="card-header">
@@ -400,7 +414,7 @@
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            Copy All
+            Download All (Files)
           </button>
         </div>
 
@@ -529,6 +543,9 @@
 
         if (pcFiles.length > 0) {
           downloadAllBtn.classList.remove('hidden');
+          // Update the href in case the room code ever changes
+          downloadAllBtn.href = `/api/rooms/${roomCode}/download-zip`;
+          downloadAllBtn.download = 'cosmo-share.zip';
           pcList.innerHTML = pcFiles.map(file => `
             <div class="file-item">
               <div class="file-info">
@@ -608,60 +625,32 @@
         }
       }
 
-      // Download all PC shared files one at a time using fetch+blob.
-      // This bypasses mobile browser popup/download-link restrictions by
-      // fetching each file into memory first, then triggering via objectURL.
-      async function downloadAllFiles() {
+      // Download all files individually without zipping!
+      function downloadAllFiles() {
         const pcFiles = currentFiles.filter(f => !f.isPhoneUpload);
         if (pcFiles.length === 0) return;
 
-        const btn = document.getElementById('download-all-btn');
-        const origHTML = btn.innerHTML;
-        btn.disabled = true;
-        btn.style.opacity = '0.7';
+        // If running inside our native CosmoShare Android App
+        if (window.CosmoNative && typeof window.CosmoNative.downloadFile === 'function') {
+          pcFiles.forEach(file => {
+            const url = `${window.location.origin}/api/rooms/${roomCode}/files/${file.id}`;
+            window.CosmoNative.downloadFile(url, file.name);
+          });
+          window.CosmoNative.showToast(`⬇ Downloading ${pcFiles.length} files to Downloads/CosmoShare...`);
+          return;
+        }
 
-        for (let i = 0; i < pcFiles.length; i++) {
-          const file = pcFiles[i];
-          btn.innerHTML = `
-            <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
-              <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/>
-              <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
-              <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>
-            </svg>
-            ${i + 1} / ${pcFiles.length}
-          `;
-          try {
-            // Fetch the raw file bytes into memory first
-            const res = await fetch(`/api/rooms/${roomCode}/files/${file.id}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const blob = await res.blob();
-
-            // Create a local blob URL — works without popup-blocker interference
-            const objUrl = URL.createObjectURL(blob);
+        // Fallback for standard browsers
+        pcFiles.forEach((file, index) => {
+          setTimeout(() => {
             const a = document.createElement('a');
-            a.href = objUrl;
+            a.href = `/api/rooms/${roomCode}/files/${file.id}`;
             a.download = file.name;
-            a.style.display = 'none';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-
-            // Keep URL alive briefly so the download can start, then revoke
-            setTimeout(() => URL.revokeObjectURL(objUrl), 10000);
-
-            // Brief pause before next file so the OS save dialog can settle
-            if (i < pcFiles.length - 1) {
-              await new Promise(r => setTimeout(r, 1200));
-            }
-          } catch(e) {
-            console.error('Failed to download:', file.name, e);
-          }
-        }
-
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        btn.innerHTML = origHTML;
+          }, index * 400);
+        });
       }
 
       // Delete a file

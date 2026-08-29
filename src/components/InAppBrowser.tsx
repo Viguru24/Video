@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
 import { showConfirm } from '../utils/videoUtils';
@@ -8,19 +8,21 @@ import {
   File, 
   X, 
   ChevronUp, 
-  ChevronDown,
+  ChevronDown, 
   Plus, 
   FolderOpen, 
   CornerUpLeft, 
-  Loader2,
-  Download,
-  LayoutGrid,
-  List,
-  Play,
-  RotateCw,
-  Zap
+  Loader2, 
+  Download, 
+  LayoutGrid, 
+  List, 
+  Play, 
+  RotateCw, 
+  Zap, 
+  Pin,
+  Image as ImageIcon
 } from 'lucide-react';
-import { toCosmoUrl, isValidMediaExtension } from '../utils/videoUtils';
+import { toCosmoUrl, isValidMediaExtension, isTauri } from '../utils/videoUtils';
 import { useStore } from '../store/useStore';
 
 interface InAppBrowserProps {
@@ -36,8 +38,30 @@ interface BrowserItem {
   is_media: boolean;
 }
 
-function VideoPreview({ src, isHovered }: { src: string; isHovered: boolean }) {
+function VideoPreview({ path, src, isHovered }: { path: string; src?: string; isHovered: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoSrc, setVideoSrc] = useState(() => {
+    if (isTauri()) {
+      try {
+        return convertFileSrc(path);
+      } catch {}
+    }
+    return src || toCosmoUrl(path);
+  });
+  const [triedFallback, setTriedFallback] = useState(false);
+
+  useEffect(() => {
+    if (isTauri()) {
+      try {
+        setVideoSrc(convertFileSrc(path));
+      } catch {
+        setVideoSrc(toCosmoUrl(path));
+      }
+    } else {
+      setVideoSrc(src || toCosmoUrl(path));
+    }
+    setTriedFallback(false);
+  }, [path, src]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -47,21 +71,135 @@ function VideoPreview({ src, isHovered }: { src: string; isHovered: boolean }) {
       video.play().catch(() => {});
     } else {
       video.pause();
-      // Seek back to first frame (0.01 seconds) when not hovered
-      video.currentTime = 0.01;
     }
   }, [isHovered]);
+
+  const handleLoadedData = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    try {
+      if (video.currentTime < 0.5) {
+        // Seek to 1 second into the video to avoid black intro frames
+        const targetTime = Math.min(1.0, (video.duration || 2) / 2);
+        video.currentTime = targetTime;
+      }
+    } catch {}
+  };
+
+  const handleError = () => {
+    if (!triedFallback) {
+      setTriedFallback(true);
+      if (videoSrc.includes('asset.localhost')) {
+        setVideoSrc(toCosmoUrl(path));
+      } else if (isTauri()) {
+        try {
+          setVideoSrc(convertFileSrc(path));
+        } catch {}
+      }
+    }
+  };
+
+  const finalSrc = videoSrc.includes('#') ? videoSrc : `${videoSrc}#t=1.0`;
 
   return (
     <video 
       ref={videoRef}
-      src={src + "#t=0.01"} 
+      src={finalSrc} 
       className="file-thumb"
       muted
       playsInline
       loop
       preload="metadata"
-      style={{ objectFit: 'contain', width: '100%', height: '100%', display: 'block' }}
+      onLoadedData={handleLoadedData}
+      onError={handleError}
+      style={{ objectFit: 'cover', width: '100%', height: '100%', display: 'block' }}
+    />
+  );
+}
+
+function ImageThumbnail({ path, name }: { path: string; name: string }) {
+  const [imgSrc, setImgSrc] = useState(() => toCosmoUrl(path));
+  const [hasError, setHasError] = useState(false);
+  const [triedFallback, setTriedFallback] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  const ext = path.split('.').pop()?.toUpperCase() || 'IMG';
+
+  // Reset when path changes
+  useEffect(() => {
+    setImgSrc(toCosmoUrl(path));
+    setHasError(false);
+    setTriedFallback(false);
+    setIsLoaded(false);
+  }, [path]);
+
+  const handleError = () => {
+    if (!triedFallback && isTauri()) {
+      setTriedFallback(true);
+      try {
+        setImgSrc(convertFileSrc(path));
+        return;
+      } catch {}
+    }
+    setHasError(true);
+  };
+
+  if (hasError) {
+    return (
+      <div style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '4px',
+        background: 'radial-gradient(circle at center, rgba(30, 30, 48, 0.95), rgba(12, 12, 18, 0.98))',
+        color: 'rgba(255, 255, 255, 0.8)'
+      }}>
+        <div style={{
+          width: '28px',
+          height: '28px',
+          borderRadius: '50%',
+          background: 'rgba(0, 255, 136, 0.12)',
+          border: '1px solid rgba(0, 255, 136, 0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--accent, #00ff88)'
+        }}>
+          <ImageIcon size={13} />
+        </div>
+        <span style={{
+          fontSize: '8px',
+          fontWeight: 800,
+          letterSpacing: '0.6px',
+          color: 'var(--accent, #00ff88)',
+          background: 'rgba(0, 255, 136, 0.08)',
+          padding: '1px 5px',
+          borderRadius: '3px',
+          textTransform: 'uppercase'
+        }}>
+          {ext}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <img 
+      src={imgSrc} 
+      className="file-thumb" 
+      alt={name}
+      onLoad={() => setIsLoaded(true)}
+      onError={handleError}
+      style={{
+        objectFit: 'cover',
+        width: '100%',
+        height: '100%',
+        display: 'block',
+        opacity: isLoaded ? 1 : 0.8,
+        transition: 'opacity 0.2s ease'
+      }}
     />
   );
 }
@@ -69,12 +207,14 @@ function VideoPreview({ src, isHovered }: { src: string; isHovered: boolean }) {
 // Subcomponent to optimize rendering and prevent loading off-screen videos or flooding WebViews
 function BrowserItemCard({ 
   item, 
+  index,
   layoutMode, 
   onAddFile, 
   onDragStart, 
   onDoubleClick 
 }: { 
   item: BrowserItem; 
+  index: number;
   layoutMode: 'grid' | 'list';
   onAddFile: (path: string) => void;
   onDragStart: (e: React.DragEvent, path: string) => void;
@@ -124,14 +264,9 @@ function BrowserItemCard({
         <div className="file-item-content">
           <div className="file-thumbnail-container">
             {isValidMediaExtension(item.path, 'video') ? (
-              <VideoPreview src={toCosmoUrl(item.path)} isHovered={isHovered} />
+              <VideoPreview path={item.path} src={toCosmoUrl(item.path)} isHovered={isHovered} />
             ) : (
-              <img 
-                src={toCosmoUrl(item.path)} 
-                className="file-thumb" 
-                alt={item.name}
-                loading="lazy"
-              />
+              <ImageThumbnail path={item.path} name={item.name} />
             )}
             
             <div className="thumb-hover-overlay">
@@ -159,7 +294,11 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     showInAppBrowser,
     setShowInAppBrowser,
     inAppBrowserPath,
-    setInAppBrowserPath
+    setInAppBrowserPath,
+    inAppBrowserCollapsed,
+    setInAppBrowserCollapsed,
+    autoSyncFolders,
+    toggleAutoSyncFolder
   } = useStore() as any;
 
   const [items, setItems] = useState<BrowserItem[]>([]);
@@ -168,29 +307,73 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'size'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [autoAddIncoming, setAutoAddIncoming] = useState(false);
+  const [autoAddIncoming, setAutoAddIncoming] = useState(() =>
+    localStorage.getItem('cosmo-auto-add-incoming') !== 'false'
+  );
   const [limit, setLimit] = useState(100);
-  const [isCollapsed, setIsCollapsed] = useState(false);
   
   const loadedPathsRef = React.useRef<Set<string>>(new Set());
   const pendingPathsRef = React.useRef<Set<string>>(new Set());
   const activeTimeoutsRef = React.useRef<NodeJS.Timeout[]>([]);
+  const [isPinned, setIsPinned] = useState(() => {
+    return localStorage.getItem('cosmo-inapp-browser-pinned') === 'true';
+  });
+  const hoverLeaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Reset the path memory and limit when directory path changes
+  const togglePinned = () => {
+    setIsPinned(prev => {
+      const next = !prev;
+      localStorage.setItem('cosmo-inapp-browser-pinned', next ? 'true' : 'false');
+      return next;
+    });
+  };
+
+  // Reset the path memory, limit, and uncollapse when directory path changes
   useEffect(() => {
     loadedPathsRef.current = new Set();
     activeTimeoutsRef.current.forEach(clearTimeout);
     activeTimeoutsRef.current = [];
     pendingPathsRef.current.clear();
     setLimit(100);
-  }, [inAppBrowserPath]);
+    setInAppBrowserCollapsed(false);
+  }, [inAppBrowserPath, setInAppBrowserCollapsed]);
 
   // Clean up timeouts on unmount
   useEffect(() => {
     return () => {
       activeTimeoutsRef.current.forEach(clearTimeout);
+      if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
     };
   }, []);
+
+  // Hover over the top bar auto-maximizes the in-app browser instantly
+  const handleBarMouseEnter = () => {
+    if (hoverLeaveTimerRef.current) {
+      clearTimeout(hoverLeaveTimerRef.current);
+      hoverLeaveTimerRef.current = null;
+    }
+    if (inAppBrowserCollapsed) {
+      setInAppBrowserCollapsed(false);
+    }
+  };
+
+  // Mouse over panel cancels any pending collapse timer
+  const handlePanelMouseEnter = () => {
+    if (hoverLeaveTimerRef.current) {
+      clearTimeout(hoverLeaveTimerRef.current);
+      hoverLeaveTimerRef.current = null;
+    }
+  };
+
+  // Moving mouse away from panel auto-minimizes instantly (70ms) unless pinned
+  const handlePanelMouseLeave = () => {
+    if (!isPinned) {
+      if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
+      hoverLeaveTimerRef.current = setTimeout(() => {
+        setInAppBrowserCollapsed(true);
+      }, 70);
+    }
+  };
 
   const sortedItems = useMemo(() => {
     // Keep directories first, then sort files
@@ -227,32 +410,6 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     try {
       const result = await invoke<BrowserItem[]>('list_directory_contents', { dirPath: path });
       const filtered = result.filter(item => item.is_dir || item.is_media);
-      
-      // Auto add new incoming media files if enabled and directory was already scanned once
-      if (autoAddIncoming && loadedPathsRef.current.size > 0) {
-        const newMediaFiles = filtered.filter(item => !item.is_dir && item.is_media && !loadedPathsRef.current.has(item.path));
-        if (newMediaFiles.length > 0) {
-          const newPaths = newMediaFiles.map(x => x.path);
-          const pathsToQueue = newPaths.filter(p => !pendingPathsRef.current.has(p));
-          
-          pathsToQueue.forEach(p => {
-            pendingPathsRef.current.add(p);
-            const filename = p.split(/[\\/]/).pop();
-            addLog(`Auto-detected new file: [${filename}]. Queueing import in 10 seconds...`);
-            
-            const timeoutId = setTimeout(() => {
-              if (pendingPathsRef.current.has(p)) {
-                addLog(`Importing auto-detected file: [${filename}]`);
-                onAddMultipleFiles([p]);
-                pendingPathsRef.current.delete(p);
-              }
-              activeTimeoutsRef.current = activeTimeoutsRef.current.filter(t => t !== timeoutId);
-            }, 10000);
-            activeTimeoutsRef.current.push(timeoutId);
-          });
-        }
-      }
-      
       loadedPathsRef.current = new Set(filtered.map(x => x.path));
       setItems(filtered);
     } catch (err: any) {
@@ -262,7 +419,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     } finally {
       setLoading(false);
     }
-  }, [autoAddIncoming, onAddMultipleFiles, addLog]);
+  }, []);
 
   useEffect(() => {
     if (showInAppBrowser && inAppBrowserPath) {
@@ -276,8 +433,6 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
       invoke('watch_directory', { dirPath: inAppBrowserPath }).catch(err => {
         console.error("Failed to watch directory:", err);
       });
-    } else {
-      invoke('watch_directory', { dirPath: '' }).catch(() => {});
     }
   }, [showInAppBrowser, inAppBrowserPath]);
 
@@ -350,7 +505,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     }
     
     onAddMultipleFiles(mediaPaths);
-    setIsCollapsed(true);
+    setInAppBrowserCollapsed(true);
   };
 
   const formatPathLabel = (path: string) => {
@@ -360,32 +515,51 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     return path;
   };
 
+  const isCurrentFolderAutoSync = autoSyncFolders?.some(
+    (p: string) => p.replace(/[\\/]+$/, '') === (inAppBrowserPath || '').replace(/[\\/]+$/, '')
+  );
+
   if (!showInAppBrowser) return null;
 
-  if (isCollapsed) {
+  if (inAppBrowserCollapsed) {
     return (
-      <div className="in-app-browser-panel collapsed" style={{ height: '42px', bottom: 'auto', padding: 0 }}>
+      <div 
+        className="in-app-browser-panel collapsed" 
+        onMouseEnter={handleBarMouseEnter}
+        title="Hover or click to expand In-App Browser"
+        style={{ 
+          height: '42px', 
+          bottom: 'auto', 
+          padding: 0,
+          cursor: 'pointer',
+          transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', height: '100%', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-            <FolderOpen size={13} style={{ color: autoAddIncoming ? 'var(--accent, #00ff88)' : '#fff', flexShrink: 0 }} />
+            <FolderOpen size={13} style={{ color: isCurrentFolderAutoSync ? 'var(--accent, #00ff88)' : '#fff', flexShrink: 0 }} />
             <span style={{ fontSize: '11px', fontWeight: 600, color: '#fff', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-              {formatPathLabel(inAppBrowserPath || '')} {autoAddIncoming && <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 800, marginLeft: '4px' }}>[AUTO-SYNC]</span>}
+              {formatPathLabel(inAppBrowserPath || '')} {isCurrentFolderAutoSync && <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 800, marginLeft: '4px' }}>[AUTO-SYNC]</span>}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button 
               className="layout-toggle-btn"
-              onClick={() => setIsCollapsed(false)}
-              title="Expand Browser"
+              onClick={(e) => {
+                e.stopPropagation();
+                setInAppBrowserCollapsed(false);
+              }}
+              title="Expand In-App Browser"
               style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
             >
               <ChevronDown size={14} />
             </button>
             <button 
               className="browser-close-btn" 
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 setShowInAppBrowser(false);
-                setIsCollapsed(false);
+                setInAppBrowserCollapsed(false);
               }}
               title="Close Browser"
               style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
@@ -399,79 +573,59 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
   }
 
   return (
-    <div className="in-app-browser-panel">
+    <div 
+      className="in-app-browser-panel"
+      onMouseEnter={handlePanelMouseEnter}
+      onMouseLeave={handlePanelMouseLeave}
+    >
       {/* Header */}
       <div className="browser-header">
+        {/* Top Window Title & Window Controls */}
         <div className="browser-title-row">
           <div className="browser-title-box">
             <FolderOpen size={14} className="browser-title-icon" />
             <span className="browser-title-lbl">In-App Browser</span>
           </div>
-          <div className="browser-header-actions">
+          <div className="browser-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <button 
               className="layout-toggle-btn"
               onClick={handleRefresh}
               title="Refresh Folder"
               disabled={loading}
-              style={{ marginRight: '2px' }}
             >
               <RotateCw size={13} className={loading ? 'spin' : ''} />
             </button>
             <button 
-              className={`layout-toggle-btn ${autoAddIncoming ? 'active' : ''}`}
-              onClick={() => setAutoAddIncoming(!autoAddIncoming)}
-              title={autoAddIncoming ? "Auto-Add New Files: ON" : "Auto-Add New Files: OFF"}
+              className={`layout-toggle-btn ${isPinned ? 'active' : ''}`}
+              onClick={togglePinned}
+              title={isPinned ? "Pinned: Stays open (Click to enable auto-minimize on mouse leave)" : "Auto-Hide Mode: Minimizes on mouse away (Click to Pin Open)"}
               style={{
-                color: autoAddIncoming ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.45)',
-                background: autoAddIncoming ? 'rgba(0, 255, 136, 0.12)' : 'transparent',
-                marginRight: '2px'
+                color: isPinned ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.5)'
               }}
             >
-              <Zap size={13} fill={autoAddIncoming ? "currentColor" : "none"} />
-            </button>
-            <select 
-              value={sortBy} 
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="browser-sort-select"
-              title="Sort By"
-            >
-              <option value="name">Name</option>
-              <option value="date">Date</option>
-              <option value="size">Size</option>
-            </select>
-            <button
-              className="layout-toggle-btn"
-              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              title={sortOrder === 'asc' ? "Sort Ascending" : "Sort Descending"}
-              style={{ padding: '2px 4px', fontSize: '11px', fontWeight: 'bold' }}
-            >
-              {sortOrder === 'asc' ? '↑' : '↓'}
-            </button>
-            <button 
-              className={`layout-toggle-btn ${layoutMode === 'list' ? 'active' : ''}`}
-              onClick={() => setLayoutMode(layoutMode === 'grid' ? 'list' : 'grid')}
-              title={layoutMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
-            >
-              {layoutMode === 'grid' ? <List size={13} /> : <LayoutGrid size={13} />}
+              <Pin size={13} fill={isPinned ? "currentColor" : "none"} />
             </button>
             <button 
               className="layout-toggle-btn"
-              onClick={() => setIsCollapsed(true)}
-              title="Fold Up (Minimize)"
-              style={{ marginRight: '2px' }}
+              onClick={() => {
+                setInAppBrowserCollapsed(true);
+              }}
+              title="Minimize Browser"
             >
               <ChevronUp size={13} />
             </button>
             <button 
               className="browser-close-btn" 
-              onClick={() => setShowInAppBrowser(false)}
-              title="Close Browser"
+              onClick={() => {
+                setShowInAppBrowser(false);
+              }}
+              title="Close In-App Browser"
             >
-              <X size={14} />
+              <X size={13} />
             </button>
           </div>
         </div>
-        
+
         {/* Navigation Breadcrumb Area */}
         <div className="browser-nav-row">
           <button 
@@ -493,6 +647,64 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
             <Download size={12} />
             <span>Add All</span>
           </button>
+        </div>
+
+        {/* Secondary Toolbar / Sort & Filter */}
+        <div className="browser-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', paddingTop: '2px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <select 
+              value={sortBy} 
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="browser-sort-select"
+              title="Sort By"
+            >
+              <option value="name">Name</option>
+              <option value="date">Date</option>
+              <option value="size">Size</option>
+            </select>
+            <button
+              className="layout-toggle-btn"
+              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+              title={sortOrder === 'asc' ? "Sort Ascending" : "Sort Descending"}
+              style={{ padding: '2px 5px', fontSize: '11px', fontWeight: 'bold' }}
+            >
+              {sortOrder === 'asc' ? '↑' : '↓'}
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button 
+              className={`layout-toggle-btn ${isCurrentFolderAutoSync ? 'active' : ''}`}
+              onClick={() => {
+                if (inAppBrowserPath) {
+                  toggleAutoSyncFolder(inAppBrowserPath);
+                  addLog(`Auto-Sync ${isCurrentFolderAutoSync ? 'disabled' : 'enabled'} for "${inAppBrowserPath}"`);
+                }
+              }}
+              title={isCurrentFolderAutoSync ? "Auto-Add New Files for this folder: ON (Click to Disable)" : "Auto-Add New Files for this folder: OFF (Click to Enable)"}
+              style={{
+                color: isCurrentFolderAutoSync ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.45)',
+                background: isCurrentFolderAutoSync ? 'rgba(0, 255, 136, 0.15)' : 'transparent',
+                border: isCurrentFolderAutoSync ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid transparent',
+                borderRadius: '4px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+            >
+              <Zap size={12} fill={isCurrentFolderAutoSync ? "currentColor" : "none"} />
+              <span>SYNC</span>
+            </button>
+            <button 
+              className={`layout-toggle-btn ${layoutMode === 'list' ? 'active' : ''}`}
+              onClick={() => setLayoutMode(layoutMode === 'grid' ? 'list' : 'grid')}
+              title={layoutMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
+            >
+              {layoutMode === 'grid' ? <List size={13} /> : <LayoutGrid size={13} />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -522,6 +734,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
                 <BrowserItemCard
                   key={item.path + '-' + index}
                   item={item}
+                  index={index}
                   layoutMode={layoutMode}
                   onAddFile={onAddFile}
                   onDragStart={handleDragStart}

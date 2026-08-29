@@ -107,10 +107,13 @@ function VideoCardInternal(props: VideoCardProps) {
                 alt={props.video.title}
                 crossOrigin="anonymous"
                 draggable="false"
+                decoding="async"
+                loading="lazy"
+                fetchPriority={props.isVisible ? "high" : "low"}
                 style={{ 
                   width: '100%', 
                   height: '100%', 
-              objectFit: props.isCropping ? 'contain' : fitMode, 
+                  objectFit: props.isCropping ? 'contain' : fitMode, 
                   imageOrientation: 'none', 
                   filter: props.video.colorFilters ? `url(#filter-${state.filterId}) brightness(${state.filters.brightness}) contrast(${state.filters.contrast}) saturate(${state.filters.saturation}) hue-rotate(${state.filters.hue}deg)` : undefined
                 }}
@@ -142,9 +145,8 @@ function VideoCardInternal(props: VideoCardProps) {
             src={state.displayUrl}
             preload="metadata"
             draggable="false"
-            crossOrigin="anonymous"
             playsInline
-            loop={false}
+            loop={currentMode === 'always'}
             onEnded={(e) => {
               if (props.onLog) {
                 props.onLog(`SYSTEM: Video [${props.video.title}] ended. Mode: ${currentMode}`);
@@ -190,9 +192,20 @@ function VideoCardInternal(props: VideoCardProps) {
             data-pan-y={state.panOffset.y}
             data-rotation={props.video.rotation || 0}
             onLoadedMetadata={() => {
-              state.setDuration(state.videoRef.current?.duration || 0);
+              const dur = state.videoRef.current?.duration || 0;
+              state.setDuration(dur);
               if (state.lastTime.current > 0 && state.videoRef.current) {
-                state.videoRef.current.currentTime = state.lastTime.current;
+                // If saved time is within 2.5 seconds of the end or past 96% of video, restart from beginning
+                if (dur > 4 && (state.lastTime.current >= dur - 2.5 || state.lastTime.current / dur > 0.96)) {
+                  state.videoRef.current.currentTime = 0;
+                  state.lastTime.current = 0;
+                } else {
+                  state.videoRef.current.currentTime = state.lastTime.current;
+                }
+              } else if (state.videoRef.current && !props.video.playing) {
+                try {
+                  state.videoRef.current.currentTime = 0.001;
+                } catch {}
               }
               state.setError(null);
               
@@ -203,8 +216,18 @@ function VideoCardInternal(props: VideoCardProps) {
             }}
             onError={() => {
               const friendlyError = "LOAD ERROR";
-              state.setError(friendlyError);
-              props.onLog(`Unit [${props.video.title}] Error: ${friendlyError}`);
+              // If initial load failed, attempt a quick retry in 1.2s in case file was still being written
+              if (!state.retryAttempted?.current) {
+                if (state.retryAttempted) state.retryAttempted.current = true;
+                setTimeout(() => {
+                  if (state.videoRef.current) {
+                    state.videoRef.current.load();
+                  }
+                }, 1200);
+              } else {
+                state.setError(friendlyError);
+                props.onLog(`Unit [${props.video.title}] Error: ${friendlyError}`);
+              }
             }}
             style={{ 
               width: '100%', 
@@ -601,7 +624,7 @@ function VideoCardInternal(props: VideoCardProps) {
         )}
 
         <div className="overlay-center" onClick={(e) => {
-          if ((props.selectionMode || state.isImage || e.shiftKey || e.ctrlKey || e.metaKey) && props.onToggleSelect) {
+          if ((props.selectionMode || e.shiftKey || e.ctrlKey || e.metaKey) && props.onToggleSelect) {
             props.onToggleSelect(e.shiftKey, e.ctrlKey || e.metaKey);
           } else if (!state.isImage) {
             props.onUpdateVideo(props.video.id, { playing: !props.video.playing });

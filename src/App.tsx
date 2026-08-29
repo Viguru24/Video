@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
 import { ResizeHandles } from './components/ResizeHandles';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -39,6 +40,7 @@ import { useDemoLoader } from './hooks/useDemoLoader';
 import { IntroOverlay, ShutdownOverlay } from './components/IntroOverlay';
 import { Sidebar } from './components/Sidebar';
 import { ModalOrchestrator } from './components/modals/ModalOrchestrator';
+import { CommandPalette } from './components/CommandPalette';
 
 import { DndContext } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
@@ -66,7 +68,10 @@ import {
   requiresConversion,
   maybeConvertMedia,
   triggerPopOut,
-  generateUUID
+  generateUUID,
+  normalizeMediaKey,
+  isMediaAlreadyInWorkspace,
+  fuzzyMatchScore
 } from './utils/videoUtils';
 import { handleError, isAbortError } from './utils/errorHandler';
 
@@ -79,7 +84,7 @@ function isDemoFile(video: { url?: string; realPath?: string }): boolean {
 }
 
 export default function App() {
-  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus, enableOSFullscreen, sortOrder, setSortOrder, quickFolders, setQuickFolders } = useStore();
+  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus, enableOSFullscreen, sortOrder, setSortOrder, quickFolders, setQuickFolders, autoSyncFolders, folderSwitchDelay, slideshowInterval, setSlideshowInterval } = useStore();
   
   const hasCheckedQuickFolders = useRef(false);
 
@@ -196,14 +201,6 @@ export default function App() {
   });
 
   const [popoutUrl, setPopoutUrl] = useState(() => {
-    if (isTauri()) {
-      try {
-        const label = getCurrentWindow().label;
-        if (label.startsWith('pop-') || label === 'popout') {
-          return localStorage.getItem('cosmo-popout-active-url') || '';
-        }
-      } catch {}
-    }
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       const qUrl = urlParams.get('url');
@@ -214,7 +211,14 @@ export default function App() {
           return qUrl;
         }
       }
-      return '';
+    }
+    if (isTauri()) {
+      try {
+        const label = getCurrentWindow().label;
+        if (label.startsWith('pop-') || label === 'popout') {
+          return localStorage.getItem(`cosmo-popout-active-url-${label}`) || localStorage.getItem('cosmo-popout-active-url') || '';
+        }
+      } catch {}
     }
     return '';
   });
@@ -248,6 +252,19 @@ export default function App() {
       document.removeEventListener('keydown', warmUp);
     };
   }, [isPopout]);
+
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!isTauri() || isPopout) return;
@@ -339,7 +356,7 @@ export default function App() {
   const [isPopoutChecking, setIsPopoutChecking] = useState(!isPopout);
 
   useEffect(() => {
-    if (isPopout) {
+    if (isPopout && popoutUrl) {
       setIsPopoutChecking(false);
       return;
     }
@@ -349,14 +366,17 @@ export default function App() {
         if (url) {
           setIsPopout(true);
           setPopoutUrl(url);
-          localStorage.setItem('cosmo-popout-active-url', url);
+          try {
+            const label = getCurrentWindow().label;
+            localStorage.setItem(`cosmo-popout-active-url-${label}`, url);
+          } catch {}
         }
         setIsPopoutChecking(false);
       })
       .catch(() => {
         setIsPopoutChecking(false);
       });
-  }, [isPopout]);
+  }, [isPopout, popoutUrl]);
 
   useEffect(() => {
     if (isTauri()) {
@@ -578,7 +598,6 @@ export default function App() {
   
   const [navDirection, setNavDirection] = useState<1 | -1>(1);
   const [isSlideshowActive, setIsSlideshowActive] = useState(false);
-  const [slideshowInterval, setSlideshowInterval] = useState(5);
 
   const masterPlayingRef = useRef(masterPlaying);
   const masterMutedRef = useRef(masterMuted);
@@ -788,6 +807,129 @@ export default function App() {
     }
   }, [setFocusedId, setImmersive, setIsFS]);
 
+  // ── GLOBAL CLIPBOARD SCREENSHOT PASTE ENGINE ─────────────────────────────────
+  const handlePasteImage = useCallback((targetTileId?: string | null, customDataUrl?: string) => {
+    const processDataUrl = async (dataUrl: string) => {
+      const timestamp = Date.now();
+      const timeStr = new Date(timestamp).toLocaleTimeString();
+      let realPath: string | undefined = undefined;
+      let finalUrl = dataUrl;
+      let fileTitle = `Screenshot ${timeStr}.png`;
+
+      // In Tauri runtime: save screenshot directly to disk as a real PNG file
+      if (isTauri()) {
+        try {
+          const savedPath = await invoke<string>('save_pasted_clipboard_image', { base64Data: dataUrl });
+          if (savedPath) {
+            realPath = savedPath;
+            finalUrl = toCosmoUrl(savedPath);
+            fileTitle = getFileNameFromPath(savedPath);
+          }
+        } catch (err) {
+          console.error("Failed to save screenshot image to disk:", err);
+        }
+      }
+
+      const targetId = targetTileId || focusedId || (selectedIds.size === 1 ? Array.from(selectedIds)[0] : null);
+
+      if (targetId) {
+        setVideos((prev) =>
+          prev.map((v) => {
+            if (v.id === targetId) {
+              return {
+                ...v,
+                url: finalUrl,
+                realPath: realPath || v.realPath,
+                title: fileTitle,
+              };
+            }
+            return v;
+          })
+        );
+        addLog(`Pasted screenshot into tile [${targetId}] (${fileTitle})`);
+        setToast(`📋 Saved & Pasted: ${fileTitle}`);
+        setTimeout(() => setToast(null), 2500);
+      } else {
+        const newUnit: VideoItem = {
+          id: generateUUID(),
+          url: finalUrl,
+          realPath: realPath,
+          title: fileTitle,
+          playing: false,
+          muted: false,
+          repeatMode: 'none' as RepeatMode,
+          repeatCount: 1,
+          cols: 1,
+        };
+        setVideos((prev) => [newUnit, ...prev]);
+        setMediaMode('picture');
+        addLog(`Pasted screenshot as new tile [${fileTitle}] → Auto-switched to Stills tab`);
+        setToast(`📋 Saved & Pasted: ${fileTitle}`);
+        setTimeout(() => setToast(null), 2500);
+      }
+    };
+
+    if (customDataUrl) {
+      processDataUrl(customDataUrl);
+      return;
+    }
+
+    if (navigator.clipboard && navigator.clipboard.read) {
+      navigator.clipboard.read().then(async (items) => {
+        for (const item of items) {
+          const imageType = item.types.find((t) => t.startsWith('image/'));
+          if (imageType) {
+            const blob = await item.getType(imageType);
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const resultUrl = e.target?.result as string;
+              if (resultUrl) processDataUrl(resultUrl);
+            };
+            reader.readAsDataURL(blob);
+            return;
+          }
+        }
+        addLog("No image found on clipboard to paste.");
+        setToast("⚠️ No screenshot found on clipboard");
+        setTimeout(() => setToast(null), 2500);
+      }).catch((err) => {
+        console.warn("Clipboard API error:", err);
+      });
+    }
+  }, [focusedId, selectedIds, setVideos, addLog]);
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)) {
+        return; // Don't intercept typing in inputs
+      }
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          if (blob) {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+              const dataUrl = evt.target?.result as string;
+              if (dataUrl) handlePasteImage(undefined, dataUrl);
+            };
+            reader.readAsDataURL(blob);
+          }
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [handlePasteImage]);
+
 
 
   const focusedVideo = focusedId ? videos.find(v => v.id === focusedId) : null;
@@ -796,7 +938,9 @@ export default function App() {
       ? (focusedVideo.folderFiles[focusedVideo.currentIdx]?.path || focusedVideo.folderFiles[focusedVideo.currentIdx]?.url)
       : (focusedVideo.realPath || focusedVideo.url)
     : '';
-  const isFocusedImage = focusedEffectivePath ? isValidPictureExtension(focusedEffectivePath) : false;
+  const resolvedFocusedPath = toRealPath(focusedEffectivePath) || focusedEffectivePath;
+  const isFocusedImage = resolvedFocusedPath ? isValidPictureExtension(resolvedFocusedPath) : false;
+  const isFocusedVideo = resolvedFocusedPath ? isValidVideoExtension(resolvedFocusedPath) : false;
 
 
   const filtered = useMemo(() => {
@@ -806,11 +950,25 @@ export default function App() {
       return p ? isValidMediaExtension(p, mediaMode) : true;
     };
     
-    const items = videos.filter(v => {
-      const t = v.title || 'Untitled Unit';
-      const s = search || '';
-      return t.toLowerCase().includes(s.toLowerCase()) && isValid(v);
-    });
+    const query = (search || '').trim();
+
+    if (query) {
+      // Smart Fuzzy Matching with Relevance Ranking
+      const scored: { item: VideoItem; score: number }[] = [];
+      for (const v of videos) {
+        if (!isValid(v)) continue;
+        const target = `${v.title || ''} ${v.realPath || ''} ${v.url || ''}`;
+        const score = fuzzyMatchScore(target, query);
+        if (score > 0) {
+          scored.push({ item: v, score });
+        }
+      }
+
+      scored.sort((a, b) => b.score - a.score);
+      return scored.map(s => s.item);
+    }
+
+    const items = videos.filter(isValid);
 
     if (sortOrder !== 'custom') {
       items.sort((a, b) => {
@@ -887,6 +1045,7 @@ export default function App() {
     handleIngestPaths
   } = useMediaImport({
     mediaMode,
+    setMediaMode,
     masterPlaying,
     masterMuted,
     setVideos,
@@ -895,6 +1054,152 @@ export default function App() {
     setConvertingStatus,
     addLog
   });
+
+  // ─── MULTI-FOLDER AUTO-SYNC WATCHER ENGINE ─────────────────────────────────
+  const knownFolderFilesRef = useRef<Map<string, Set<string>>>(new Map());
+  const pendingAutoAddRef = useRef<Set<string>>(new Set());
+  const dirDebounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const videosRef = useRef<VideoItem[]>(videos);
+  videosRef.current = videos;
+  const autoSyncFoldersRef = useRef<string[]>(autoSyncFolders);
+  autoSyncFoldersRef.current = autoSyncFolders;
+  const handleIngestPathsRef = useRef(handleIngestPaths);
+  handleIngestPathsRef.current = handleIngestPaths;
+  const folderSwitchDelayRef = useRef(folderSwitchDelay);
+  folderSwitchDelayRef.current = folderSwitchDelay;
+  const addLogRef = useRef(addLog);
+  addLogRef.current = addLog;
+
+  // Auto-deduplicate workspace items if duplicate tiles exist
+  useEffect(() => {
+    setVideos(prev => {
+      const seen = new Set<string>();
+      let hasDupes = false;
+      const deduped = prev.filter(v => {
+        const key = normalizeMediaKey(v.realPath || v.url || v.id);
+        if (!key) return true;
+        if (seen.has(key)) {
+          hasDupes = true;
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+      return hasDupes ? deduped : prev;
+    });
+  }, [videos.length]);
+
+  // Watch active autoSyncFolders in Rust & record baseline of existing files
+  useEffect(() => {
+    if (!isTauri()) return;
+    
+    autoSyncFolders.forEach(async (folderPath) => {
+      try {
+        await invoke('watch_directory', { dirPath: folderPath });
+        
+        const normFolder = normalizeMediaKey(folderPath);
+        if (!knownFolderFilesRef.current.has(normFolder)) {
+          // Record existing files as baseline so we ONLY import newly created/added files
+          const result = await invoke<any[]>('list_directory_contents', { dirPath: folderPath });
+          const existingSet = new Set(
+            result
+              .filter(x => !x.is_dir && x.is_media)
+              .map(x => normalizeMediaKey(x.path))
+          );
+          knownFolderFilesRef.current.set(normFolder, existingSet);
+        }
+      } catch (err) {
+        console.warn("Failed to watch auto-sync folder:", folderPath, err);
+      }
+    });
+  }, [autoSyncFolders]);
+
+  // Global listener for folder mutations across all watched folders
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unsubscribe: (() => void) | null = null;
+    let active = true;
+
+    const setupMultiFolderListener = async () => {
+      try {
+        const unlistenFn = await listen<string>('directory-changed', async (event) => {
+          if (!active) return;
+          const changedPath = event.payload;
+          if (!changedPath) return;
+
+          const normChanged = normalizeMediaKey(changedPath);
+
+          // Check if this folder is in autoSyncFolders
+          const isWatched = autoSyncFoldersRef.current.some(p => normalizeMediaKey(p) === normChanged);
+          if (!isWatched) return;
+
+          // Clear any existing timer for this directory to collapse rapid burst write events
+          const existingTimer = dirDebounceTimersRef.current.get(normChanged);
+          if (existingTimer) {
+            clearTimeout(existingTimer);
+          }
+
+          const timer = setTimeout(async () => {
+            dirDebounceTimersRef.current.delete(normChanged);
+            if (!active) return;
+
+            try {
+              const result = await invoke<any[]>('list_directory_contents', { dirPath: changedPath });
+              const mediaFiles = result.filter(x => !x.is_dir && x.is_media);
+              const currentKnown = knownFolderFilesRef.current.get(normChanged) || new Set<string>();
+
+              // Find ONLY brand new incoming files that are not already in workspace or known
+              const newFiles = mediaFiles.filter(f => {
+                const fileKey = normalizeMediaKey(f.path);
+                return (
+                  !currentKnown.has(fileKey) &&
+                  !pendingAutoAddRef.current.has(fileKey) &&
+                  !isMediaAlreadyInWorkspace(f.path, videosRef.current)
+                );
+              });
+              
+              if (newFiles.length > 0) {
+                const pathsToIngest: string[] = [];
+                newFiles.forEach(f => {
+                  const fileKey = normalizeMediaKey(f.path);
+                  pendingAutoAddRef.current.add(fileKey);
+                  currentKnown.add(fileKey);
+                  pathsToIngest.push(f.path);
+                });
+                knownFolderFilesRef.current.set(normChanged, currentKnown);
+
+                if (pathsToIngest.length > 0) {
+                  const folderName = changedPath.split(/[\\/]/).pop() || "Folder";
+                  addLogRef.current(`⚡ Auto-sync: Detected ${pathsToIngest.length} new file(s) in [${folderName}]. Ingesting...`);
+                  await handleIngestPathsRef.current(pathsToIngest);
+                }
+              }
+            } catch (e) {
+              console.error("Multi-folder auto-sync scan failed:", e);
+            }
+          }, 1200);
+
+          dirDebounceTimersRef.current.set(normChanged, timer);
+        });
+        if (active) {
+          unsubscribe = unlistenFn;
+        } else {
+          unlistenFn();
+        }
+      } catch (err) {
+        console.error("Failed to setup multi-folder listener:", err);
+      }
+    };
+
+    setupMultiFolderListener();
+
+    return () => {
+      active = false;
+      dirDebounceTimersRef.current.forEach(t => clearTimeout(t));
+      dirDebounceTimersRef.current.clear();
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   const { handleVideoEnded } = useMediaPlayback({
     globalRepeat,
@@ -1017,27 +1322,105 @@ export default function App() {
   }, [setVideos, addLog, confirmDeletion, focusedId, filtered, exitSoloMode]);
 
   const handleRefreshTiles = useCallback(async () => {
-    addLog('Refreshing tiles — validating files on disk...');
+    addLog('Refreshing tiles — validating files on disk & checking temporary drives...');
     const toRemoveIds: string[] = [];
+    let preservedCount = 0;
+    let folderRescannedCount = 0;
 
     for (const vid of videos) {
-      const rawPath = vid.realPath;
+      const rawPath = vid.folderPath || vid.realPath;
       if (!rawPath || typeof rawPath !== 'string') continue;
+
+      // Skip internal demo units
+      if (rawPath.startsWith('/demos/') || rawPath.startsWith('demos/')) continue;
+
       try {
-        const exists = await invoke<boolean>('file_exists', { path: rawPath });
-        if (!exists) {
-          toRemoveIds.push(vid.id);
+        const driveStatus = await invoke<{ exists: boolean; drive_root: string; drive_accessible: boolean }>('check_path_drive_status', { path: rawPath });
+
+        if (!driveStatus.exists) {
+          if (!driveStatus.drive_accessible && driveStatus.drive_root) {
+            // Drive (e.g. M:\) is unmounted / disabled — PRESERVE tile safely in workspace!
+            preservedCount++;
+          } else {
+            // File is genuinely deleted on an active, accessible drive
+            toRemoveIds.push(vid.id);
+          }
+        } else {
+          // Path exists! If it's a folder unit, auto-rescan its files in case drive was re-enabled or files were added
+          const fPath = vid.folderPath || rawPath;
+          if (vid.folderPath || vid.repeatMode === 'folder') {
+            try {
+              const scanned = await invoke<{ name: string; url: string }[]>('get_folder_videos', {
+                path: fPath,
+                mode: vid.folderMode || 'all'
+              });
+              if (scanned && scanned.length > 0) {
+                scanned.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+                const folderWithUrls = scanned.map(fi => ({
+                  name: fi.name,
+                  url: toCosmoUrl(fi.url),
+                  path: fi.url
+                }));
+                // Update playlist files immediately while respecting user-configured delay before switching tile display
+                const delayMs = (useStore.getState().folderSwitchDelay || 10) * 1000;
+                setVideos(prev => prev.map(v => {
+                  if (v.id !== vid.id) return v;
+                  const currentFileStillExists = v.url && scanned.some(s => toCosmoUrl(s.url) === v.url || s.url === v.realPath);
+                  if (currentFileStillExists) {
+                    // Retain active file view, but update available file list
+                    return { ...v, folderFiles: folderWithUrls };
+                  }
+                  // If active file no longer exists, update tile display immediately to first valid file
+                  return {
+                    ...v,
+                    folderFiles: folderWithUrls,
+                    url: toCosmoUrl(scanned[0].url),
+                    realPath: scanned[0].url,
+                    title: scanned[0].name
+                  };
+                }));
+
+                // Schedule delayed transition if new files are detected
+                if (scanned.length > (vid.folderFiles?.length || 0)) {
+                  const newestFile = scanned[scanned.length - 1];
+                  setTimeout(() => {
+                    setVideos(prev => prev.map(v => v.id === vid.id ? {
+                      ...v,
+                      url: toCosmoUrl(newestFile.url),
+                      realPath: newestFile.url,
+                      title: newestFile.name,
+                      currentIdx: scanned.length - 1
+                    } : v));
+                    addLog(`Folder Sync: Switched tile [${vid.title}] to newly added file "${newestFile.name}" after ${useStore.getState().folderSwitchDelay}s delay`);
+                  }, delayMs);
+                }
+                folderRescannedCount++;
+              }
+            } catch (err) {
+              console.warn("Folder rescan failed:", fPath, err);
+            }
+          }
         }
       } catch {
-        // If file_exists fails, keep the tile
+        // Safe fallback: preserve tile
       }
     }
 
     if (toRemoveIds.length > 0) {
       setVideos(prev => prev.filter(v => !toRemoveIds.includes(v.id)));
-      addLog(`Refresh complete: removed ${toRemoveIds.length} ghost tile(s) for missing files.`);
-    } else {
-      addLog('Refresh complete: all tiles are valid.');
+      addLog(`Refresh complete: removed ${toRemoveIds.length} ghost tile(s).`);
+    }
+
+    if (preservedCount > 0) {
+      addLog(`Drive Protection Active: Preserved ${preservedCount} tile(s) on unmounted temporary drive(s).`);
+    }
+
+    if (folderRescannedCount > 0) {
+      addLog(`Folder Sync: Re-scanned and updated ${folderRescannedCount} folder unit(s).`);
+    }
+
+    if (toRemoveIds.length === 0 && preservedCount === 0 && folderRescannedCount === 0) {
+      addLog('Refresh complete: all workspace tiles are valid.');
     }
   }, [videos, setVideos, addLog]);
 
@@ -1084,6 +1467,24 @@ export default function App() {
 
   const handleFileManagementSuccess = useCallback((updatedItems: { originalId: string; newPath: string }[]) => {
     if (fileManageMode === 'move') {
+      // Clear stale metadata cache for all old paths so Picture Details re-fetches from new location
+      updatedItems.forEach(update => {
+        const videoItem = videos.find(v => v.id === update.originalId);
+        if (videoItem) {
+          // Determine old effective path (handles folder cycle units too)
+          const oldPaths: string[] = [];
+          if (videoItem.folderFiles && videoItem.currentIdx !== undefined) {
+            const f = videoItem.folderFiles[videoItem.currentIdx];
+            if (f?.path) oldPaths.push(f.path);
+            if (f?.url) oldPaths.push(f.url);
+          } else {
+            if (videoItem.realPath) oldPaths.push(videoItem.realPath);
+            if (videoItem.url) oldPaths.push(videoItem.url);
+          }
+          oldPaths.forEach(p => { delete metadataCache.current[p]; });
+        }
+      });
+
       setVideos(prevVideos => {
         let currentVideos = [...prevVideos];
         
@@ -1404,20 +1805,19 @@ export default function App() {
     }
   }, [isSlideshowActive, focusedId, filtered, setFocusedId, setVideos, setImmersive, addLog]);
 
-  // Slideshow Timer Effect
+  // Slideshow Timer Effect: Only applies to static images
   useEffect(() => {
     if (!isSlideshowActive || !focusedId) return;
 
-    // For videos, sequential playback is handled on-end in handleVideoEnded instead of a timer.
-    // If the focused unit is not an image, let the video player handle the end trigger.
-    if (!isFocusedImage) return;
+    // For videos and audio, sequential playback is handled on-end in handleVideoEnded instead of a timer.
+    if (!isFocusedImage || isFocusedVideo) return;
 
     const timer = setInterval(() => {
       handleNavigateSibling(1);
-    }, slideshowInterval * 1000);
+    }, Math.max(1, slideshowInterval) * 1000);
 
     return () => clearInterval(timer);
-  }, [isSlideshowActive, focusedId, slideshowInterval, handleNavigateSibling, isFocusedImage]);
+  }, [isSlideshowActive, focusedId, slideshowInterval, handleNavigateSibling, isFocusedImage, isFocusedVideo]);
 
   // Pre-Cache Engine: Retrieves URLs for the next 2 and previous 2 images to pre-load them in the browser's memory buffer
   const cachedAssetUrls = useMemo(() => {
@@ -1480,44 +1880,57 @@ export default function App() {
 
   const handleContext = useCallback(async (id: string, x: number, y: number) => {
     const video = videos.find(v => v.id === id);
+    if (!video) {
+      setMenu({ x, y, id });
+      setMenuMetadata(null);
+      return;
+    }
+
+    // For folder-browsing units, use currently-displayed file
+    const effectivePath = (video.folderFiles && video.currentIdx !== undefined)
+      ? video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url
+      : video.realPath || video.url;
+
+    const pathClean = effectivePath || video.url || '';
+    const ext = pathClean.split('?')[0].split('.').pop() || 'MEDIA';
+    const isImg = isValidPictureExtension(pathClean);
+
+    // 1. Instant synchronous metadata (Zero-delay popup)
+    const initialMeta = metadataCache.current[pathClean] || {
+      name: (video.folderFiles && video.currentIdx !== undefined)
+        ? (video.folderFiles[video.currentIdx]?.name || video.title)
+        : (video.title || getFileNameFromPath(pathClean)),
+      format: ext.toUpperCase(),
+      size: video.size ? (video.size < 1024 * 1024 ? `${(video.size / 1024).toFixed(1)} KB` : `${(video.size / (1024 * 1024)).toFixed(1)} MB`) : 'Standard',
+      width: video.width || 0,
+      height: video.height || 0,
+      duration: isImg ? 'Static' : undefined
+    };
+
+    setMenuMetadata(initialMeta);
     setMenu({ x, y, id });
-    setMenuMetadata(null);
 
-    if (video) {
-      // For folder-browsing units, realPath stays as the first file loaded.
-      // Use the currently-displayed file's path instead.
-      const effectivePath = (video.folderFiles && video.currentIdx !== undefined)
-        ? video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url
-        : video.realPath || video.url;
-
-      if (effectivePath) {
-        if (effectivePath.startsWith('/demos/')) {
-          const parts = effectivePath.split('/');
-          const filename = parts[parts.length - 1];
-          const ext = filename.split('.').pop() || '';
-          setMenuMetadata({
-            name: video.title || filename,
-            format: ext.toUpperCase(),
-            width: ext.toLowerCase() === 'webp' ? 1920 : 1920,
-            height: ext.toLowerCase() === 'webp' ? 1080 : 1080,
-            duration: ext.toLowerCase() === 'webp' ? 'Static' : '0:05',
-            size: ext.toLowerCase() === 'webp' ? '110 KB' : '500 KB'
-          });
-        } else {
-          if (metadataCache.current[effectivePath]) {
-            setMenuMetadata(metadataCache.current[effectivePath]);
-            return;
-          }
-          try {
-            const targetPath = toRealPath(effectivePath) || effectivePath;
-            const data = await invoke('get_video_metadata', { path: targetPath });
-            metadataCache.current[effectivePath] = data;
-            setMenuMetadata(data);
-          } catch (e: any) {
-            console.error("Failed to fetch metadata", e);
-            addLog(`Error fetching metadata for ${effectivePath}: ${e.toString()}`);
-            setMenuMetadata({ name: 'Metadata Error', format: 'N/A', size: 'N/A', width: 0, height: 0 });
-          }
+    // 2. Fast background ffprobe probe (if not cached)
+    if (pathClean && !metadataCache.current[pathClean]) {
+      if (pathClean.startsWith('/demos/')) {
+        const demoMeta = {
+          name: video.title || pathClean.split('/').pop() || 'Demo',
+          format: ext.toUpperCase(),
+          width: 1920,
+          height: 1080,
+          duration: isImg ? 'Static' : '0:05',
+          size: isImg ? '110 KB' : '500 KB'
+        };
+        metadataCache.current[pathClean] = demoMeta;
+        setMenuMetadata(demoMeta);
+      } else {
+        try {
+          const targetPath = toRealPath(pathClean) || pathClean;
+          const data = await invoke<any>('get_video_metadata', { path: targetPath });
+          metadataCache.current[pathClean] = data;
+          setMenuMetadata(data);
+        } catch (e: any) {
+          console.error("Failed to fetch metadata", e);
         }
       }
     }
@@ -1884,6 +2297,7 @@ export default function App() {
   // INGESTION ENGINE (v4) — Modular Hook
   useIngestion({
     mediaMode,
+    setMediaMode,
     setVideos,
     addLog,
     masterPlayingRef,
@@ -1969,6 +2383,43 @@ export default function App() {
     };
   }, [focusedId, videos, onUpdateVideo, setGlobalVolume]);
 
+  const handleTriggerWifiShare = useCallback((targetVideos?: VideoItem[]) => {
+    let candidateList = targetVideos;
+    if (!candidateList || candidateList.length === 0) {
+      if (selectedIds.size > 0) {
+        candidateList = videos.filter(item => selectedIds.has(item.id));
+      } else if (focusedId) {
+        const fv = videos.find(v => v.id === focusedId);
+        candidateList = fv ? [fv] : (filtered.length > 0 ? filtered : videos);
+      } else {
+        candidateList = filtered.length > 0 ? filtered : videos;
+      }
+    }
+
+    const resolvedItems = candidateList.map(item => {
+      const targetPath = (item.folderFiles && item.currentIdx !== undefined)
+        ? (item.folderFiles[item.currentIdx]?.path || item.folderFiles[item.currentIdx]?.url || item.realPath || item.url)
+        : (item.realPath || item.url);
+      const effectiveRealPath = toRealPath(targetPath) || targetPath;
+      const effectiveTitle = (item.folderFiles && item.currentIdx !== undefined)
+        ? (item.folderFiles[item.currentIdx]?.name || item.title)
+        : item.title;
+      return { id: item.id, title: effectiveTitle, url: item.url, realPath: effectiveRealPath };
+    });
+
+    const realPaths = resolvedItems.map(x => x.realPath || '').filter(Boolean);
+    addLog(`Wi-Fi Share: Preparing ${realPaths.length} file(s) for mobile transfer...`);
+
+    invoke('set_wifi_shared_files', { paths: realPaths })
+      .then(() => {
+        setWifiShareItems(resolvedItems);
+        setWifiShareOpen(true);
+      })
+      .catch((err) => {
+        addLog(`Wi-Fi Share ERROR: ${err}`);
+      });
+  }, [videos, filtered, selectedIds, focusedId, addLog]);
+
   if (isPopoutChecking) {
     return <div className="cosmo-boot" style={{ background: '#000' }} />;
   }
@@ -1978,8 +2429,6 @@ export default function App() {
   if (isPopout) {
     return <PopoutPlayer url={popoutUrl} />;
   }
-
-
 
   if (!isInitialized) {
     return (
@@ -2007,8 +2456,6 @@ export default function App() {
       </div>
     );
   }
-
-
 
   return (
     <main 
@@ -2317,31 +2764,7 @@ export default function App() {
               isPopout={isPopout}
               showHelp={showHelp}
               setShowHelp={setShowHelp}
-              toggleMasterMute={toggleMasterMute}
-              globalControl={globalControl}
-          rotating={rotating}
-              setRotating={setRotating}
-              isSlideshowActive={isSlideshowActive}
-              setIsSlideshowActive={setIsSlideshowActive}
-              slideshowInterval={slideshowInterval}
-              setSlideshowInterval={setSlideshowInterval}
-              setSnapshotDir={setSnapshotDir}
-              onOpenVolumeRepeat={() => setVolumeRepeatOpen(true)}
-              onForceSetup={() => {
-                setForceSetup(true);
-                setNeedsSetup(true);
-                setShowSettings(false);
-              }}
-              onOpenWifiShare={() => {
-                invoke('set_wifi_shared_files', { paths: [] })
-                  .then(() => {
-                    setWifiShareItems([]);
-                    setWifiShareOpen(true);
-                  })
-                  .catch((err) => {
-                    addLog(`Wi-Fi Share ERROR: ${err}`);
-                  });
-              }}
+              onOpenWifiShare={() => handleTriggerWifiShare()}
             />
           )}
 
@@ -2468,6 +2891,9 @@ export default function App() {
               case 'step-forward': setGlobalControl(`stepforward-${v.id}-${Date.now()}`); break;
               case 'create_sticker':
                 handleCreateSticker(v);
+                break;
+              case 'trim_crop':
+                useStore.getState().setTrimCropModalTarget(v);
                 break;
               case 'crop':
                 setFocusedId(v.id);
@@ -2656,118 +3082,129 @@ export default function App() {
                     if (!yes) break;
                   }
                   
-                  const targetIds = Array.from(selectedIds);
-                  let successCount = 0;
-                  let failCount = 0;
+                  const targetIdSet = new Set(selectedIds);
+                  const pathsToRecycle: string[] = [];
+                  let focusedWillBeDeleted = false;
+                  const nextVideos: VideoItem[] = [];
 
-                  for (const targetId of targetIds) {
-                    const targetVideo = videos.find(x => x.id === targetId);
-                    if (!targetVideo) continue;
+                  for (const vid of videos) {
+                    if (targetIdSet.has(vid.id)) {
+                      if (vid.id === focusedId) focusedWillBeDeleted = true;
 
-                    const targetPath = (targetVideo.folderFiles && targetVideo.currentIdx !== undefined)
-                      ? (targetVideo.folderFiles[targetVideo.currentIdx]?.path || targetVideo.folderFiles[targetVideo.currentIdx]?.url)
-                      : targetVideo.realPath;
+                      if (vid.folderFiles && vid.folderFiles.length > 1) {
+                        const curIdx = vid.currentIdx || 0;
+                        const targetPath = vid.folderFiles[curIdx]?.path || vid.folderFiles[curIdx]?.url;
+                        if (targetPath) pathsToRecycle.push(targetPath);
 
-                    if (!targetPath) {
-                      failCount++;
-                      continue;
-                    }
-
-                    try {
-                      if (targetVideo.folderFiles && targetVideo.folderFiles.length > 1) {
-                        const newFiles = targetVideo.folderFiles.filter((_, i) => i !== (targetVideo.currentIdx || 0));
-                        const newIdx = Math.min(targetVideo.currentIdx || 0, newFiles.length - 1);
-                        onUpdateVideo(targetVideo.id, { 
-                          folderFiles: newFiles, 
-                          currentIdx: newIdx, 
-                          url: newFiles[newIdx]?.url, 
-                          realPath: newFiles[newIdx]?.path, 
-                          title: newFiles[newIdx]?.name 
+                        const newFiles = vid.folderFiles.filter((_, i) => i !== curIdx);
+                        const newIdx = Math.min(curIdx, newFiles.length - 1);
+                        nextVideos.push({
+                          ...vid,
+                          folderFiles: newFiles,
+                          currentIdx: newIdx,
+                          url: newFiles[newIdx]?.url || vid.url,
+                          realPath: newFiles[newIdx]?.path || vid.realPath,
+                          title: newFiles[newIdx]?.name || vid.title
                         });
                       } else {
-                        if (focusedId === targetVideo.id) {
-                          const currentIdx = filtered.findIndex(x => x.id === targetVideo.id);
-                          if (currentIdx !== -1 && filtered.length > 1) {
-                            const nextIdx = (currentIdx + 1) % filtered.length;
-                            const nextVideo = filtered[nextIdx];
-                            if (nextVideo && nextVideo.id !== targetVideo.id) {
-                              setFocusedId(nextVideo.id);
-                            } else {
-                              setFocusedId(null);
-                              setImmersive(false);
-                              getCurrentWindow().setFullscreen(false);
-                              setIsFS(false);
-                            }
-                          } else {
-                            setFocusedId(null);
-                            setImmersive(false);
-                            getCurrentWindow().setFullscreen(false);
-                            setIsFS(false);
-                          }
-                        }
-                        setVideos(p => p.filter(x => x.id !== targetVideo.id));
+                        const targetPath = (vid.folderFiles && vid.currentIdx !== undefined)
+                          ? (vid.folderFiles[vid.currentIdx]?.path || vid.folderFiles[vid.currentIdx]?.url)
+                          : vid.realPath;
+                        if (targetPath) pathsToRecycle.push(targetPath);
                       }
-
-                      await new Promise(resolve => setTimeout(resolve, 150));
-                      await invoke('recycle_unit', { path: targetPath });
-                      successCount++;
-                    } catch(err) {
-                      console.error("Annihilation failed for", targetPath, err);
-                      failCount++;
+                    } else {
+                      nextVideos.push(vid);
                     }
                   }
 
-                  if (successCount > 0) {
-                    addLog(`Unit Annihilated (Recycle Bin): ${successCount} items`);
-                  }
-                  if (failCount > 0) {
-                    addLog(`Annihilation Failed: ${failCount} items`);
-                  }
-
+                  // 1. INSTANT UI UPDATE (0ms)
+                  setVideos(nextVideos);
                   setSelectedIds(new Set());
                   setSelectionMode(false);
+
+                  if (focusedWillBeDeleted) {
+                    if (nextVideos.length > 0) {
+                      setFocusedId(nextVideos[0].id);
+                    } else {
+                      setFocusedId(null);
+                      setImmersive(false);
+                      getCurrentWindow().setFullscreen(false);
+                      setIsFS(false);
+                    }
+                  }
+
+                  // 2. BACKGROUND ASYNC RECYCLE
+                  (async () => {
+                    let successCount = 0;
+                    let failCount = 0;
+                    for (const p of pathsToRecycle) {
+                      try {
+                        await invoke('recycle_unit', { path: p });
+                        successCount++;
+                      } catch {
+                        failCount++;
+                      }
+                    }
+                    if (successCount > 0) {
+                      addLog(`Unit Annihilated (Recycle Bin): ${successCount} items`);
+                      setToast(`🗑️ Moved ${successCount} file(s) to Recycle Bin`);
+                      setTimeout(() => setToast(null), 3000);
+                    }
+                    if (failCount > 0) {
+                      addLog(`Recycle failed for ${failCount} item(s)`);
+                    }
+                  })();
                 } else {
                   if (!effectivePath) { addLog('Annihilation Error: Native path missing'); break; }
                   if (confirmDeletion) {
                     const yes = await showConfirm(`PROTOCOL: ANNIHILATE ASSET\n\nTarget: ${v.title}\n\nThis will physically MOVE THE FILE TO THE RECYCLE BIN.\nThis action is reversible via the OS Recycle Bin.\n\nPROCEED?`, { title: 'Recycle Bin', kind: 'error' });
                     if (!yes) break;
                   }
-                  try {
-                    // For folder units with multiple files: remove just this file
-                    if (v.folderFiles && v.folderFiles.length > 1) {
-                      const newFiles = v.folderFiles.filter((_, i) => i !== (v.currentIdx || 0));
-                      const newIdx = Math.min(v.currentIdx || 0, newFiles.length - 1);
-                      onUpdateVideo(v.id, { folderFiles: newFiles, currentIdx: newIdx, url: newFiles[newIdx]?.url, realPath: newFiles[newIdx]?.path, title: newFiles[newIdx]?.name });
-                    } else {
-                      if (focusedId === v.id) {
-                        const currentIdx = filtered.findIndex(x => x.id === v.id);
-                        if (currentIdx !== -1 && filtered.length > 1) {
-                          const nextIdx = (currentIdx + 1) % filtered.length;
-                          const nextVideo = filtered[nextIdx];
-                          if (nextVideo && nextVideo.id !== v.id) {
-                            setFocusedId(nextVideo.id);
-                          } else {
-                            setFocusedId(null);
-                            setImmersive(false);
-                            getCurrentWindow().setFullscreen(false);
-                            setIsFS(false);
-                          }
+
+                  const targetPath = effectivePath;
+                  const targetTitle = v.title;
+                  const targetId = v.id;
+
+                  // 1. INSTANT UI UPDATE (0ms)
+                  if (v.folderFiles && v.folderFiles.length > 1) {
+                    const newFiles = v.folderFiles.filter((_, i) => i !== (v.currentIdx || 0));
+                    const newIdx = Math.min(v.currentIdx || 0, newFiles.length - 1);
+                    onUpdateVideo(v.id, { folderFiles: newFiles, currentIdx: newIdx, url: newFiles[newIdx]?.url, realPath: newFiles[newIdx]?.path, title: newFiles[newIdx]?.name });
+                  } else {
+                    if (focusedId === v.id) {
+                      const currentIdx = filtered.findIndex(x => x.id === v.id);
+                      if (currentIdx !== -1 && filtered.length > 1) {
+                        const nextIdx = (currentIdx + 1) % filtered.length;
+                        const nextVideo = filtered[nextIdx];
+                        if (nextVideo && nextVideo.id !== v.id) {
+                          setFocusedId(nextVideo.id);
                         } else {
                           setFocusedId(null);
                           setImmersive(false);
                           getCurrentWindow().setFullscreen(false);
                           setIsFS(false);
                         }
+                      } else {
+                        setFocusedId(null);
+                        setImmersive(false);
+                        getCurrentWindow().setFullscreen(false);
+                        setIsFS(false);
                       }
-                      setVideos(p => p.filter(x => x.id !== v.id));
                     }
-
-                    await new Promise(resolve => setTimeout(resolve, 150));
-                    await invoke('recycle_unit', { path: effectivePath });
-                    addLog('Unit Annihilated (Recycle Bin)');
-                  } catch(e) {
-                    addLog('Annihilation Failed: ' + e);
+                    setVideos(p => p.filter(x => x.id !== targetId));
                   }
+
+                  // 2. BACKGROUND ASYNC RECYCLE
+                  (async () => {
+                    try {
+                      await invoke('recycle_unit', { path: targetPath });
+                      addLog(`Unit Annihilated (Recycle Bin): ${targetTitle}`);
+                      setToast(`🗑️ Moved "${targetTitle}" to Recycle Bin`);
+                      setTimeout(() => setToast(null), 3000);
+                    } catch(e) {
+                      addLog('Annihilation Failed: ' + e);
+                    }
+                  })();
                 }
                 break;
               }
@@ -2782,76 +3219,74 @@ export default function App() {
                   );
                   if (!yes) break;
                   
-                  const targetIds = Array.from(selectedIds);
-                  let successCount = 0;
-                  let failCount = 0;
+                  const targetIdSet = new Set(selectedIds);
+                  const pathsToDelete: string[] = [];
+                  let focusedWillBeDeleted = false;
+                  const nextVideos: VideoItem[] = [];
 
-                  for (const targetId of targetIds) {
-                    const targetVideo = videos.find(x => x.id === targetId);
-                    if (!targetVideo) continue;
+                  for (const vid of videos) {
+                    if (targetIdSet.has(vid.id)) {
+                      if (vid.id === focusedId) focusedWillBeDeleted = true;
 
-                    const targetPath = (targetVideo.folderFiles && targetVideo.currentIdx !== undefined)
-                      ? (targetVideo.folderFiles[targetVideo.currentIdx]?.path || targetVideo.folderFiles[targetVideo.currentIdx]?.url)
-                      : targetVideo.realPath;
+                      if (vid.folderFiles && vid.folderFiles.length > 1) {
+                        const curIdx = vid.currentIdx || 0;
+                        const targetPath = vid.folderFiles[curIdx]?.path || vid.folderFiles[curIdx]?.url;
+                        if (targetPath) pathsToDelete.push(targetPath);
 
-                    if (!targetPath) {
-                      failCount++;
-                      continue;
-                    }
-
-                    try {
-                      if (targetVideo.folderFiles && targetVideo.folderFiles.length > 1) {
-                        const newFiles = targetVideo.folderFiles.filter((_, i) => i !== (targetVideo.currentIdx || 0));
-                        const newIdx = Math.min(targetVideo.currentIdx || 0, newFiles.length - 1);
-                        onUpdateVideo(targetVideo.id, { 
-                          folderFiles: newFiles, 
-                          currentIdx: newIdx, 
-                          url: newFiles[newIdx]?.url, 
-                          realPath: newFiles[newIdx]?.path, 
-                          title: newFiles[newIdx]?.name 
+                        const newFiles = vid.folderFiles.filter((_, i) => i !== curIdx);
+                        const newIdx = Math.min(curIdx, newFiles.length - 1);
+                        nextVideos.push({
+                          ...vid,
+                          folderFiles: newFiles,
+                          currentIdx: newIdx,
+                          url: newFiles[newIdx]?.url || vid.url,
+                          realPath: newFiles[newIdx]?.path || vid.realPath,
+                          title: newFiles[newIdx]?.name || vid.title
                         });
                       } else {
-                        if (focusedId === targetVideo.id) {
-                          const currentIdx = filtered.findIndex(x => x.id === targetVideo.id);
-                          if (currentIdx !== -1 && filtered.length > 1) {
-                            const nextIdx = (currentIdx + 1) % filtered.length;
-                            const nextVideo = filtered[nextIdx];
-                            if (nextVideo && nextVideo.id !== targetVideo.id) {
-                              setFocusedId(nextVideo.id);
-                            } else {
-                              setFocusedId(null);
-                              setImmersive(false);
-                              getCurrentWindow().setFullscreen(false);
-                              setIsFS(false);
-                            }
-                          } else {
-                            setFocusedId(null);
-                            setImmersive(false);
-                            getCurrentWindow().setFullscreen(false);
-                            setIsFS(false);
-                          }
-                        }
-                        setVideos(p => p.filter(x => x.id !== targetVideo.id));
+                        const targetPath = (vid.folderFiles && vid.currentIdx !== undefined)
+                          ? (vid.folderFiles[vid.currentIdx]?.path || vid.folderFiles[vid.currentIdx]?.url)
+                          : vid.realPath;
+                        if (targetPath) pathsToDelete.push(targetPath);
                       }
-
-                      await new Promise(resolve => setTimeout(resolve, 150));
-                      await invoke('secure_delete_file', { path: targetPath });
-                      successCount++;
-                    } catch(err) {
-                      console.error("Secure destruction failed for", targetPath, err);
-                      failCount++;
+                    } else {
+                      nextVideos.push(vid);
                     }
                   }
 
-                  if (successCount > 0) {
-                    addLog(`Unit Securely Destroyed: ${successCount} items`);
-                  }
-                  if (failCount > 0) {
-                    addLog(`Secure Destruction Failed: ${failCount} items`);
-                  }
-
+                  // 1. INSTANT UI UPDATE (0ms) — tiles vanish immediately
+                  setVideos(nextVideos);
                   setSelectedIds(new Set());
                   setSelectionMode(false);
+
+                  if (focusedWillBeDeleted) {
+                    if (nextVideos.length > 0) {
+                      setFocusedId(nextVideos[0].id);
+                    } else {
+                      setFocusedId(null);
+                      setImmersive(false);
+                      getCurrentWindow().setFullscreen(false);
+                      setIsFS(false);
+                    }
+                  }
+
+                  // 2. BACKGROUND ASYNC BATCH DELETION & TRIM
+                  (async () => {
+                    try {
+                      const res = await invoke<{ success_count: number, fail_count: number }>('secure_delete_files_batch', { paths: pathsToDelete });
+                      if (res.success_count > 0) {
+                        addLog(`Units Securely Destroyed: ${res.success_count} item(s) (Storage trimmed)`);
+                        setToast(`✓ All ${res.success_count} file(s) permanently destroyed & storage trimmed`);
+                        setTimeout(() => setToast(null), 3500);
+                      }
+                      if (res.fail_count > 0) {
+                        addLog(`Secure Destruction Failed for ${res.fail_count} item(s)`);
+                      }
+                    } catch (err) {
+                      console.error("Batch secure delete error:", err);
+                      addLog(`Secure Destruction Failed: ${err}`);
+                    }
+                  })();
                 } else {
                   if (!effectivePath) { addLog('Secure Delete Error: Native path missing'); break; }
                   const yes = await showConfirm(
@@ -2860,41 +3295,50 @@ export default function App() {
                   );
                   if (!yes) break;
                   
-                  try {
-                    if (v.folderFiles && v.folderFiles.length > 1) {
-                      const newFiles = v.folderFiles.filter((_, i) => i !== (v.currentIdx || 0));
-                      const newIdx = Math.min(v.currentIdx || 0, newFiles.length - 1);
-                      onUpdateVideo(v.id, { folderFiles: newFiles, currentIdx: newIdx, url: newFiles[newIdx]?.url, realPath: newFiles[newIdx]?.path, title: newFiles[newIdx]?.name });
-                    } else {
-                      if (focusedId === v.id) {
-                        const currentIdx = filtered.findIndex(x => x.id === v.id);
-                        if (currentIdx !== -1 && filtered.length > 1) {
-                          const nextIdx = (currentIdx + 1) % filtered.length;
-                          const nextVideo = filtered[nextIdx];
-                          if (nextVideo && nextVideo.id !== v.id) {
-                            setFocusedId(nextVideo.id);
-                          } else {
-                            setFocusedId(null);
-                            setImmersive(false);
-                            getCurrentWindow().setFullscreen(false);
-                            setIsFS(false);
-                          }
+                  const targetPath = effectivePath;
+                  const targetTitle = v.title;
+                  const targetId = v.id;
+
+                  // 1. INSTANT UI UPDATE (0ms) — tile vanishes immediately
+                  if (v.folderFiles && v.folderFiles.length > 1) {
+                    const newFiles = v.folderFiles.filter((_, i) => i !== (v.currentIdx || 0));
+                    const newIdx = Math.min(v.currentIdx || 0, newFiles.length - 1);
+                    onUpdateVideo(v.id, { folderFiles: newFiles, currentIdx: newIdx, url: newFiles[newIdx]?.url, realPath: newFiles[newIdx]?.path, title: newFiles[newIdx]?.name });
+                  } else {
+                    if (focusedId === v.id) {
+                      const currentIdx = filtered.findIndex(x => x.id === v.id);
+                      if (currentIdx !== -1 && filtered.length > 1) {
+                        const nextIdx = (currentIdx + 1) % filtered.length;
+                        const nextVideo = filtered[nextIdx];
+                        if (nextVideo && nextVideo.id !== v.id) {
+                          setFocusedId(nextVideo.id);
                         } else {
                           setFocusedId(null);
                           setImmersive(false);
                           getCurrentWindow().setFullscreen(false);
                           setIsFS(false);
                         }
+                      } else {
+                        setFocusedId(null);
+                        setImmersive(false);
+                        getCurrentWindow().setFullscreen(false);
+                        setIsFS(false);
                       }
-                      setVideos(p => p.filter(x => x.id !== v.id));
                     }
-
-                    await new Promise(resolve => setTimeout(resolve, 150));
-                    await invoke('secure_delete_file', { path: effectivePath });
-                    addLog('Unit Securely Destroyed (Permanently overwritten & deleted)');
-                  } catch(e) {
-                    addLog('Secure Destruction Failed: ' + e);
+                    setVideos(p => p.filter(x => x.id !== targetId));
                   }
+
+                  // 2. BACKGROUND ASYNC DELETION & TRIM
+                  (async () => {
+                    try {
+                      await invoke('secure_delete_file', { path: targetPath });
+                      addLog(`Unit Securely Destroyed: ${targetTitle}`);
+                      setToast(`✓ "${targetTitle}" permanently destroyed & storage trimmed`);
+                      setTimeout(() => setToast(null), 3500);
+                    } catch(e) {
+                      addLog('Secure Destruction Failed: ' + e);
+                    }
+                  })();
                 }
                 break;
               }
@@ -3081,46 +3525,21 @@ export default function App() {
                 setFileManageOpen(true);
                 break;
               }
+              case 'paste_image': {
+                handlePasteImage(v.id);
+                break;
+              }
+              case 'whatsapp_share': {
+                useStore.getState().setWhatsAppShareTarget(v);
+                break;
+              }
               case 'share_file': {
-                const effectiveRealPath = (v.folderFiles && v.currentIdx !== undefined)
-                  ? (v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url)
-                  : v.realPath;
-                const effectiveTitle = (v.folderFiles && v.currentIdx !== undefined)
-                  ? (v.folderFiles[v.currentIdx]?.name || v.title)
-                  : v.title;
-                const itemsToShare = [{ id: v.id, title: effectiveTitle, url: v.url, realPath: effectiveRealPath }];
-                const realPaths = itemsToShare.map(x => x.realPath || '').filter(Boolean);
-                addLog(`Wi-Fi Share: Setting shared file: ${effectiveTitle}`);
-                invoke('set_wifi_shared_files', { paths: realPaths })
-                  .then(() => {
-                    setWifiShareItems(itemsToShare);
-                    setWifiShareOpen(true);
-                  })
-                  .catch((err) => {
-                    addLog(`Wi-Fi Share ERROR: ${err}`);
-                  });
+                handleTriggerWifiShare([v]);
                 break;
               }
               case 'share_selected': {
-                const selectedItems = videos.filter(item => selectedIds.has(item.id)).map(item => {
-                  const effectiveRealPath = (item.folderFiles && item.currentIdx !== undefined)
-                    ? (item.folderFiles[item.currentIdx]?.path || item.folderFiles[item.currentIdx]?.url)
-                    : item.realPath;
-                  const effectiveTitle = (item.folderFiles && item.currentIdx !== undefined)
-                    ? (item.folderFiles[item.currentIdx]?.name || item.title)
-                    : item.title;
-                  return { id: item.id, title: effectiveTitle, url: item.url, realPath: effectiveRealPath };
-                });
-                const realPaths = selectedItems.map(x => x.realPath || '').filter(Boolean);
-                addLog(`Wi-Fi Share: Setting shared files list: ${realPaths.length} items`);
-                invoke('set_wifi_shared_files', { paths: realPaths })
-                  .then(() => {
-                    setWifiShareItems(selectedItems);
-                    setWifiShareOpen(true);
-                  })
-                  .catch((err) => {
-                    addLog(`Wi-Fi Share ERROR: ${err}`);
-                  });
+                const selectedItems = videos.filter(item => selectedIds.has(item.id));
+                handleTriggerWifiShare(selectedItems.length > 0 ? selectedItems : [v]);
                 break;
               }
             }
@@ -3140,6 +3559,7 @@ export default function App() {
           onPurge={async () => { if (await showConfirm('Purge Workspace? This will clear all cards.', { title: 'Purge Workspace', kind: 'error' })) setVideos([]); }}
           onSelectAll={handleSelectAll}
           onRefreshTiles={handleRefreshTiles}
+          onPasteImage={() => handlePasteImage(null)}
         />
       )}
 
@@ -3159,37 +3579,54 @@ export default function App() {
         })()}
       </AnimatePresence>
 
-      <div className="preheat-buffer" style={{ position: 'fixed', bottom: 0, right: 0, width: 0, height: 0, opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}>
-        {nextSetVideos.map(v => (
-          <VideoCard 
-            key={`preheat-${v.id}`} 
-            video={{ ...v, playing: false, muted: true }}
-            globalRepeat={globalRepeat}
-            globalSpeed={speed}
-            fitMode={fitMode}
-            onUpdateVideo={() => {}}
-            onRemove={() => {}}
-            onAnnihilate={() => {}}
-            onLog={() => {}}
-            onFocus={() => {}}
-            isFocused={false}
-            onCloseFocus={() => {}}
-            globalControl={null}
-            isVisible={false}
-            masterPlaying={false}
-            masterMuted={true}
-            globalVolume={0}
-            masterShowUI={false}
-            toggleMasterMute={() => {}}
-            toggleMasterPlay={() => {}}
-            onEnded={() => {}}
-            onContextMenu={() => {}}
-            onDeepFocus={() => {}}
-          />
-        ))}
-      </div>
+
 
       <MusicPlayerWidget videos={videos} setVideos={setVideos} />
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onSelectAction={(actionId) => {
+          switch (actionId) {
+            case 'whatsapp_share': {
+              const target = (focusedId ? videos.find(v => v.id === focusedId) : null) || videos[0];
+              if (target) useStore.getState().setWhatsAppShareTarget(target);
+              break;
+            }
+            case 'wifi_share':
+              handleTriggerWifiShare();
+              break;
+            case 'trim_crop_studio': {
+              const target = (focusedId ? videos.find(v => v.id === focusedId) : null) || videos[0];
+              if (target) useStore.getState().setTrimCropModalTarget(target);
+              break;
+            }
+            case 'color_grading':
+              if (videos.length > 0) setColorAdjustId(videos[0].id);
+              break;
+            case 'reshape_studio':
+              if (videos.length > 0) setReshapeTarget(videos[0]);
+              break;
+            case 'portrait_blur':
+              if (videos.length > 0) setPortraitBlurTarget(videos[0]);
+              break;
+            case 'frame_studio':
+              setShowResizeModal(true);
+              break;
+            case 'export_video':
+              setShowSaveCropOptions(true);
+              break;
+            case 'popout_player':
+              if (videos.length > 0) togglePopout(videos[0].id);
+              break;
+            case 'music_player':
+              setVolumeRepeatOpen(true);
+              break;
+            case 'help':
+              setShowHelp(true);
+              break;
+          }
+        }}
+      />
       <ModalOrchestrator
         showHelp={showHelp}
         setShowHelp={setShowHelp}

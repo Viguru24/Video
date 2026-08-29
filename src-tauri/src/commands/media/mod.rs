@@ -129,6 +129,22 @@ pub async fn generate_store_logos(app: AppHandle, path: String, bg_color: String
     transform::generate_store_logos(app, path, bg_color).await
 }
 
+#[tauri::command]
+pub async fn trim_crop_video(
+    app: AppHandle,
+    path: String,
+    start_sec: Option<f64>,
+    end_sec: Option<f64>,
+    crop_x: Option<f64>,
+    crop_y: Option<f64>,
+    crop_w: Option<f64>,
+    crop_h: Option<f64>,
+    overwrite: Option<bool>,
+    lossless: Option<bool>,
+) -> Result<String, String> {
+    transform::trim_crop_video(app, path, start_sec, end_sec, crop_x, crop_y, crop_w, crop_h, overwrite, lossless).await
+}
+
 // --- UPSCALE COMMANDS ---
 
 #[tauri::command]
@@ -164,4 +180,9 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
 #[tauri::command]
 pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String, String> {
     upscale::enhance_image_crop(app, base64_data)
+}
+
+#[tauri::command]
+pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<upscale::AutoCropBox, String> {
+    upscale::detect_person_crop(app, path).await
 }

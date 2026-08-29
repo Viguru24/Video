@@ -25,6 +25,7 @@ export function ColorAdjustmentPanel({
   const dragControls = useDragControls();
   const filters = video.colorFilters || DEFAULT_COLOR_FILTERS;
   const bodyRef = useRef<HTMLDivElement>(null);
+  const [showOriginalCompare, setShowOriginalCompare] = useState(false);
 
   // Save states
   const [showSaveOptions, setShowSaveOptions] = useState(false);
@@ -236,7 +237,15 @@ export function ColorAdjustmentPanel({
             repeatCount: 0,
             cols: video.cols || 1
           };
-          setVideos(prev => [...prev, newUnit]);
+          setVideos(prev => {
+            const currentIdx = prev.findIndex(v => v.id === video.id);
+            if (currentIdx !== -1) {
+              const next = [...prev];
+              next.splice(currentIdx + 1, 0, newUnit);
+              return next;
+            }
+            return [...prev, newUnit];
+          });
         }
       } else {
         // Overwrite: update the URL with cache-buster and reset UI colorFilters
@@ -289,9 +298,40 @@ export function ColorAdjustmentPanel({
           <Sliders size={12} className="panel-icon" />
           <span className="panel-title">COLOR ADJUSTMENT</span>
         </div>
-        <button className="panel-close-btn" onClick={onClose} title="Close Panel" disabled={isSaving}>
-          <X size={14} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            style={{
+              marginRight: '8px',
+              fontSize: '11px',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              backgroundColor: showOriginalCompare ? '#7c3aed' : '#262636',
+              color: '#ffffff',
+              border: '1px solid #4c1d95',
+              cursor: 'pointer'
+            }}
+            onClick={() => {
+              if (!showOriginalCompare) {
+                onUpdateVideo(video.id, {
+                  prevColorFilters: filters,
+                  colorFilters: DEFAULT_COLOR_FILTERS
+                });
+                setShowOriginalCompare(true);
+              } else {
+                if (video.prevColorFilters) {
+                  onUpdateVideo(video.id, { colorFilters: video.prevColorFilters });
+                }
+                setShowOriginalCompare(false);
+              }
+            }}
+            title="Toggle A/B Original vs. Graded Preview"
+          >
+            {showOriginalCompare ? '🅰️ Original' : '🅱️ Graded'}
+          </button>
+          <button className="panel-close-btn" onClick={onClose} title="Close Panel" disabled={isSaving}>
+            <X size={14} />
+          </button>
+        </div>
       </div>
 
       <div className="panel-subtitle" title={video.title}>

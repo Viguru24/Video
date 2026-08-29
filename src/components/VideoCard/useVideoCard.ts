@@ -92,6 +92,7 @@ export function useVideoCard({
   const lastTime = useRef<number>(video.currentTime || 0);
   const lastWheelNav = useRef<number>(0);
   const lastProcessedControlRef = useRef<string | null>(null);
+  const retryAttempted = useRef<boolean>(false);
 
   // Preserve time during hibernation
   useEffect(() => {
@@ -153,6 +154,7 @@ export function useVideoCard({
   const immersive = useStore((state) => state.immersive);
   const selectedIds = useStore((state) => state.selectedIds);
   const enableSlideshowPanZoom = useStore((state) => state.enableSlideshowPanZoom);
+  const trimCropModalTarget = useStore((state) => state.trimCropModalTarget);
 
   const animationIndex = useMemo(() => {
     let hash = 0;
@@ -356,19 +358,48 @@ export function useVideoCard({
 
   const [snapshotToast, setSnapshotToast] = useState<number | null>(null);
   const [isLocalFS, setIsLocalFS] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-
+  const [showControls, setShowControls] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false);
   const [showCardMenu, setShowCardMenu] = useState(false);
+  const controlsIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isActivelyPlaying = (video.playing || (masterPlaying && !video.pausedExplicitly)) && !isImage;
+
+  const resetControlsTimer = useCallback(() => {
+    if (controlsIdleTimerRef.current) {
+      clearTimeout(controlsIdleTimerRef.current);
+      controlsIdleTimerRef.current = null;
+    }
+    setShowControls(true);
+
+    // If actively playing in tile mode (and not interacting/focused/menu-open), auto-hide after 2.2 seconds
+    if (isActivelyPlaying && !isInteracting && !showCardMenu && !isFocused) {
+      controlsIdleTimerRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 2200);
+    }
+  }, [isActivelyPlaying, isInteracting, showCardMenu, isFocused]);
 
   useEffect(() => {
-    if (isHovered || isInteracting || isFocused || showCardMenu) {
-      setShowControls(true);
+    if (isHovered || isInteracting || showCardMenu) {
+      resetControlsTimer();
     } else {
+      if (controlsIdleTimerRef.current) {
+        clearTimeout(controlsIdleTimerRef.current);
+        controlsIdleTimerRef.current = null;
+      }
       setShowControls(false);
     }
-  }, [isHovered, isInteracting, isFocused, showCardMenu]);
+  }, [isHovered, isInteracting, showCardMenu, isActivelyPlaying, resetControlsTimer]);
+
+  useEffect(() => {
+    return () => {
+      if (controlsIdleTimerRef.current) {
+        clearTimeout(controlsIdleTimerRef.current);
+      }
+    };
+  }, []);
 
   // Hover-to-Play: play video on hover in grid mode, pause on mouse-out
   const hoverPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -591,13 +622,25 @@ export function useVideoCard({
 
   useEffect(() => {
     if (isImage || !videoRef.current) return;
+    if (trimCropModalTarget || isCropping) {
+      videoRef.current.pause();
+      return;
+    }
     if (focusedId && focusedId !== video.id && !inSoloMode) {
       videoRef.current.pause();
     } else {
-      if (video.playing) videoRef.current.play().catch(() => {});
-      else videoRef.current.pause();
+      if (video.playing) {
+        videoRef.current.play().catch(() => {});
+      } else {
+        videoRef.current.pause();
+        if (videoRef.current.currentTime === 0 && !isImage) {
+          try {
+            videoRef.current.currentTime = 0.001;
+          } catch {}
+        }
+      }
     }
-  }, [video.playing, isImage, focusedId, inSoloMode, video.url]);
+  }, [video.playing, isImage, focusedId, inSoloMode, video.url, trimCropModalTarget, isCropping]);
 
   useEffect(() => {
     if (isImage || !videoRef.current) return;
@@ -1124,6 +1167,7 @@ export function useVideoCard({
   }, [video.rotation, video.realPath, video.id, video.title, video.url, isImage, onUpdateVideo, onLog]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    resetControlsTimer();
     if (dragStartPos.current && video.realPath) {
       const dx = e.clientX - dragStartPos.current.x;
       const dy = e.clientY - dragStartPos.current.y;
@@ -1299,6 +1343,7 @@ export function useVideoCard({
 
     error,
     recovering,
+    retryAttempted,
     snapshotToast,
     isLocalFS,
     showControls,
@@ -1339,6 +1384,7 @@ export function useVideoCard({
     startStep,
     stopStep,
     handleMuteToggle,
-    takeSnapshot
+    takeSnapshot,
+    resetControlsTimer
   };
 }

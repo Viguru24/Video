@@ -5,14 +5,13 @@ if ($conn) {
     Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
 }
 
-# Kill all python/uvicorn/studio_agent processes
-Get-Process | Where-Object { $_.Name -like "*python*" -or $_.Name -like "*uvicorn*" } | ForEach-Object {
+# Kill Cosmo-specific background instances only
+Get-Process | Where-Object { $_.Name -like "*cosmo_enhance*" } | ForEach-Object {
     Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
 }
 
-# 2. Kill all CosmoSymphony and WebView2 background instances
+# 2. Kill CosmoSymphony background instances
 taskkill /F /IM CosmoSymphony.exe /T 2>$null
-taskkill /F /IM msedgewebview2.exe /T 2>$null
 
 # 3. Clean up Lockfiles from all possible user data paths
 $paths = @(

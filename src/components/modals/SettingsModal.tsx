@@ -46,6 +46,12 @@ export function SettingsModal({
     setEnableOSFullscreen,
     enableSlideshowPanZoom,
     setEnableSlideshowPanZoom,
+    slideshowInterval,
+    setSlideshowInterval,
+    autoAddNewFiles,
+    setAutoAddNewFiles,
+    folderSwitchDelay,
+    setFolderSwitchDelay,
     aiHardwareStatus,
     setAiHardwareStatus
   } = useStore();
@@ -369,6 +375,67 @@ export function SettingsModal({
                 <div className="setting-item">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--accent, #00ff88)', letterSpacing: '1px' }}>FOLDER FILE DELAY (SECONDS)</label>
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                        Exact number of seconds to wait before a folder tile shows a new file or cycles to the next file
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="range"
+                        min="1"
+                        max="60"
+                        value={folderSwitchDelay}
+                        onChange={(e) => setFolderSwitchDelay(parseInt(e.target.value, 10))}
+                        style={{ width: '80px', accentColor: 'var(--accent, #00ff88)' }}
+                      />
+                      <input 
+                        type="number"
+                        min="1"
+                        max="300"
+                        value={folderSwitchDelay}
+                        onChange={(e) => setFolderSwitchDelay(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        style={{
+                          width: '46px',
+                          height: '24px',
+                          background: 'rgba(0,0,0,0.6)',
+                          border: '1px solid var(--accent, #00ff88)',
+                          color: '#fff',
+                          borderRadius: '4px',
+                          textAlign: 'center',
+                          fontSize: '11px',
+                          fontWeight: 'bold',
+                          outline: 'none'
+                        }}
+                      />
+                      <span style={{ fontSize: '10px', color: 'var(--accent, #00ff88)', fontWeight: 800 }}>sec</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="setting-item">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>AUTO-ADD NEW FILES</label>
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                        {autoAddNewFiles ? 'Automatically detects & imports new files added to pinned workspace folders' : 'Disabled — new files will not be imported automatically'}
+                      </span>
+                    </div>
+                    <button 
+                      className={`premium-switch ${autoAddNewFiles ? 'active' : ''}`}
+                      onClick={() => setAutoAddNewFiles(!autoAddNewFiles)}
+                      data-label={autoAddNewFiles ? 'ON' : 'OFF'}
+                    >
+                      <div className="switch-rail">
+                        <div className="switch-thumb" />
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="setting-item">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>OS FULLSCREEN ON SOLO VIEW</label>
                       <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
                         {enableOSFullscreen ? 'Toggles OS-level fullscreen (may flicker briefly)' : 'Stays windowed for 100% fluid, lag-free transitions'}
@@ -423,6 +490,49 @@ export function SettingsModal({
                         <div className="switch-thumb" />
                       </div>
                     </button>
+                  </div>
+                </div>
+
+                <div className="setting-item">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>SLIDESHOW TIMER / INTERVAL</label>
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                        Duration in seconds before switching to the next item ({slideshowInterval}s)
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="range"
+                        min="1"
+                        max="60"
+                        value={slideshowInterval}
+                        onChange={(e) => setSlideshowInterval(parseInt(e.target.value, 10))}
+                        style={{ width: '90px', accentColor: 'var(--accent, #00ff88)', cursor: 'pointer' }}
+                      />
+                      <input 
+                        type="number"
+                        min="1"
+                        max="120"
+                        value={slideshowInterval}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val)) setSlideshowInterval(val);
+                        }}
+                        style={{
+                          width: '42px',
+                          background: 'rgba(255,255,255,0.07)',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          borderRadius: '4px',
+                          color: 'var(--accent, #00ff88)',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          textAlign: 'center',
+                          padding: '2px 4px'
+                        }}
+                      />
+                      <span style={{ fontSize: '11px', color: '#fff', fontWeight: 600 }}>s</span>
+                    </div>
                   </div>
                 </div>
 

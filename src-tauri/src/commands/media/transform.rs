@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::commands::filesystem::clean_local_path;
 use crate::commands::server::secure_delete_file;
 use super::utils::{
-    debug_log, new_hidden_ffmpeg_command,
+    debug_log, new_hidden_ffmpeg_command, get_optimal_video_encoder, apply_optimal_video_encoding_args,
 };
 
 pub async fn rotate_media_on_disk(app: AppHandle, path: String, rotation: i32, is_image: bool) -> Result<String, String> {
@@ -699,3 +699,181 @@ pub async fn generate_store_logos(app: AppHandle, path: String, bg_color: String
 
     Err("Failed to communicate with the logo generator server.".into())
 }
+
+pub async fn trim_crop_video(
+    app_handle: tauri::AppHandle,
+    path: String,
+    start_sec: Option<f64>,
+    end_sec: Option<f64>,
+    crop_x: Option<f64>,
+    crop_y: Option<f64>,
+    crop_w: Option<f64>,
+    crop_h: Option<f64>,
+    overwrite: Option<bool>,
+    _lossless: Option<bool>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let clean_path = clean_local_path(&path);
+        let input_path = PathBuf::from(&clean_path);
+        if !input_path.exists() {
+            return Err(format!("Input video file does not exist: {}", clean_path));
+        }
+
+        let parent = input_path.parent().unwrap_or_else(|| Path::new("."));
+        let stem = input_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let ext = input_path
+            .extension()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+            .to_lowercase();
+
+        let out_ext = if ext.is_empty() { "mp4".to_string() } else { ext.clone() };
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+
+        let temp_dir = std::env::temp_dir();
+        let temp_file_name = format!("{}_trimcrop_{}.{}", stem, timestamp, out_ext);
+        let temp_path = temp_dir.join(&temp_file_name);
+
+        let has_crop = if let (Some(w), Some(h)) = (crop_w, crop_h) {
+            w > 0.0 && h > 0.0
+        } else {
+            false
+        };
+
+        let mut cmd = new_hidden_ffmpeg_command(Some(&app_handle));
+        cmd.arg("-y")
+           .arg("-nostdin")
+           .arg("-noautorotate");
+
+        // Input seeking for fast & accurate trimming
+        if let Some(start) = start_sec {
+            if start > 0.001 {
+                cmd.arg("-ss").arg(format!("{:.3}", start));
+            }
+        }
+
+        if let Some(end) = end_sec {
+            if let Some(start) = start_sec {
+                if end > start + 0.001 {
+                    cmd.arg("-t").arg(format!("{:.3}", end - start));
+                }
+            } else if end > 0.001 {
+                cmd.arg("-t").arg(format!("{:.3}", end));
+            }
+        }
+
+        cmd.arg("-i").arg(&clean_path);
+
+        if has_crop {
+            let cx = crop_x.unwrap_or(0.0).max(0.0) as u32;
+            let cy = crop_y.unwrap_or(0.0).max(0.0) as u32;
+            let mut cw = crop_w.unwrap_or(0.0).max(2.0) as u32;
+            let mut ch = crop_h.unwrap_or(0.0).max(2.0) as u32;
+
+            // Ensure dimensions are even numbers for H.264
+            if cw % 2 != 0 { cw -= 1; }
+            if ch % 2 != 0 { ch -= 1; }
+            if cw < 2 { cw = 2; }
+            if ch < 2 { ch = 2; }
+
+            let crop_filter = format!("crop={}:{}:{}:{}", cw, ch, cx, cy);
+            cmd.arg("-vf").arg(&crop_filter);
+        }
+
+        // Apply optimal hardware acceleration (NVENC / QSV / AMF / Multithreaded libx264)
+        let encoder = get_optimal_video_encoder(Some(&app_handle));
+        apply_optimal_video_encoding_args(&mut cmd, encoder);
+
+        cmd.arg("-c:a").arg("aac")
+           .arg("-b:a").arg("192k")
+           .arg("-movflags").arg("+faststart");
+
+        cmd.arg(temp_path.to_string_lossy().to_string());
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+
+        debug_log(&format!("Running ffmpeg trim/crop: {:?}", cmd));
+        let output = cmd.output().map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
+        let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if !output.status.success() {
+            if temp_path.exists() { let _ = secure_delete_file(&temp_path); }
+            return Err(format!("FFmpeg trim/crop failed: {}", stderr_str));
+        }
+
+        if !temp_path.exists() {
+            return Err("FFmpeg ran but trimmed file was not created".to_string());
+        }
+
+        let do_overwrite = overwrite.unwrap_or(false);
+        let target_path = if do_overwrite {
+            input_path.clone()
+        } else {
+            let base_prefix = crate::commands::filesystem::extract_base_prefix(&stem);
+            let next_num = crate::commands::filesystem::get_next_sequence_num(parent, &base_prefix, &out_ext);
+            let mut candidate = parent.join(format!("{}_{:03}.{}", base_prefix, next_num, out_ext));
+            let mut counter = next_num;
+            while candidate.exists() {
+                counter += 1;
+                candidate = parent.join(format!("{}_{:03}.{}", base_prefix, counter, &out_ext));
+            }
+            candidate
+        };
+
+        if do_overwrite {
+            let mut write_success = false;
+
+            // Strategy 1: Direct copy
+            if fs::copy(&temp_path, &target_path).is_ok() {
+                write_success = true;
+            } else {
+                // Strategy 2: Small pause then rename-replace
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                let backup_path = parent.join(format!("{}.bak_{}", stem, timestamp));
+                if fs::rename(&target_path, &backup_path).is_ok() {
+                    if fs::copy(&temp_path, &target_path).is_ok() {
+                        write_success = true;
+                        let _ = secure_delete_file(&backup_path);
+                    } else {
+                        let _ = fs::rename(&backup_path, &target_path);
+                    }
+                }
+            }
+
+            // Strategy 3: Byte-level write
+            if !write_success {
+                if let Ok(bytes) = fs::read(&temp_path) {
+                    if fs::write(&target_path, &bytes).is_ok() {
+                        write_success = true;
+                    }
+                }
+            }
+
+            if !write_success {
+                let _ = secure_delete_file(&temp_path);
+                return Err(format!("Failed to overwrite video file '{}'. The file may be in use.", clean_path));
+            }
+        } else {
+            fs::copy(&temp_path, &target_path)
+                .map_err(|e| format!("Failed to write trimmed video to destination: {}", e))?;
+        }
+        let _ = secure_delete_file(&temp_path);
+
+        debug_log(&format!("Trimmed/Cropped video saved to: {:?}", target_path));
+        Ok(target_path.to_string_lossy().to_string())
+    }).await.map_err(|e| e.to_string())?
+}
+

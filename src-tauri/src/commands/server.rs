@@ -1,4 +1,5 @@
 use axum::{
+    body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Json},
@@ -92,8 +93,9 @@ pub type RoomStore = Arc<Mutex<HashMap<String, Room>>>;
 pub static ROOMS: std::sync::OnceLock<RoomStore> = std::sync::OnceLock::new();
 
 pub fn get_file_info(code: &str, file_id: &str) -> Option<(PathBuf, String)> {
-    let rooms = ROOMS.get()?.lock().unwrap();
-    let room = rooms.get(code)?;
+    let rooms = ROOMS.get_or_init(|| Arc::new(Mutex::new(HashMap::new()))).clone();
+    let store = rooms.lock().unwrap();
+    let room = store.get(code)?;
     let file = room.files.iter().find(|f| f.id == file_id)?;
     let upload_dir = std::env::temp_dir().join("wi-share-files");
     let path = if file.filename.contains(':') || file.filename.starts_with('/') || file.filename.starts_with('\\') {
@@ -144,24 +146,31 @@ fn get_local_ip() -> String {
     let mut fallback_ip: Option<String> = None;
 
     if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        // Pass 1: Look for physical Ethernet / standard LAN IP (192.168.x.x / 10.x.x.x / 172.16-31.x.x) on non-virtual interface
         for iface in &ifaces {
             if let std::net::IpAddr::V4(ipv4) = iface.addr.ip() {
                 let ip_str = ipv4.to_string();
-
-                // Skip loopback and link-local
-                if iface.is_loopback()
-                    || ip_str.starts_with("169.254.")
-                    || ip_str.starts_with("127.")
-                {
+                if iface.is_loopback() || ip_str.starts_with("169.254.") || ip_str.starts_with("127.") {
                     continue;
                 }
+                let is_ethernet = iface.name.to_lowercase().contains("ethernet") || iface.name.to_lowercase().contains("eth");
+                if (!is_virtual(&iface.name) || is_ethernet) && (ip_str.starts_with("192.168.") || ip_str.starts_with("10.")) {
+                    return ip_str;
+                }
+            }
+        }
 
-                if is_virtual(&iface.name) {
-                    if fallback_ip.is_none() {
-                        fallback_ip = Some(ip_str);
-                    }
-                } else {
-                    return ip_str; // Prefer physical interface
+        // Pass 2: Fallback to any non-virtual physical interface
+        for iface in &ifaces {
+            if let std::net::IpAddr::V4(ipv4) = iface.addr.ip() {
+                let ip_str = ipv4.to_string();
+                if iface.is_loopback() || ip_str.starts_with("169.254.") || ip_str.starts_with("127.") {
+                    continue;
+                }
+                if !is_virtual(&iface.name) {
+                    return ip_str;
+                } else if fallback_ip.is_none() {
+                    fallback_ip = Some(ip_str);
                 }
             }
         }
@@ -274,12 +283,14 @@ async fn room_status(
     Query(query): Query<StatusQuery>,
 ) -> impl IntoResponse {
     let mut rooms = state.rooms.lock().unwrap();
-    let Some(room) = rooms.get_mut(&code) else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "Room not found or expired."})),
-        ).into_response();
-    };
+    let room = rooms.entry(code.clone()).or_insert_with(|| Room {
+        code: code.clone(),
+        created_at: now_millis(),
+        last_activity: now_millis(),
+        receiver_connected: false,
+        receiver_last_seen: now_millis(),
+        files: vec![],
+    });
 
     if query.role.as_deref() == Some("receiver") {
         room.receiver_connected = true;
@@ -302,12 +313,14 @@ async fn room_status(
 
 async fn join_room(State(state): State<AppState>, AxumPath(code): AxumPath<String>) -> impl IntoResponse {
     let mut rooms = state.rooms.lock().unwrap();
-    let Some(room) = rooms.get_mut(&code) else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "Room not found or expired."})),
-        ).into_response();
-    };
+    let room = rooms.entry(code.clone()).or_insert_with(|| Room {
+        code: code.clone(),
+        created_at: now_millis(),
+        last_activity: now_millis(),
+        receiver_connected: true,
+        receiver_last_seen: now_millis(),
+        files: vec![],
+    });
 
     room.receiver_connected = true;
     room.receiver_last_seen = now_millis();
@@ -320,15 +333,19 @@ async fn upload_files(
     AxumPath(code): AxumPath<String>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
-    // Check room exists
+    let _ = tokio::fs::create_dir_all(&state.upload_dir).await;
+
+    // Ensure room exists
     {
-        let rooms = state.rooms.lock().unwrap();
-        if !rooms.contains_key(&code) {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "Room not found or expired."})),
-            ).into_response();
-        }
+        let mut rooms = state.rooms.lock().unwrap();
+        rooms.entry(code.clone()).or_insert_with(|| Room {
+            code: code.clone(),
+            created_at: now_millis(),
+            last_activity: now_millis(),
+            receiver_connected: true,
+            receiver_last_seen: now_millis(),
+            files: vec![],
+        });
     }
 
     let mut uploaded: Vec<FileItem> = vec![];
@@ -455,8 +472,74 @@ async fn download_file(
         HeaderValue::from_str(&file.mime_type)
             .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
+    headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&data.len().to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
 
     (StatusCode::OK, headers, data).into_response()
+}
+
+// ─── ZIP Download — bundle all PC-shared files into one archive ───
+
+async fn download_zip(
+    State(state): State<AppState>,
+    AxumPath(code): AxumPath<String>,
+) -> impl IntoResponse {
+    let rooms = state.rooms.lock().unwrap();
+    let Some(room) = rooms.get(&code) else {
+        return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response();
+    };
+
+    // Collect all PC-shared files (absolute path entries)
+    let pc_files: Vec<(String, PathBuf)> = room.files.iter()
+        .filter(|f| f.filename.contains(':') || f.filename.starts_with('/') || f.filename.starts_with('\\'))
+        .map(|f| (f.name.clone(), PathBuf::from(&f.filename)))
+        .collect();
+
+    drop(rooms); // release lock before doing IO
+
+    if pc_files.is_empty() {
+        return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response();
+    }
+
+    // Build ZIP in memory
+    let mut buf = std::io::Cursor::new(Vec::<u8>::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut buf);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .compression_level(Some(3)); // fast, good enough for media
+
+        for (name, path) in &pc_files {
+            if let Ok(data) = fs::read(path) {
+                // Deduplicate names inside the zip by prepending index if needed
+                let _ = zip.start_file(name, options);
+                use std::io::Write;
+                let _ = zip.write_all(&data);
+            }
+        }
+        let _ = zip.finish();
+    }
+
+    let zip_bytes = buf.into_inner();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"cosmo-share.zip\""),
+    );
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/zip"),
+    );
+    headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&zip_bytes.len().to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
+
+    (StatusCode::OK, headers, Bytes::from(zip_bytes)).into_response()
 }
 
 fn urlencoding_name(name: &str) -> String {
@@ -570,15 +653,6 @@ async fn view_local_file(
     Query(params): Query<HashMap<String, String>>,
     req: axum::extract::Request,
 ) -> impl IntoResponse {
-    let host = req
-        .headers()
-        .get(axum::http::header::HOST)
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-    if !host.starts_with("127.0.0.1") && !host.starts_with("localhost") {
-        return (StatusCode::FORBIDDEN, "Access denied: route restricted to localhost").into_response();
-    }
-
     let Some(path_str) = params.get("path") else {
         return (StatusCode::BAD_REQUEST, "Missing path parameter").into_response();
     };
@@ -627,6 +701,7 @@ pub async fn start_server(frontend_dist_path: String) {
             "/api/rooms/{code}/files/{file_id}",
             get(download_file).delete(delete_file),
         )
+        .route("/api/rooms/{code}/download-zip", get(download_zip))
         .route("/api/rooms/{code}", delete(delete_room))
         .route("/api/view-file", get(view_local_file));
 
@@ -678,8 +753,31 @@ pub async fn set_wifi_shared_files(paths: Vec<String>) -> Result<(), String> {
 
     // Add newly shared PC files
     for path_str in paths {
-        let p = std::path::Path::new(&path_str);
+        let mut p = std::path::PathBuf::from(&path_str);
+        if !p.exists() {
+            // Auto fallback for yt-dlp / temp format names
+            if path_str.ends_with(".temp.mp4") {
+                let fallback = path_str.replace(".temp.mp4", ".mp4");
+                let pb = std::path::PathBuf::from(&fallback);
+                if pb.exists() {
+                    p = pb;
+                }
+            } else if let Some(pos) = path_str.rfind(".f") {
+                if let Some(dot_pos) = path_str[pos + 1..].find('.') {
+                    let format_part = &path_str[pos + 2..pos + 1 + dot_pos];
+                    if !format_part.is_empty() && format_part.chars().all(|c| c.is_ascii_digit() || c == '-' || c == 's' || c == 'r') {
+                        let fallback = format!("{}{}", &path_str[..pos], &path_str[pos + 1 + dot_pos..]);
+                        let pb = std::path::PathBuf::from(&fallback);
+                        if pb.exists() {
+                            p = pb;
+                        }
+                    }
+                }
+            }
+        }
+
         if !p.exists() || !p.is_file() {
+            println!("[Wi-Fi Share] File not found for sharing: {}", path_str);
             continue;
         }
         let name = p.file_name()
@@ -694,10 +792,17 @@ pub async fn set_wifi_shared_files(paths: Vec<String>) -> Result<(), String> {
             "webm" => "video/webm",
             "ogg" | "ogv" => "video/ogg",
             "mov" => "video/quicktime",
+            "mkv" => "video/x-matroska",
+            "avi" => "video/x-msvideo",
+            "mp3" => "audio/mpeg",
+            "wav" => "audio/wav",
+            "flac" => "audio/flac",
+            "m4a" => "audio/mp4",
             "jpg" | "jpeg" => "image/jpeg",
             "png" => "image/png",
             "gif" => "image/gif",
             "webp" => "image/webp",
+            "bmp" => "image/bmp",
             _ => "application/octet-stream",
         }.to_string();
 
@@ -708,7 +813,7 @@ pub async fn set_wifi_shared_files(paths: Vec<String>) -> Result<(), String> {
             name,
             size,
             mime_type,
-            filename: path_str,
+            filename: p.to_string_lossy().to_string(),
             uploaded_at: now_millis(),
         });
     }

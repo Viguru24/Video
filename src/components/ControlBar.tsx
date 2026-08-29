@@ -184,9 +184,12 @@ export function ControlBar({
     renameHistory,
     aiHardwareStatus,
     quickFolders, setQuickFolders,
+    autoSyncFolders, toggleAutoSyncFolder,
     showInAppBrowser, setShowInAppBrowser,
     inAppBrowserPath, setInAppBrowserPath,
+    setInAppBrowserCollapsed,
     enableSlideshowPanZoom, setEnableSlideshowPanZoom,
+    folderSwitchDelay, setFolderSwitchDelay,
     sortOrder, setSortOrder
   } = useStore();
   const [showBatchRename, setShowBatchRename] = useState(false);
@@ -285,6 +288,7 @@ export function ControlBar({
 
   const handleOpenInAppBrowser = (path: string) => {
     setInAppBrowserPath(path);
+    setInAppBrowserCollapsed(false);
     setShowInAppBrowser(true);
     setShowQuickFoldersDropdown(false);
   };
@@ -549,34 +553,57 @@ export function ControlBar({
                       {quickFolders.length === 0 ? (
                         <div className="quick-folders-empty">No folders pinned. Click Pin Folder to start.</div>
                       ) : (
-                        quickFolders.map(folder => (
-                          <div key={folder.id} className="quick-folder-item">
-                            <button 
-                              className="quick-folder-link"
-                              onClick={() => handleOpenInAppBrowser(folder.path)}
-                              title={folder.path}
-                            >
-                              <FolderOpen size={12} className="folder-item-icon" />
-                              <span className="folder-item-name">{folder.name}</span>
-                            </button>
-                            <div className="quick-folder-actions">
+                        quickFolders.map(folder => {
+                          const isAutoSync = autoSyncFolders.some(p => p.replace(/[\\/]+$/, '') === folder.path.replace(/[\\/]+$/, ''));
+                          return (
+                            <div key={folder.id} className="quick-folder-item">
                               <button 
-                                className="quick-folder-action-btn edit" 
-                                onClick={() => handleRenamePinnedFolder(folder.id)}
-                                title="Rename Pin"
+                                className="quick-folder-link"
+                                onClick={() => handleOpenInAppBrowser(folder.path)}
+                                title={folder.path}
                               >
-                                <Type size={11} />
+                                <FolderOpen size={12} className="folder-item-icon" />
+                                <span className="folder-item-name">{folder.name}</span>
                               </button>
-                              <button 
-                                className="quick-folder-action-btn delete" 
-                                onClick={() => handleUnpinFolder(folder.id)}
-                                title="Unpin Folder"
-                              >
-                                <X size={11} />
-                              </button>
+                              <div className="quick-folder-actions">
+                                <button 
+                                  className={`quick-folder-action-btn sync ${isAutoSync ? 'active' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleAutoSyncFolder(folder.path);
+                                    addLog(`Auto-Sync ${isAutoSync ? 'disabled' : 'enabled'} for "${folder.name}"`);
+                                  }}
+                                  title={isAutoSync ? "Auto-Add New Files: ACTIVE (Click to Disable)" : "Auto-Add New Files: OFF (Click to Enable)"}
+                                  style={{
+                                    color: isAutoSync ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.4)',
+                                    background: isAutoSync ? 'rgba(0, 255, 136, 0.15)' : 'transparent',
+                                    border: isAutoSync ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid transparent',
+                                    borderRadius: '4px',
+                                    padding: '2px 4px',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                  }}
+                                >
+                                  <Zap size={11} fill={isAutoSync ? "currentColor" : "none"} />
+                                </button>
+                                <button 
+                                  className="quick-folder-action-btn edit" 
+                                  onClick={() => handleRenamePinnedFolder(folder.id)}
+                                  title="Rename Pin"
+                                >
+                                  <Type size={11} />
+                                </button>
+                                <button 
+                                  className="quick-folder-action-btn delete" 
+                                  onClick={() => handleUnpinFolder(folder.id)}
+                                  title="Unpin Folder"
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -1082,14 +1109,14 @@ export function ControlBar({
               {/* SLIDESHOW TIMER WIDGET */}
               <div 
                 className="slideshow-interval-badge"
-                data-tooltip={`${isSlideshowActive ? "Pause Slideshow" : "Play All Fullscreen (Slideshow)"} - Interval: ${slideshowInterval}s (Scroll wheel to adjust)`}
+                data-tooltip={`${isSlideshowActive ? "Pause Slideshow" : "Play All Fullscreen (Slideshow)"} - Interval: ${(slideshowInterval && !isNaN(slideshowInterval)) ? slideshowInterval : 5}s (Scroll wheel to adjust)`}
                 onClick={() => setIsSlideshowActive(!isSlideshowActive)}
                 onWheel={(e) => {
                   e.stopPropagation();
                   const direction = e.deltaY < 0 ? 1 : -1;
                   setSlideshowInterval((prev) => {
-                    const next = prev + direction;
-                    return Math.max(2, Math.min(30, next));
+                    const current = typeof prev === 'number' && !isNaN(prev) ? prev : 5;
+                    return Math.max(1, Math.min(60, current + direction));
                   });
                 }}
                 style={{
@@ -1128,7 +1155,51 @@ export function ControlBar({
               >
                 {isSlideshowActive ? <Pause size={11} /> : <Play size={11} />}
                 <RefreshCw size={11} className={isSlideshowActive ? "spin-slow" : ""} style={{ color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.7)' }} />
-                <span>{slideshowInterval}s</span>
+                <span>{(slideshowInterval && !isNaN(slideshowInterval)) ? slideshowInterval : 5}s</span>
+              </div>
+
+              {/* FOLDER FILE DELAY WIDGET */}
+              <div 
+                className="folder-delay-badge"
+                data-tooltip={`Folder File Delay: ${(folderSwitchDelay && !isNaN(folderSwitchDelay)) ? folderSwitchDelay : 10}s (Scroll wheel to adjust exact seconds)`}
+                onClick={() => setShowSettings(true)}
+                onWheel={(e) => {
+                  e.stopPropagation();
+                  const direction = e.deltaY < 0 ? 1 : -1;
+                  setFolderSwitchDelay((prev) => {
+                    const current = typeof prev === 'number' && !isNaN(prev) ? prev : 10;
+                    return Math.max(1, Math.min(120, current + direction));
+                  });
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: 'rgba(0, 255, 136, 0.08)',
+                  border: '1px solid rgba(0, 255, 136, 0.3)',
+                  borderRadius: '6px',
+                  height: '28px',
+                  padding: '0 8px',
+                  color: 'var(--accent, #00ff88)',
+                  fontSize: '11px',
+                  fontFamily: 'monospace',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  transition: 'all 0.2s',
+                  marginRight: '4px',
+                  pointerEvents: 'auto',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.18)';
+                  e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.08)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <FolderOpen size={11} />
+                <span>{(folderSwitchDelay && !isNaN(folderSwitchDelay)) ? folderSwitchDelay : 10}s</span>
               </div>
 
               {/* SLIDESHOW PAN & ZOOM TOGGLE */}

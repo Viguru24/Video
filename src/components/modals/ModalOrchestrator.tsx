@@ -13,6 +13,10 @@ import { CustomConfirmModal } from './CustomConfirmModal';
 import { CustomPromptModal } from './CustomPromptModal';
 import { WifiShareModal } from '../WifiShareModal';
 import { VolumeRepeatModal } from '../VolumeRepeatModal';
+import { VideoTrimCropModal } from './VideoTrimCropModal';
+import { WhatsAppShareModal } from './WhatsAppShareModal';
+import { useStore } from '../../store/useStore';
+import { toCosmoUrl } from '../../utils/videoUtils';
 
 const HelpModal = lazy(() => import('../HelpModal').then(m => ({ default: m.HelpModal })));
 
@@ -160,6 +164,11 @@ export function ModalOrchestrator({
   videos,
   handleUpdate
 }: ModalOrchestratorProps) {
+  const trimCropModalTarget = useStore((s) => s.trimCropModalTarget);
+  const setTrimCropModalTarget = useStore((s) => s.setTrimCropModalTarget);
+  const whatsAppShareTarget = useStore((s) => s.whatsAppShareTarget);
+  const setWhatsAppShareTarget = useStore((s) => s.setWhatsAppShareTarget);
+
   return (
     <>
       <Suspense fallback={null}>
@@ -278,6 +287,41 @@ export function ModalOrchestrator({
         videos={videos}
         onUpdateVideo={handleUpdate}
       />
+
+      {trimCropModalTarget && (
+        <VideoTrimCropModal
+          target={trimCropModalTarget}
+          onClose={() => setTrimCropModalTarget(null)}
+          addLog={addLog}
+          onSuccess={(newPath, isOverwrite, targetId) => {
+            const effectiveId = targetId || trimCropModalTarget?.id;
+            if (isOverwrite && effectiveId) {
+              const cacheBuster = `t=${Date.now()}`;
+              const cleanUrl = toCosmoUrl(newPath).split('?')[0];
+              const newUrl = `${cleanUrl}?${cacheBuster}`;
+              setVideos((prev) =>
+                prev.map((v) =>
+                  v.id === effectiveId
+                    ? { ...v, url: newUrl, realPath: newPath, duration: undefined }
+                    : v
+                )
+              );
+              addLog(`✅ Replaced video in-place: ${newPath}`);
+            } else if (!isOverwrite) {
+              handleIngestPaths([newPath]);
+              addLog(`✅ Saved new trimmed clip: ${newPath}`);
+            }
+          }}
+        />
+      )}
+
+      {whatsAppShareTarget && (
+        <WhatsAppShareModal
+          target={whatsAppShareTarget}
+          onClose={() => setWhatsAppShareTarget(null)}
+          addLog={addLog}
+        />
+      )}
     </>
   );
 }

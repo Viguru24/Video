@@ -59,6 +59,14 @@ interface GlobalState {
   removeFromRenameHistory: (name: string) => void;
   updateRenameHistory: (oldName: string, newName: string) => void;
 
+  // Trim & Crop Studio State
+  trimCropModalTarget: VideoItem | null;
+  setTrimCropModalTarget: (target: VideoItem | null) => void;
+
+  // WhatsApp Share State
+  whatsAppShareTarget: VideoItem | null;
+  setWhatsAppShareTarget: (target: VideoItem | null) => void;
+
   aiHardwareStatus: string;
   setAiHardwareStatus: (status: string) => void;
 
@@ -71,14 +79,28 @@ interface GlobalState {
   enableSlideshowPanZoom: boolean;
   setEnableSlideshowPanZoom: (val: boolean) => void;
 
+  autoAddNewFiles: boolean;
+  setAutoAddNewFiles: (val: boolean) => void;
+
+  folderSwitchDelay: number;
+  setFolderSwitchDelay: (val: number | ((prev: number) => number)) => void;
+
+  slideshowInterval: number;
+  setSlideshowInterval: (val: number | ((prev: number) => number)) => void;
+
 
   // Quick Folders & In-App Browser State
   quickFolders: { id: string; name: string; path: string }[];
   setQuickFolders: (folders: { id: string; name: string; path: string }[]) => void;
+  autoSyncFolders: string[];
+  setAutoSyncFolders: (folders: string[]) => void;
+  toggleAutoSyncFolder: (path: string) => void;
   showInAppBrowser: boolean;
   setShowInAppBrowser: (val: boolean) => void;
   inAppBrowserPath: string;
   setInAppBrowserPath: (path: string) => void;
+  inAppBrowserCollapsed: boolean;
+  setInAppBrowserCollapsed: (val: boolean) => void;
 
   // Music Player & Queue State
   showQueue: boolean;
@@ -168,6 +190,12 @@ export const useStore = create<GlobalState>((set) => ({
     return { renameHistory: next };
   }),
   
+  trimCropModalTarget: null,
+  setTrimCropModalTarget: (target) => set({ trimCropModalTarget: target }),
+
+  whatsAppShareTarget: null,
+  setWhatsAppShareTarget: (target) => set({ whatsAppShareTarget: target }),
+
   aiHardwareStatus: 'Detecting...',
   setAiHardwareStatus: (status: string) => set({ aiHardwareStatus: status }),
 
@@ -187,6 +215,48 @@ export const useStore = create<GlobalState>((set) => ({
   setEnableSlideshowPanZoom: (val) => {
     localStorage.setItem('cosmo-slideshow-panzoom', String(val));
     set({ enableSlideshowPanZoom: val });
+  },
+
+  autoAddNewFiles: localStorage.getItem('cosmo-auto-add-new-files') !== 'false',
+  setAutoAddNewFiles: (val) => {
+    localStorage.setItem('cosmo-auto-add-new-files', String(val));
+    set({ autoAddNewFiles: val });
+  },
+
+  folderSwitchDelay: (() => {
+    const saved = localStorage.getItem('cosmo-folder-switch-delay');
+    if (saved) {
+      const num = parseInt(saved, 10);
+      if (!isNaN(num) && num >= 1) return num;
+    }
+    return 10;
+  })(),
+  setFolderSwitchDelay: (val) => {
+    set((state) => {
+      const resolved = typeof val === 'function' ? (val as any)(state.folderSwitchDelay) : val;
+      const num = parseInt(String(resolved), 10);
+      const safeVal = isNaN(num) ? 10 : Math.max(1, num);
+      localStorage.setItem('cosmo-folder-switch-delay', String(safeVal));
+      return { folderSwitchDelay: safeVal };
+    });
+  },
+
+  slideshowInterval: (() => {
+    const saved = localStorage.getItem('cosmo-slideshow-interval');
+    if (saved) {
+      const num = parseInt(saved, 10);
+      if (!isNaN(num) && num >= 1) return num;
+    }
+    return 5;
+  })(),
+  setSlideshowInterval: (val) => {
+    set((state) => {
+      const resolved = typeof val === 'function' ? (val as any)(state.slideshowInterval) : val;
+      const num = parseInt(String(resolved), 10);
+      const safeVal = isNaN(num) ? 5 : Math.max(1, Math.min(120, num));
+      localStorage.setItem('cosmo-slideshow-interval', String(safeVal));
+      return { slideshowInterval: safeVal };
+    });
   },
 
 
@@ -210,10 +280,45 @@ export const useStore = create<GlobalState>((set) => ({
     localStorage.setItem('cosmo-quick-folders', JSON.stringify(folders));
     set({ quickFolders: folders });
   },
+  autoSyncFolders: (() => {
+    const saved = localStorage.getItem('cosmo-auto-sync-folders');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {
+        console.error('Failed to parse auto-sync folders:', e);
+      }
+    }
+    return [];
+  })(),
+  setAutoSyncFolders: (folders) => {
+    localStorage.setItem('cosmo-auto-sync-folders', JSON.stringify(folders));
+    set({ autoSyncFolders: folders });
+  },
+  toggleAutoSyncFolder: (path) => {
+    if (!path) return;
+    const cleanNorm = path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const current = (() => {
+      const saved = localStorage.getItem('cosmo-auto-sync-folders');
+      if (saved) {
+        try { return JSON.parse(saved) || []; } catch {}
+      }
+      return [];
+    })();
+    const exists = current.some((p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === cleanNorm);
+    const next = exists
+      ? current.filter((p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() !== cleanNorm)
+      : [...current, path];
+    localStorage.setItem('cosmo-auto-sync-folders', JSON.stringify(next));
+    set({ autoSyncFolders: next });
+  },
   showInAppBrowser: false,
   setShowInAppBrowser: (val) => set({ showInAppBrowser: val }),
   inAppBrowserPath: '',
   setInAppBrowserPath: (path) => set({ inAppBrowserPath: path }),
+  inAppBrowserCollapsed: false,
+  setInAppBrowserCollapsed: (val) => set({ inAppBrowserCollapsed: val }),
 
   // Music Player & Queue State
   showQueue: false,

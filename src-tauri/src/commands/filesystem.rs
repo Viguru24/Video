@@ -25,10 +25,46 @@ pub async fn select_files_cmd(app: AppHandle) -> Result<Vec<String>, String> {
     }
 }
 
+use rayon::prelude::*;
+use std::sync::RwLock;
+
+static STATS_CACHE: std::sync::OnceLock<RwLock<std::collections::HashMap<String, (u64, u64, u64)>>> = std::sync::OnceLock::new();
+
+pub fn get_cached_file_stats(p: &Path) -> (u64, u64, u64) {
+    let key = p.to_string_lossy().to_string();
+    let cache = STATS_CACHE.get_or_init(|| RwLock::new(std::collections::HashMap::new()));
+    
+    if let Ok(guard) = cache.read() {
+        if let Some(stats) = guard.get(&key) {
+            return *stats;
+        }
+    }
+    
+    let metadata = fs::metadata(p).ok();
+    let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+    let modified = metadata.as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let created = metadata.as_ref()
+        .and_then(|m| m.created().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    
+    let stats = (size, modified, created);
+    if let Ok(mut guard) = cache.write() {
+        if guard.len() < 20000 {
+            guard.insert(key, stats);
+        }
+    }
+    stats
+}
+
 #[tauri::command]
 pub async fn get_folder_videos(path: String, mode: String) -> Result<Vec<serde_json::Value>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut vids = Vec::new();
         let video_exts = ["mp4", "webm", "mov", "m4v", "3gp", "avi", "mkv", "flv", "wmv",
                           "ts", "mts", "m2ts", "vob", "mpg", "mpeg", "ogv", "divx", "rm", "rmvb"];
         let image_exts = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff",
@@ -52,53 +88,50 @@ pub async fn get_folder_videos(path: String, mode: String) -> Result<Vec<serde_j
             )
         }
 
-        fn scan_dir_recursive(dir: &Path, target_exts: &[&str], vids: &mut Vec<serde_json::Value>, depth: usize) {
-            if depth > 2 || vids.len() >= 5000 {
+        let mut collected_paths = Vec::new();
+        fn collect_file_paths(dir: &Path, target_exts: &[&str], out: &mut Vec<PathBuf>, depth: usize) {
+            if depth > 2 || out.len() >= 5000 {
                 return;
             }
             if let Ok(entries) = fs::read_dir(dir) {
                 for entry in entries.flatten() {
-                    if vids.len() >= 5000 {
+                    if out.len() >= 5000 {
                         break;
                     }
                     let p = entry.path();
                     if p.is_dir() {
                         if let Some(dir_name) = p.file_name().and_then(|s| s.to_str()) {
                             if !is_ignored_dir(dir_name) {
-                                scan_dir_recursive(&p, target_exts, vids, depth + 1);
+                                collect_file_paths(&p, target_exts, out, depth + 1);
                             }
                         }
                     } else if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
                         if target_exts.contains(&ext.to_lowercase().as_str()) {
-                            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                                let metadata = fs::metadata(&p).ok();
-                                let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
-                                let modified = metadata.as_ref()
-                                    .and_then(|m| m.modified().ok())
-                                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                    .map(|d| d.as_secs())
-                                    .unwrap_or(0);
-                                let created = metadata.as_ref()
-                                    .and_then(|m| m.created().ok())
-                                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                    .map(|d| d.as_secs())
-                                    .unwrap_or(0);
-
-                                vids.push(serde_json::json!({
-                                    "name": name,
-                                    "url": p.to_string_lossy().to_string(),
-                                    "size": size,
-                                    "modified": modified,
-                                    "created": created
-                                }));
-                            }
+                            out.push(p);
                         }
                     }
                 }
             }
         }
 
-        scan_dir_recursive(Path::new(&path), &target_exts, &mut vids, 0);
+        collect_file_paths(Path::new(&path), &target_exts, &mut collected_paths, 0);
+
+        // Process file metadata in parallel using Rayon across all CPU cores!
+        let vids: Vec<serde_json::Value> = collected_paths
+            .into_par_iter()
+            .filter_map(|p| {
+                let name = p.file_name()?.to_str()?.to_string();
+                let (size, modified, created) = get_cached_file_stats(&p);
+                Some(serde_json::json!({
+                    "name": name,
+                    "url": p.to_string_lossy().to_string(),
+                    "size": size,
+                    "modified": modified,
+                    "created": created
+                }))
+            })
+            .collect();
+
         Ok(vids)
     }).await.map_err(|e| e.to_string())?
 }
@@ -487,6 +520,39 @@ pub async fn get_subdirectories(dir_path: String) -> Result<Vec<String>, String>
 }
 
 #[tauri::command]
+pub async fn save_pasted_clipboard_image(app: AppHandle, base64_data: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine;
+        use tauri::Manager;
+
+        let clean_b64 = if base64_data.contains(',') {
+            base64_data.split(',').nth(1).unwrap_or(&base64_data)
+        } else {
+            &base64_data
+        };
+
+        let decoded_bytes = base64::engine::general_purpose::STANDARD
+            .decode(clean_b64)
+            .map_err(|e| format!("Base64 decode failed: {}", e))?;
+
+        let target_dir = app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from(".")).join("pasted_screenshots");
+        let _ = fs::create_dir_all(&target_dir);
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+
+        let file_name = format!("Screenshot_{}.png", timestamp);
+        let dest_path = target_dir.join(file_name);
+
+        fs::write(&dest_path, decoded_bytes).map_err(|e| format!("Failed to write screenshot file: {}", e))?;
+
+        Ok(dest_path.to_string_lossy().to_string())
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json::Value>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = Path::new(&dir_path);
@@ -509,6 +575,23 @@ pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json:
                 let is_dir = p.is_dir();
                 let mut is_media = false;
                 if !is_dir {
+                    let name_lower = name.to_lowercase();
+                    if name_lower.ends_with(".temp.mp4") 
+                        || name_lower.ends_with(".part") 
+                        || name_lower.ends_with(".crdownload") 
+                        || name_lower.ends_with(".tmp") 
+                        || name_lower.ends_with(".ytdl") 
+                        || name_lower.ends_with(".download") {
+                        continue;
+                    }
+                    if let Some(pos) = name_lower.rfind(".f") {
+                        if let Some(dot_pos) = name_lower[pos + 1..].find('.') {
+                            let fmt = &name_lower[pos + 2..pos + 1 + dot_pos];
+                            if !fmt.is_empty() && fmt.chars().all(|c| c.is_ascii_digit() || c == '-' || c == 's' || c == 'r') {
+                                continue;
+                            }
+                        }
+                    }
                     if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
                         let ext_lower = ext.to_lowercase();
                         is_media = video_exts.contains(&ext_lower.as_str()) || image_exts.contains(&ext_lower.as_str());
@@ -522,6 +605,9 @@ pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json:
                 let mut modified = 0u64;
                 if let Ok(metadata) = p.metadata() {
                     size = metadata.len();
+                    if !is_dir && size == 0 {
+                        continue; // Skip 0-byte ghost/incomplete files
+                    }
                     if let Ok(time) = metadata.modified() {
                         if let Ok(duration) = time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
                             modified = duration.as_secs();
@@ -796,6 +882,28 @@ pub fn file_exists(path: String) -> bool {
 }
 
 #[tauri::command]
+pub fn check_path_drive_status(path: String) -> serde_json::Value {
+    let clean = clean_local_path(&path);
+    let p = Path::new(&clean);
+    let exists = p.exists();
+
+    let mut drive_root = String::new();
+    let mut drive_accessible = true;
+
+    if clean.len() >= 2 && clean.chars().nth(1) == Some(':') {
+        let letter = &clean[0..2];
+        drive_root = format!("{}\\", letter);
+        drive_accessible = Path::new(&drive_root).exists();
+    }
+
+    serde_json::json!({
+        "exists": exists,
+        "drive_root": drive_root,
+        "drive_accessible": drive_accessible
+    })
+}
+
+#[tauri::command]
 pub async fn duplicate_file_on_disk(src_path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let clean_src = clean_local_path(&src_path);
@@ -976,10 +1084,13 @@ pub async fn secure_delete_file(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path_obj = Path::new(&path);
         if !path_obj.exists() {
-            return Err("File not found".to_string());
+            return Ok(());
         }
         
-        let metadata = fs::metadata(&path_obj).map_err(|e| e.to_string())?;
+        let metadata = match fs::metadata(&path_obj) {
+            Ok(m) => m,
+            Err(_) => return Ok(()),
+        };
         if !metadata.is_file() {
             return Err("Only files can be securely deleted".to_string());
         }
@@ -1063,20 +1174,135 @@ pub async fn secure_delete_file(path: String) -> Result<(), String> {
     }).await.map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct BatchDeleteResult {
+    pub success_count: usize,
+    pub fail_count: usize,
+}
+
+#[tauri::command]
+pub async fn secure_delete_files_batch(paths: Vec<String>) -> Result<BatchDeleteResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut success_count = 0;
+        let mut fail_count = 0;
+        let mut touched_drives = std::collections::HashSet::new();
+
+        for path in paths {
+            let path_obj = Path::new(&path);
+            if !path_obj.exists() {
+                continue;
+            }
+
+            let metadata = match fs::metadata(&path_obj) {
+                Ok(m) => m,
+                Err(_) => {
+                    fail_count += 1;
+                    continue;
+                }
+            };
+
+            if !metadata.is_file() {
+                fail_count += 1;
+                continue;
+            }
+
+            let file_size = metadata.len();
+            let abs_path = path_obj.canonicalize().unwrap_or_else(|_| path_obj.to_path_buf());
+            let abs_path_str = abs_path.to_string_lossy();
+            let clean_path = if abs_path_str.starts_with(r"\\?\") {
+                &abs_path_str[4..]
+            } else {
+                &abs_path_str
+            };
+
+            let drive_letter = clean_path
+                .chars()
+                .next()
+                .map(|c| c.to_ascii_uppercase());
+
+            if let Some(dl) = drive_letter {
+                touched_drives.insert(dl);
+            }
+
+            let is_ssd = if let Some(dl) = drive_letter {
+                detect_is_ssd(dl)
+            } else {
+                false
+            };
+
+            if is_ssd {
+                // Delete file immediately; batched TRIM will be triggered once at the end
+                if fs::remove_file(&path_obj).is_ok() {
+                    success_count += 1;
+                } else {
+                    fail_count += 1;
+                }
+            } else {
+                // Traditional HDD: Overwrite 3 passes with random/zero patterns, truncate, then delete
+                let mut overwrite_ok = true;
+                for pass in 0..3 {
+                    if let Ok(mut file) = fs::OpenOptions::new().write(true).open(&path_obj) {
+                        use std::io::{Seek, SeekFrom, Write};
+                        let _ = file.seek(SeekFrom::Start(0));
+                        let chunk = match pass {
+                            0 => vec![0u8; 65536],
+                            1 => vec![255u8; 65536],
+                            _ => {
+                                let mut r = vec![0u8; 65536];
+                                use std::time::SystemTime;
+                                let seed = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+                                let mut seed_u64 = (seed & 0xFFFFFFFFFFFFFFFF) as u64;
+                                for i in 0..r.len() {
+                                    seed_u64 = seed_u64.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                                    r[i] = (seed_u64 >> 56) as u8;
+                                }
+                                r
+                            }
+                        };
+                        let mut remaining = file_size;
+                        while remaining > 0 {
+                            let write_size = remaining.min(65536) as usize;
+                            if file.write_all(&chunk[..write_size]).is_err() {
+                                overwrite_ok = false;
+                                break;
+                            }
+                            remaining -= write_size as u64;
+                        }
+                        let _ = file.flush();
+                    } else {
+                        overwrite_ok = false;
+                        break;
+                    }
+                }
+                if overwrite_ok {
+                    if let Ok(file) = fs::OpenOptions::new().write(true).open(&path_obj) {
+                        let _ = file.set_len(0);
+                    }
+                }
+                if fs::remove_file(&path_obj).is_ok() {
+                    success_count += 1;
+                } else {
+                    fail_count += 1;
+                }
+            }
+        }
+
+        // Trigger hardware TRIM ONCE per touched drive in the background
+        for dl in touched_drives {
+            let _ = trigger_hardware_trim(dl, 0, 0);
+        }
+
+        Ok(BatchDeleteResult { success_count, fail_count })
+    }).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn get_file_stats(path: String) -> Result<(u64, u64, u64), String> {
     let p = Path::new(&path);
-    let metadata = fs::metadata(&p).map_err(|e| e.to_string())?;
-    let size = metadata.len();
-    let modified = metadata.modified().ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let created = metadata.created().ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    Ok((size, modified, created))
+    if !p.exists() {
+        return Err("File does not exist".into());
+    }
+    Ok(get_cached_file_stats(p))
 }
 
 #[tauri::command]
@@ -1085,17 +1311,14 @@ pub async fn watch_directory(
     state: State<'_, DirectoryWatcherState>,
     dir_path: String,
 ) -> Result<(), String> {
-    let mut lock = state.watcher.lock().map_err(|e| e.to_string())?;
-    
-    if let Some((current_path, _)) = &*lock {
-        if current_path == &dir_path {
-            return Ok(());
-        }
+    if dir_path.trim().is_empty() {
+        return Ok(());
     }
     
-    *lock = None;
+    let mut map = state.watchers.lock().map_err(|e| e.to_string())?;
+    let normalized_key = dir_path.replace('\\', "/").trim_end_matches('/').to_lowercase();
     
-    if dir_path.is_empty() {
+    if map.contains_key(&normalized_key) {
         return Ok(());
     }
     
@@ -1107,10 +1330,20 @@ pub async fn watch_directory(
     let app_clone = app.clone();
     let dir_path_clone = dir_path.clone();
     
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let last_emit = std::sync::Arc::new(AtomicU64::new(0));
+    let last_emit_clone = last_emit.clone();
+
     use notify::{Watcher, RecursiveMode};
     let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-        if let Ok(event) = res {
-            if event.kind.is_create() || event.kind.is_modify() || event.kind.is_remove() {
+        if let Ok(_event) = res {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let prev = last_emit_clone.load(Ordering::Relaxed);
+            if now.saturating_sub(prev) > 300 {
+                last_emit_clone.store(now, Ordering::Relaxed);
                 let _ = app_clone.emit("directory-changed", dir_path_clone.clone());
             }
         }
@@ -1118,6 +1351,20 @@ pub async fn watch_directory(
     
     watcher.watch(path, RecursiveMode::NonRecursive).map_err(|e| e.to_string())?;
     
-    *lock = Some((dir_path, watcher));
+    map.insert(normalized_key, watcher);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn unwatch_directory(
+    state: State<'_, DirectoryWatcherState>,
+    dir_path: String,
+) -> Result<(), String> {
+    if dir_path.trim().is_empty() {
+        return Ok(());
+    }
+    let mut map = state.watchers.lock().map_err(|e| e.to_string())?;
+    let normalized_key = dir_path.replace('\\', "/").trim_end_matches('/').to_lowercase();
+    map.remove(&normalized_key);
     Ok(())
 }
