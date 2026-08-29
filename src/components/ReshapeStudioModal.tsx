@@ -219,7 +219,7 @@ export function ReshapeStudioModal({
     }
   };
 
-  // Keyboard Shortcuts: Ctrl+Z (Undo) / Ctrl+Y (Redo)
+  // Keyboard Shortcuts: Ctrl+Z (Undo) / Ctrl+Y (Redo) / [ and ] (Brush Size)
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -233,11 +233,19 @@ export function ReshapeStudioModal({
       } else if (e.ctrlKey && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         handleRedo();
+      } else if (e.key === '[') {
+        e.preventDefault();
+        const delta = e.shiftKey ? 5 : (brushSize <= 10 ? 1 : 3);
+        setBrushSize(prev => Math.max(1, prev - delta));
+      } else if (e.key === ']') {
+        e.preventDefault();
+        const delta = e.shiftKey ? 5 : (brushSize < 10 ? 1 : 3);
+        setBrushSize(prev => Math.min(600, prev + delta));
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, historyStep, historyStack]);
+  }, [isOpen, historyStep, historyStack, brushSize]);
 
   const renderCanvas = () => {
     const mainCanvas = canvasRef.current;
@@ -909,17 +917,64 @@ export function ReshapeStudioModal({
                   </button>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '130px' }}>
-                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)' }}>Brush Size: {brushSize}px</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '150px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.7)', fontWeight: 700 }}>Brush Size:</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                      <input
+                        type="number"
+                        min="1"
+                        max="600"
+                        value={brushSize}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (!isNaN(val)) setBrushSize(Math.max(1, Math.min(600, val)));
+                        }}
+                        style={{
+                          width: '38px',
+                          background: 'rgba(255,255,255,0.1)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          color: 'var(--accent, #00ff88)',
+                          fontSize: '10px',
+                          fontWeight: 800,
+                          padding: '1px 3px',
+                          textAlign: 'center'
+                        }}
+                      />
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>px</span>
+                    </div>
+                  </div>
                   <input
                     type="range"
-                    min="10"
+                    min="1"
                     max="600"
-                    step="5"
+                    step="1"
                     value={brushSize}
-                    onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                    onChange={(e) => setBrushSize(parseInt(e.target.value) || 1)}
                     style={{ accentColor: 'var(--accent, #00ff88)' }}
+                    title="Brush Size (Shortcut: [ to shrink down to 1px, ] to enlarge)"
                   />
+                  <div style={{ display: 'flex', gap: '3px', marginTop: '1px' }}>
+                    {[1, 5, 15, 45, 120].map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => setBrushSize(size)}
+                        style={{
+                          background: brushSize === size ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.08)',
+                          color: brushSize === size ? '#000' : 'rgba(255,255,255,0.7)',
+                          border: 'none',
+                          borderRadius: '3px',
+                          fontSize: '8px',
+                          fontWeight: 700,
+                          padding: '1px 4px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {size}p
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '110px' }}>
