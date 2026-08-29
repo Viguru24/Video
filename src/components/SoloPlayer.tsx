@@ -1119,6 +1119,8 @@ export function SoloPlayer({
             onClose={() => setShowReshapeModal(false)}
             onLog={addLog}
             setVideos={setVideos}
+            onFocusMedia={setFocusedId}
+            onUpdateVideo={onUpdateVideo}
           />
         )}
 
@@ -1129,6 +1131,8 @@ export function SoloPlayer({
             onClose={() => setShowFrameModal(false)}
             onLog={addLog}
             setVideos={setVideos}
+            onFocusMedia={setFocusedId}
+            onUpdateVideo={onUpdateVideo}
           />
         )}
 
@@ -1139,6 +1143,8 @@ export function SoloPlayer({
             onClose={() => setShowPortraitBlurModal(false)}
             onLog={addLog}
             setVideos={setVideos}
+            onFocusMedia={setFocusedId}
+            onUpdateVideo={onUpdateVideo}
           />
         )}
       </div>
