@@ -59,7 +59,7 @@ export function PortraitBlurStudioModal({
         // 1. Load Original Photo
         const origImg = new Image();
         origImg.crossOrigin = 'anonymous';
-        origImg.src = convertToVideoUrl(video);
+        origImg.src = toCosmoUrl(targetPath);
         await new Promise((res, rej) => {
           origImg.onload = res;
           origImg.onerror = rej;
@@ -134,81 +134,34 @@ export function PortraitBlurStudioModal({
 
     ctx.clearRect(0, 0, w, h);
 
-    // 1. Draw De-Haloed Background Layer (Erases bright skin tones from background before blurring)
+    // 1. Draw Background Layer (Optical Bokeh Blur)
     ctx.save();
     if (blurRadius > 0) {
-      if (antiHaloBleed && cutoutImg) {
-        const bgCanvas = document.createElement('canvas');
-        bgCanvas.width = w;
-        bgCanvas.height = h;
-        const bgCtx = bgCanvas.getContext('2d');
-        if (bgCtx) {
-          bgCtx.drawImage(origImg, 0, 0, w, h);
-          bgCtx.save();
-          bgCtx.globalCompositeOperation = 'destination-out';
-          bgCtx.filter = 'blur(12px)';
-          bgCtx.drawImage(cutoutImg, 0, 0, w, h);
-          bgCtx.restore();
-
-          const fillCanvas = document.createElement('canvas');
-          fillCanvas.width = w;
-          fillCanvas.height = h;
-          const fillCtx = fillCanvas.getContext('2d');
-          if (fillCtx) {
-            fillCtx.drawImage(origImg, 0, 0, w, h);
-            fillCtx.filter = `blur(${Math.max(25, blurRadius * 1.2)}px)`;
-            fillCtx.drawImage(origImg, 0, 0, w, h);
-            bgCtx.save();
-            bgCtx.globalCompositeOperation = 'destination-over';
-            bgCtx.drawImage(fillCanvas, 0, 0, w, h);
-            bgCtx.restore();
-          }
-
-          ctx.filter = `blur(${blurRadius}px) brightness(0.96)`;
-          ctx.drawImage(bgCanvas, 0, 0, w, h);
-        } else {
-          ctx.filter = `blur(${blurRadius}px) brightness(0.95)`;
-          ctx.drawImage(origImg, 0, 0, w, h);
-        }
-      } else {
-        ctx.filter = `blur(${blurRadius}px) brightness(0.95)`;
-        ctx.drawImage(origImg, 0, 0, w, h);
-      }
+      ctx.filter = `blur(${blurRadius}px) saturate(108%) contrast(102%) brightness(0.97)`;
+      ctx.drawImage(origImg, 0, 0, w, h);
     } else {
       ctx.filter = 'none';
       ctx.drawImage(origImg, 0, 0, w, h);
     }
     ctx.restore();
 
-    // 2. Draw Sharp Subject Layer on Top with Edge Matte Trim (Choke fringe!)
+    // 2. Draw Crystal-Sharp Foreground Subject on Top
     if (cutoutImg) {
+      // If edgeTrim > 0 and blur is active, add subtle ambient contact occlusion for realistic lens transition
+      if (edgeTrim > 0 && blurRadius > 0) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(0.35, edgeTrim * 0.08);
+        ctx.filter = `blur(${Math.min(10, edgeTrim * 2)}px) brightness(0)`;
+        ctx.drawImage(cutoutImg, 0, 0, w, h);
+        ctx.restore();
+      }
+
       ctx.save();
       if (subjectBrightness !== 1.0) {
-        ctx.filter = `brightness(${subjectBrightness})`;
+        ctx.filter = `brightness(${subjectBrightness}) contrast(102%)`;
       }
-
-      if (edgeTrim > 0) {
-        const subCanvas = document.createElement('canvas');
-        subCanvas.width = w;
-        subCanvas.height = h;
-        const subCtx = subCanvas.getContext('2d');
-        if (subCtx) {
-          subCtx.drawImage(cutoutImg, 0, 0, w, h);
-          subCtx.save();
-          subCtx.globalCompositeOperation = 'destination-out';
-          subCtx.lineWidth = edgeTrim * 2;
-          subCtx.strokeStyle = '#000';
-          subCtx.filter = `blur(${edgeTrim * 0.5}px)`;
-          subCtx.drawImage(cutoutImg, 0, 0, w, h);
-          subCtx.restore();
-
-          ctx.drawImage(subCanvas, 0, 0, w, h);
-        } else {
-          ctx.drawImage(cutoutImg, 0, 0, w, h);
-        }
-      } else {
-        ctx.drawImage(cutoutImg, 0, 0, w, h);
-      }
+      // Draw 100% crisp, sharp foreground subject!
+      ctx.drawImage(cutoutImg, 0, 0, w, h);
       ctx.restore();
     }
 
@@ -235,12 +188,12 @@ export function PortraitBlurStudioModal({
       ctx.stroke();
 
       // Handle Label Badges
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(splitX - 60, 20, 50, 22);
-      ctx.fillRect(splitX + 10, 20, 75, 22);
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(splitX - 70, 20, 60, 22);
+      ctx.fillRect(splitX + 10, 20, 85, 22);
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 10px sans-serif';
-      ctx.fillText('ORIGINAL', splitX - 55, 34);
+      ctx.fillText('ORIGINAL', splitX - 63, 34);
       ctx.fillStyle = 'var(--accent, #00ff88)';
       ctx.fillText('AI PORTRAIT', splitX + 15, 34);
     }
