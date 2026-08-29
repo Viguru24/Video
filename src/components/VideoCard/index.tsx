@@ -57,8 +57,17 @@ function VideoCardInternal(props: VideoCardProps) {
       }}
       onMouseDown={state.handleMouseDown}
       onMouseMove={state.handleMouseMove}
-      onMouseUp={state.handleMouseUp}
-      onDoubleClick={() => props.onDeepFocus(state.videoRef.current ? state.videoRef.current.currentTime : undefined)}
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('button') || target.closest('input')) return;
+        if (props.isFocused && state.zoomScale > 1) {
+          e.preventDefault();
+          e.stopPropagation();
+          state.resetZoom();
+          return;
+        }
+        props.onDeepFocus(state.videoRef.current ? state.videoRef.current.currentTime : undefined);
+      }}
       onTouchStart={state.handleTouchStart}
       onTouchEnd={state.handleTouchEnd}
       onContextMenu={(e) => { e.preventDefault(); props.onContextMenu(e.clientX, e.clientY); }}
@@ -267,6 +276,65 @@ function VideoCardInternal(props: VideoCardProps) {
 
       {state.snapshotToast && (
         <div key={state.snapshotToast} className="snapshot-toast">SNAPSHOT SAVED</div>
+      )}
+
+      {/* Floating Zoom HUD Badge & Quick Reset Button */}
+      {props.isFocused && state.zoomScale > 1 && !props.isCropping && (
+        <div 
+          className="zoom-hud-badge"
+          style={{
+            position: 'absolute',
+            top: '24px',
+            right: '24px',
+            zIndex: 200000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'rgba(10, 15, 29, 0.88)',
+            border: '1px solid var(--accent, #00ff88)',
+            borderRadius: '20px',
+            padding: '5px 12px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0, 255, 136, 0.3)',
+            backdropFilter: 'blur(16px)',
+            pointerEvents: 'auto',
+            userSelect: 'none'
+          }}
+        >
+          <span style={{ fontSize: '11px', fontWeight: 800, color: '#fff', fontFamily: 'monospace' }}>
+            🔍 {Math.round(state.zoomScale * 100)}%
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              state.resetZoom();
+            }}
+            title="Reset Zoom to 100% (or Double Click / Esc)"
+            style={{
+              background: 'rgba(255, 255, 255, 0.15)',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              borderRadius: '12px',
+              padding: '2px 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontSize: '10px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.background = 'var(--accent, #00ff88)';
+              e.currentTarget.style.color = '#000';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+              e.currentTarget.style.color = '#fff';
+            }}
+          >
+            Reset 1:1
+          </button>
+        </div>
       )}
 
       {/* Localized Demo File Warning Label */}
