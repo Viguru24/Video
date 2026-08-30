@@ -94,6 +94,8 @@ interface ModalOrchestratorProps {
   wifiShareOpen: boolean;
   setWifiShareOpen: (open: boolean) => void;
   wifiShareItems: any[];
+  setWifiShareItems?: React.Dispatch<React.SetStateAction<any[]>>;
+  onClearSharedFiles?: () => void;
   handleIngestPaths: (paths: string[]) => Promise<void>;
 
   // Volume Repeat Modal
@@ -152,6 +154,8 @@ export function ModalOrchestrator({
   wifiShareOpen,
   setWifiShareOpen,
   wifiShareItems,
+  setWifiShareItems,
+  onClearSharedFiles,
   handleIngestPaths,
   volumeRepeatOpen,
   setVolumeRepeatOpen,
@@ -271,6 +275,8 @@ export function ModalOrchestrator({
         isOpen={wifiShareOpen}
         onClose={() => setWifiShareOpen(false)}
         sharedFiles={wifiShareItems}
+        setWifiShareItems={setWifiShareItems}
+        onClearSharedFiles={onClearSharedFiles}
         onLog={addLog}
         onAddMultipleFiles={handleIngestPaths}
       />

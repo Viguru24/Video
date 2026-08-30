@@ -2384,16 +2384,16 @@ export default function App() {
   }, [focusedId, videos, onUpdateVideo, setGlobalVolume]);
 
   const handleTriggerWifiShare = useCallback((targetVideos?: VideoItem[]) => {
-    let candidateList = targetVideos;
-    if (!candidateList || candidateList.length === 0) {
-      if (selectedIds.size > 0) {
-        candidateList = videos.filter(item => selectedIds.has(item.id));
-      } else if (focusedId) {
-        const fv = videos.find(v => v.id === focusedId);
-        candidateList = fv ? [fv] : (filtered.length > 0 ? filtered : videos);
-      } else {
-        candidateList = filtered.length > 0 ? filtered : videos;
-      }
+    let candidateList: VideoItem[] | undefined = targetVideos;
+    if (candidateList && candidateList.length > 0) {
+      // User targeted specific video(s)
+    } else if (selectedIds.size > 0) {
+      // User selected items with checkboxes
+      candidateList = videos.filter(item => selectedIds.has(item.id));
+    } else {
+      // General toolbar click with no selection: open Wi-Fi Share manager without auto-sharing all workspace files
+      setWifiShareOpen(true);
+      return;
     }
 
     const resolvedItems = candidateList.map(item => {
@@ -2417,8 +2417,9 @@ export default function App() {
       })
       .catch((err) => {
         addLog(`Wi-Fi Share ERROR: ${err}`);
+        setWifiShareOpen(true);
       });
-  }, [videos, filtered, selectedIds, focusedId, addLog]);
+  }, [videos, selectedIds, addLog]);
 
   if (isPopoutChecking) {
     return <div className="cosmo-boot" style={{ background: '#000' }} />;
@@ -3670,6 +3671,8 @@ export default function App() {
         wifiShareOpen={wifiShareOpen}
         setWifiShareOpen={setWifiShareOpen}
         wifiShareItems={wifiShareItems}
+        setWifiShareItems={setWifiShareItems}
+        onClearSharedFiles={() => setWifiShareItems([])}
         handleIngestPaths={handleIngestPaths}
         volumeRepeatOpen={volumeRepeatOpen}
         setVolumeRepeatOpen={setVolumeRepeatOpen}
