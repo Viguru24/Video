@@ -463,18 +463,24 @@ fn main() {
 
             buffer.truncate(bytes_read);
             let response_end = start + bytes_read as u64 - 1;
+            let is_partial = start > 0 || bytes_read < file_len as usize;
 
-            tauri::http::Response::builder()
-                .status(if start > 0 || bytes_read < file_len as usize { 206 } else { 200 })
+            let mut builder = tauri::http::Response::builder()
+                .status(if is_partial { 206 } else { 200 })
                 .header("Content-Type", mime)
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Length", bytes_read)
-                .header("Content-Range", format!("bytes {}-{}/{}", start, response_end, file_len))
                 .header("Cache-Control", "public, max-age=3600")
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Methods", "GET, OPTIONS, RANGE")
                 .header("Access-Control-Allow-Headers", "Range, Content-Type")
-                .header("Access-Control-Allow-Private-Network", "true")
+                .header("Access-Control-Allow-Private-Network", "true");
+
+            if is_partial {
+                builder = builder.header("Content-Range", format!("bytes {}-{}/{}", start, response_end, file_len));
+            }
+
+            builder
                 .body(buffer)
                 .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
         })

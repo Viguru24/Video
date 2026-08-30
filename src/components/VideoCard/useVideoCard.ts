@@ -340,6 +340,13 @@ export function useVideoCard({
     };
   }, [isPanning, zoomScale]);
 
+  const [imageFallbackSrc, setImageFallbackSrc] = useState<string | null>(null);
+
+  // Reset image fallback when video changes
+  useEffect(() => {
+    setImageFallbackSrc(null);
+  }, [video.realPath, video.url]);
+
   // DYNAMIC QUALITY ENGINE (v4) — Native Asset Protocol
   const displayUrl = React.useMemo(() => {
     const url = convertToVideoUrl(video);
@@ -352,6 +359,23 @@ export function useVideoCard({
     }
     return busted;
   }, [video.realPath, video.url, reloadKey]);
+
+  const effectiveImgSrc = imageFallbackSrc || displayUrl;
+
+  const handleImageError = useCallback(() => {
+    const rawPath = toRealPath(video.realPath) || toRealPath(video.url);
+    if (rawPath && isTauri()) {
+      try {
+        if (!imageFallbackSrc || imageFallbackSrc.includes('cosmo.localhost')) {
+          setImageFallbackSrc(convertFileSrc(rawPath));
+          return;
+        } else if (imageFallbackSrc.includes('asset.localhost')) {
+          setImageFallbackSrc(`http://cosmo.localhost/${encodeURIComponent(rawPath)}`);
+          return;
+        }
+      } catch {}
+    }
+  }, [video.realPath, video.url, imageFallbackSrc]);
 
   // Reset playback position when source changes (folder cycling)
   useEffect(() => {
@@ -1374,6 +1398,7 @@ export function useVideoCard({
     isAudio,
     songInfo,
     displayUrl,
+    effectiveImgSrc,
     animationClass,
     dragProps,
     effectiveMuted,
@@ -1394,6 +1419,7 @@ export function useVideoCard({
       showHudNotification('ZOOM', '100%');
     },
     // actions/handlers
+    handleImageError,
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,

@@ -111,14 +111,14 @@ function VideoCardInternal(props: VideoCardProps) {
               }}
             >
               <img
-                key={state.displayUrl}
-                src={state.displayUrl}
+                key={state.effectiveImgSrc}
+                src={state.effectiveImgSrc}
                 alt={props.video.title}
-                crossOrigin="anonymous"
                 draggable="false"
                 decoding="async"
                 loading="lazy"
                 fetchPriority={props.isVisible ? "high" : "low"}
+                onError={state.handleImageError}
                 style={{ 
                   width: '100%', 
                   height: '100%', 
