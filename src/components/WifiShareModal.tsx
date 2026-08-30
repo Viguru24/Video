@@ -24,6 +24,8 @@ interface WifiShareModalProps {
   isOpen: boolean;
   onClose: () => void;
   sharedFiles: Array<{ id: string; title: string; realPath?: string; url: string }>;
+  setWifiShareItems?: React.Dispatch<React.SetStateAction<any[]>>;
+  onClearSharedFiles?: () => void;
   onLog: (m: string) => void;
   onAddMultipleFiles: (paths: string[]) => void;
 }
@@ -36,7 +38,15 @@ function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-export function WifiShareModal({ isOpen, onClose, sharedFiles, onLog, onAddMultipleFiles }: WifiShareModalProps) {
+export function WifiShareModal({ 
+  isOpen, 
+  onClose, 
+  sharedFiles, 
+  setWifiShareItems, 
+  onClearSharedFiles, 
+  onLog, 
+  onAddMultipleFiles 
+}: WifiShareModalProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [shareUrl, setShareUrl] = useState<string>('');
   const [receiverConnected, setReceiverConnected] = useState<boolean>(false);
@@ -181,21 +191,23 @@ export function WifiShareModal({ isOpen, onClose, sharedFiles, onLog, onAddMulti
 
   // Delete/Unshare a single file from the room
   const handleDeleteRoomFile = async (fileId: string, filename: string, isPhone: boolean) => {
+    // 1. Optimistically remove from state immediately
+    setRoomFiles((prev) => prev.filter((f) => f.id !== fileId));
     setDeletingFileIds((prev) => new Set(prev).add(fileId));
+
+    if (!isPhone) {
+      if (setWifiShareItems) {
+        setWifiShareItems((prev) => prev.filter((f) => f.id !== fileId));
+      }
+    }
+
     try {
-      const res = await fetch(`http://127.0.0.1:48273/api/rooms/local/files/${fileId}`, {
+      await fetch(`http://127.0.0.1:48273/api/rooms/local/files/${fileId}`, {
         method: 'DELETE'
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setRoomFiles(data.room?.files || []);
-          onLog(`Wi-Fi Share: Removed ${isPhone ? 'uploaded file' : 'shared file'} "${filename}".`);
-        }
-      }
+      onLog(`Wi-Fi Share: Removed ${isPhone ? 'uploaded file' : 'shared file'} "${filename}".`);
     } catch (err) {
       console.error('Failed to delete room file:', err);
-      onLog(`Wi-Fi Share ERROR: Failed to remove file "${filename}": ${err}`);
     } finally {
       setDeletingFileIds((prev) => {
         const next = new Set(prev);
@@ -210,22 +222,24 @@ export function WifiShareModal({ isOpen, onClose, sharedFiles, onLog, onAddMulti
     const targetFiles = roomFiles.filter((f: any) => isPhoneSide ? f.isPhoneUpload : !f.isPhoneUpload);
     if (targetFiles.length === 0) return;
 
-    for (const f of targetFiles) {
+    // 1. Optimistically clear the UI immediately
+    if (isPhoneSide) {
+      setRoomFiles((prev) => prev.filter((f) => !f.isPhoneUpload));
+    } else {
+      setRoomFiles((prev) => prev.filter((f) => f.isPhoneUpload));
+      if (setWifiShareItems) setWifiShareItems([]);
+      if (onClearSharedFiles) onClearSharedFiles();
       try {
-        await fetch(`http://127.0.0.1:48273/api/rooms/local/files/${f.id}`, { method: 'DELETE' });
+        await invoke('set_wifi_shared_files', { paths: [] });
       } catch {}
     }
 
-    // Refresh room status
-    try {
-      const res = await fetch('http://127.0.0.1:48273/api/rooms/local/status?role=sender');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.room) {
-          setRoomFiles(data.room.files || []);
-        }
-      }
-    } catch {}
+    // 2. Delete all items from room on server in parallel
+    await Promise.all(
+      targetFiles.map((f) =>
+        fetch(`http://127.0.0.1:48273/api/rooms/local/files/${f.id}`, { method: 'DELETE' }).catch(() => {})
+      )
+    );
 
     onLog(`Wi-Fi Share: Cleared all ${isPhoneSide ? 'incoming phone uploads' : 'outgoing PC shared files'}.`);
   };
