@@ -6,7 +6,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { VideoItem, RepeatMode, TelemetryData, CollageItem, CollageConfig, SortOption } from './types';
-import { CollageWorkspace } from './components/CollageWorkspace';
+const CollageWorkspace = lazy(() => import('./components/CollageWorkspace').then(m => ({ default: m.CollageWorkspace })));
+const InAppBrowser = lazy(() => import('./components/InAppBrowser').then(m => ({ default: m.InAppBrowser })));
+const SetupWizard = lazy(() => import('./components/SetupWizard').then(m => ({ default: m.SetupWizard })));
 import { VideoCard } from './components/VideoCard';
 import { SortableVideoCard } from './components/SortableVideoCard';
 import { VideoGrid } from './components/VideoGrid';
@@ -18,7 +20,6 @@ import { ContextMenu } from './components/ContextMenu';
 import { ColorAdjustmentPanel } from './components/ColorAdjustmentPanel';
 import { ColorFilterDefs } from './components/ColorFilterDefs';
 import { DEFAULT_COLOR_FILTERS } from './types';
-import { SetupWizard } from './components/SetupWizard';
 
 // Modular Component and Hook Imports
 import { ErrorFallback } from './components/ErrorFallback';
@@ -27,7 +28,6 @@ import { TelemetrySystem } from './components/TelemetrySystem';
 import { CropOverlay } from './components/CropOverlay';
 import { SoloPlayer } from './components/SoloPlayer';
 import { MusicPlayerWidget } from './components/MusicPlayerWidget';
-import { InAppBrowser } from './components/InAppBrowser';
 import { PopoutPlayer } from './components/PopoutPlayer';
 import { BgContextMenu } from './components/BgContextMenu';
 import { useTauriWindowEvents } from './hooks/useTauriWindowEvents';
@@ -2501,16 +2501,18 @@ export default function App() {
       <ShutdownOverlay show={showShutdown} />
       <AnimatePresence>
         {needsSetup && (
-          <SetupWizard key="setup-wizard" onComplete={async () => {
-            setNeedsSetup(false);
-            setForceSetup(false);
-            try {
-              const res = await invoke<string>('detect_ai_hardware');
-              setAiHardwareStatus(res);
-            } catch (e) {
-              console.error("Failed to re-detect AI hardware:", e);
-            }
-          }} force={forceSetup} />
+          <Suspense fallback={null}>
+            <SetupWizard key="setup-wizard" onComplete={async () => {
+              setNeedsSetup(false);
+              setForceSetup(false);
+              try {
+                const res = await invoke<string>('detect_ai_hardware');
+                setAiHardwareStatus(res);
+              } catch (e) {
+                console.error("Failed to re-detect AI hardware:", e);
+              }
+            }} force={forceSetup} />
+          </Suspense>
         )}
       </AnimatePresence>
       <ResizeHandles />
@@ -2713,21 +2715,22 @@ export default function App() {
 
         {/* Right Viewport wrapper */}
         <div className="main-viewport-wrapper">
-          {showCollageCanvas ? (
-            <CollageWorkspace
-              videos={filtered}
-              collageItems={collageItems}
-              setCollageItems={setCollageItems}
-              collageConfig={collageConfig}
-              setCollageConfig={setCollageConfig}
-              onDeepFocus={handleDeepFocus}
-              addLog={addLog}
-              snapshotDir={snapshotDir}
-              setSnapshotDir={setSnapshotDir}
-              onAddVideo={onAddVideo}
-            />
-          ) : (
-            <>
+          <Suspense fallback={null}>
+            {showCollageCanvas ? (
+              <CollageWorkspace
+                videos={filtered}
+                collageItems={collageItems}
+                setCollageItems={setCollageItems}
+                collageConfig={collageConfig}
+                setCollageConfig={setCollageConfig}
+                onDeepFocus={handleDeepFocus}
+                addLog={addLog}
+                snapshotDir={snapshotDir}
+                setSnapshotDir={setSnapshotDir}
+                onAddVideo={onAddVideo}
+              />
+            ) : (
+              <>
           {!immersive && (
             <ControlBar
               videos={videos}
@@ -2855,6 +2858,7 @@ export default function App() {
           />
             </>
           )}
+          </Suspense>
         </div>
       </div>
 

@@ -198,13 +198,33 @@ export function isValidMediaExtension(path: string, mode: 'all' | 'video' | 'pic
 
 /**
  * Extract filename from a file path
- * Handles both Windows and Unix-style paths
+ * Handles both Windows and Unix-style paths and strips query/hash params
  * 
  * @param path - Full file path
  * @returns Filename without directory path, or 'Video' if extraction fails
  */
 export function getFileNameFromPath(path: string): string {
-  return path.split(/[\\/]/).pop() || 'Video';
+  if (!path) return 'Video';
+  const cleanPath = path.split('?')[0].split('#')[0];
+  return cleanPath.split(/[\\/]/).pop() || 'Video';
+}
+
+/**
+ * Format a duration in seconds into MM:SS or HH:MM:SS format
+ */
+export function formatDuration(seconds?: number | null): string {
+  if (seconds === undefined || seconds === null || isNaN(seconds) || seconds < 0) {
+    return '0:00';
+  }
+  const totalSecs = Math.floor(seconds);
+  const hrs = Math.floor(totalSecs / 3600);
+  const mins = Math.floor((totalSecs % 3600) / 60);
+  const secs = totalSecs % 60;
+
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 /**
