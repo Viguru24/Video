@@ -10,6 +10,7 @@
         "clean": "powershell -ExecutionPolicy Bypass -File ./Elite-Reset.ps1",
         "build": "vite build",
         "lint": "eslint .",
+        "test": "vitest run",
         "preview": "vite preview",
         "tauri": "tauri",
         "tauri:dev": "tauri dev",
@@ -50,7 +51,7 @@
         "globals": "^17.5.0",
         "typescript": "~6.0.2",
         "typescript-eslint": "^8.58.2",
-        "vite": "^8.0.10"
+        "vite": "^8.0.10",
+        "vitest": "^4.1.11"
     }
 }
-

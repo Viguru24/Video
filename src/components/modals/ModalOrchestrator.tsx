@@ -1,24 +1,25 @@
 import { lazy, Suspense } from 'react';
 import type { VideoItem, RepeatMode } from '../../types';
 
-// Modals
-import { FileManagementModal } from '../FileManagementModal';
-import { RenameProtocolModal } from './RenameProtocolModal';
+// Lightweight status/prompt components (eager)
 import { SaveCropModal } from './SaveCropModal';
 import { SaveUpscaleModal } from './SaveUpscaleModal';
-import { ResizeModal } from './ResizeModal';
 import { UpscaleStatusPanel } from './UpscaleStatusPanel';
 import { AiOfflineModal } from './AiOfflineModal';
 import { CustomConfirmModal } from './CustomConfirmModal';
 import { CustomPromptModal } from './CustomPromptModal';
-import { WifiShareModal } from '../WifiShareModal';
-import { VolumeRepeatModal } from '../VolumeRepeatModal';
-import { VideoTrimCropModal } from './VideoTrimCropModal';
-import { WhatsAppShareModal } from './WhatsAppShareModal';
 import { useStore } from '../../store/useStore';
 import { toCosmoUrl } from '../../utils/videoUtils';
 
+// Heavy Modals (Code-Split / Lazy Loaded)
 const HelpModal = lazy(() => import('../HelpModal').then(m => ({ default: m.HelpModal })));
+const VideoTrimCropModal = lazy(() => import('./VideoTrimCropModal').then(m => ({ default: m.VideoTrimCropModal })));
+const WhatsAppShareModal = lazy(() => import('./WhatsAppShareModal').then(m => ({ default: m.WhatsAppShareModal })));
+const WifiShareModal = lazy(() => import('../WifiShareModal').then(m => ({ default: m.WifiShareModal })));
+const FileManagementModal = lazy(() => import('../FileManagementModal').then(m => ({ default: m.FileManagementModal })));
+const ResizeModal = lazy(() => import('./ResizeModal').then(m => ({ default: m.ResizeModal })));
+const RenameProtocolModal = lazy(() => import('./RenameProtocolModal').then(m => ({ default: m.RenameProtocolModal })));
+const VolumeRepeatModal = lazy(() => import('../VolumeRepeatModal').then(m => ({ default: m.VolumeRepeatModal })));
 
 interface ModalOrchestratorProps {
   // Help Modal
@@ -179,155 +180,105 @@ export function ModalOrchestrator({
         {showHelp && <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />}
       </Suspense>
 
-      {fileManageOpen && (
-        <FileManagementModal
-          isOpen={fileManageOpen}
-          onClose={() => setFileManageOpen(false)}
-          items={fileManageItems}
-          mode={fileManageMode}
-          activeGridFolders={activeGridFolders}
-          onSuccess={handleFileManagementSuccess}
-          addLog={addLog}
-        />
-      )}
+      <Suspense fallback={null}>
+        {fileManageOpen && (
+          <FileManagementModal
+            isOpen={fileManageOpen}
+            onClose={() => setFileManageOpen(false)}
+            items={fileManageItems}
+            mode={fileManageMode}
+            activeGridFolders={activeGridFolders}
+            onSuccess={handleFileManagementSuccess}
+            addLog={addLog}
+          />
+        )}
 
-      {singleRenameTarget && (
-        <RenameProtocolModal
-          target={singleRenameTarget}
-          renameHistory={renameHistory}
-          addToRenameHistory={addToRenameHistory}
-          onClose={() => setSingleRenameTarget(null)}
-          setVideos={setVideos}
-          addLog={addLog}
-        />
-      )}
+        {singleRenameTarget && (
+          <RenameProtocolModal
+            target={singleRenameTarget}
+            renameHistory={renameHistory}
+            addToRenameHistory={addToRenameHistory}
+            onClose={() => setSingleRenameTarget(null)}
+            setVideos={setVideos}
+            addLog={addLog}
+          />
+        )}
 
-      <SaveCropModal
-        isOpen={showSaveCropOptions}
-        onClose={() => setShowSaveCropOptions(false)}
-        onSave={handleSaveCrop}
-      />
+        {showResizeModal && resizeTarget !== null && (
+          <ResizeModal
+            isOpen={showResizeModal}
+            onClose={() => {
+              setShowResizeModal(false);
+              setResizeTarget(null);
+            }}
+            target={resizeTarget}
+            onSuccess={handleResizeSuccess}
+            addLog={addLog}
+          />
+        )}
 
+        {wifiShareOpen && (
+          <WifiShareModal
+            isOpen={wifiShareOpen}
+            onClose={() => setWifiShareOpen(false)}
+            sharedFiles={wifiShareItems}
+            setWifiShareItems={setWifiShareItems}
+            onClearSharedFiles={onClearSharedFiles}
+            onLog={addLog}
+            onAddMultipleFiles={handleIngestPaths}
+          />
+        )}
 
-      <SaveUpscaleModal
-        isOpen={showSaveUpscaleOptions && upscaleTarget !== null}
-        onClose={() => {
-          setShowSaveUpscaleOptions(false);
-          setUpscaleTarget(null);
-        }}
-        onExecute={executeUpscale}
-      />
+        {volumeRepeatOpen && (
+          <VolumeRepeatModal
+            isOpen={volumeRepeatOpen}
+            onClose={() => setVolumeRepeatOpen(false)}
+            globalVolume={globalVolume}
+            setGlobalVolume={setGlobalVolume}
+            masterMuted={masterMuted}
+            toggleMasterMute={toggleMasterMute}
+            globalRepeat={globalRepeat}
+            setGlobalRepeat={setGlobalRepeat}
+            videos={videos}
+            onUpdateVideo={handleUpdate}
+          />
+        )}
 
-      <ResizeModal
-        isOpen={showResizeModal && resizeTarget !== null}
-        onClose={() => {
-          setShowResizeModal(false);
-          setResizeTarget(null);
-        }}
-        target={resizeTarget}
-        onSuccess={handleResizeSuccess}
-        addLog={addLog}
-      />
+        {trimCropModalTarget && (
+          <VideoTrimCropModal
+            target={trimCropModalTarget}
+            onClose={() => setTrimCropModalTarget(null)}
+            addLog={addLog}
+            onSuccess={(newPath, isOverwrite, targetId) => {
+              const effectiveId = targetId || trimCropModalTarget?.id;
+              if (isOverwrite && effectiveId) {
+                const cacheBuster = `t=${Date.now()}`;
+                const cleanUrl = toCosmoUrl(newPath).split('?')[0];
+                const newUrl = `${cleanUrl}?${cacheBuster}`;
+                setVideos((prev) =>
+                  prev.map((v) =>
+                    v.id === effectiveId
+                      ? { ...v, url: newUrl, realPath: newPath, duration: undefined }
+                      : v
+                  )
+                );
+                addLog(`✅ Replaced video in-place: ${newPath}`);
+              } else if (!isOverwrite) {
+                handleIngestPaths([newPath]);
+                addLog(`✅ Saved new trimmed clip: ${newPath}`);
+              }
+            }}
+          />
+        )}
 
-      <UpscaleStatusPanel
-        status={upscaleStatus}
-        progressPercent={upscaleProgressPercent}
-        stage={upscaleStage}
-        title={lastEnhancedTitle}
-        onCancel={cancelEnhancement}
-        onDismiss={() => setUpscaleStatus('idle')}
-      />
-
-      <AiOfflineModal
-        isOpen={aiServerOffline}
-        onClose={() => setAiServerOffline(false)}
-        onBack={() => {
-          setAiServerOffline(false);
-          setShowSaveCropOptions(true);
-        }}
-      />
-
-      {customConfirm && (
-        <CustomConfirmModal
-          title={customConfirm.title}
-          message={customConfirm.message}
-          kind={customConfirm.kind}
-          onResolve={(val) => {
-            customConfirm.resolve(val);
-            setCustomConfirm(null);
-          }}
-        />
-      )}
-      
-      {customPrompt && (
-        <CustomPromptModal
-          title={customPrompt.title}
-          message={customPrompt.message}
-          defaultValue={customPrompt.defaultValue}
-          onResolve={(val) => {
-            customPrompt.resolve(val);
-            setCustomPrompt(null);
-          }}
-        />
-      )}
-
-      <WifiShareModal
-        isOpen={wifiShareOpen}
-        onClose={() => setWifiShareOpen(false)}
-        sharedFiles={wifiShareItems}
-        setWifiShareItems={setWifiShareItems}
-        onClearSharedFiles={onClearSharedFiles}
-        onLog={addLog}
-        onAddMultipleFiles={handleIngestPaths}
-      />
-
-      <VolumeRepeatModal
-        isOpen={volumeRepeatOpen}
-        onClose={() => setVolumeRepeatOpen(false)}
-        globalVolume={globalVolume}
-        setGlobalVolume={setGlobalVolume}
-        masterMuted={masterMuted}
-        toggleMasterMute={toggleMasterMute}
-        globalRepeat={globalRepeat}
-        setGlobalRepeat={setGlobalRepeat}
-        videos={videos}
-        onUpdateVideo={handleUpdate}
-      />
-
-      {trimCropModalTarget && (
-        <VideoTrimCropModal
-          target={trimCropModalTarget}
-          onClose={() => setTrimCropModalTarget(null)}
-          addLog={addLog}
-          onSuccess={(newPath, isOverwrite, targetId) => {
-            const effectiveId = targetId || trimCropModalTarget?.id;
-            if (isOverwrite && effectiveId) {
-              const cacheBuster = `t=${Date.now()}`;
-              const cleanUrl = toCosmoUrl(newPath).split('?')[0];
-              const newUrl = `${cleanUrl}?${cacheBuster}`;
-              setVideos((prev) =>
-                prev.map((v) =>
-                  v.id === effectiveId
-                    ? { ...v, url: newUrl, realPath: newPath, duration: undefined }
-                    : v
-                )
-              );
-              addLog(`✅ Replaced video in-place: ${newPath}`);
-            } else if (!isOverwrite) {
-              handleIngestPaths([newPath]);
-              addLog(`✅ Saved new trimmed clip: ${newPath}`);
-            }
-          }}
-        />
-      )}
-
-      {whatsAppShareTarget && (
-        <WhatsAppShareModal
-          target={whatsAppShareTarget}
-          onClose={() => setWhatsAppShareTarget(null)}
-          addLog={addLog}
-        />
-      )}
+        {whatsAppShareTarget && (
+          <WhatsAppShareModal
+            target={whatsAppShareTarget}
+            onClose={() => setWhatsAppShareTarget(null)}
+            addLog={addLog}
+          />
+        )}
+      </Suspense>
     </>
   );
 }
