@@ -989,6 +989,22 @@ function VideoCardInternal(props: VideoCardProps) {
         </div>
       )}
 
+      {state.isHoldingToCutout && (
+        <div className="cutout-holding-overlay" style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          border: '2px solid var(--accent, #00ff88)',
+          borderRadius: 'inherit',
+          boxShadow: '0 0 20px rgba(var(--accent-rgb, 0, 255, 136), 0.5), inset 0 0 10px rgba(var(--accent-rgb, 0, 255, 136), 0.3)',
+          animation: 'pulse-cutout 0.8s ease-in-out infinite',
+          zIndex: 9,
+          pointerEvents: 'none'
+        }} />
+      )}
+
       {props.isStickerLoading && (
         <div className="card-processing-overlay premium-glass" style={{
           position: 'absolute',
