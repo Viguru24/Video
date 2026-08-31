@@ -20,6 +20,11 @@ export function useStickerCreator({
   const activeStickerProcessRef = useRef<string | null>(null);
 
   const handleCreateSticker = async (video: VideoItem) => {
+    // Prevent duplicate or overlapping sticker processing
+    if (activeStickerProcessRef.current || stickerLoadingId) {
+      return;
+    }
+
     const rawPath = (video.folderFiles && video.currentIdx !== undefined)
       ? (video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url)
       : (video.realPath || video.url);

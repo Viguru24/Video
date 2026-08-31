@@ -94,6 +94,37 @@ export function useVideoCard({
   const lastProcessedControlRef = useRef<string | null>(null);
   const retryAttempted = useRef<boolean>(false);
 
+  // Cleanup hold timer on unmount or video change
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      setIsHoldingToCutout(false);
+    };
+  }, [video.id, video.url]);
+
+  // Global window mouseup/touchend to guarantee timer cancellation even if cursor leaves card or window opens
+  useEffect(() => {
+    const handleGlobalCancelHold = () => {
+      setIsHoldingToCutout(false);
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+    };
+
+    window.addEventListener('mouseup', handleGlobalCancelHold, { passive: true });
+    window.addEventListener('touchend', handleGlobalCancelHold, { passive: true });
+    window.addEventListener('blur', handleGlobalCancelHold);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalCancelHold);
+      window.removeEventListener('touchend', handleGlobalCancelHold);
+      window.removeEventListener('blur', handleGlobalCancelHold);
+    };
+  }, []);
+
   // Preserve time during hibernation
   useEffect(() => {
     if (!isVisible && videoRef.current) {
