@@ -1163,9 +1163,10 @@ export function VideoTrimCropModal({
             onMouseMove={(e) => {
               if (!timelineRef.current) return;
               const rect = timelineRef.current.getBoundingClientRect();
-              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+              const pos = e.clientX - rect.left;
+              const ratio = Math.max(0, Math.min(1, pos / Math.max(1, rect.width)));
               setHoverTime(ratio * duration);
-              setHoverPos(e.clientX - rect.left);
+              setHoverPos(Math.max(30, Math.min(Math.max(30, rect.width - 30), pos)));
             }}
             onMouseLeave={() => {
               setHoverTime(null);
@@ -1282,7 +1283,7 @@ export function VideoTrimCropModal({
                 <div style={{
                   position: 'absolute',
                   top: '2px',
-                  left: `${Math.max(30, Math.min((timelineRef.current?.clientWidth || 300) - 30, hoverPos))}px`,
+                  left: `${hoverPos}px`,
                   transform: 'translateX(-50%)',
                   background: 'rgba(0, 0, 0, 0.85)',
                   border: '1px solid rgba(255, 255, 255, 0.2)',
