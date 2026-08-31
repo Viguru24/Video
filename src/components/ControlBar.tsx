@@ -190,7 +190,9 @@ export function ControlBar({
     setInAppBrowserCollapsed,
     enableSlideshowPanZoom, setEnableSlideshowPanZoom,
     folderSwitchDelay, setFolderSwitchDelay,
-    sortOrder, setSortOrder
+    sortOrder, setSortOrder,
+    slideshowInterval: storeSlideshowInterval,
+    setSlideshowInterval: setStoreSlideshowInterval
   } = useStore();
   const [showBatchRename, setShowBatchRename] = useState(false);
   const [showSortDropdown, setShowSortDropdown] = useState(false);
@@ -1107,56 +1109,75 @@ export function ControlBar({
               </div>
  
               {/* SLIDESHOW TIMER WIDGET */}
-              <div 
-                className="slideshow-interval-badge"
-                data-tooltip={`${isSlideshowActive ? "Pause Slideshow" : "Play All Fullscreen (Slideshow)"} - Interval: ${(slideshowInterval && !isNaN(slideshowInterval)) ? slideshowInterval : 5}s (Scroll wheel to adjust)`}
-                onClick={() => setIsSlideshowActive(!isSlideshowActive)}
-                onWheel={(e) => {
-                  e.stopPropagation();
-                  const direction = e.deltaY < 0 ? 1 : -1;
-                  setSlideshowInterval((prev) => {
-                    const current = typeof prev === 'number' && !isNaN(prev) ? prev : 5;
-                    return Math.max(1, Math.min(60, current + direction));
-                  });
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: isSlideshowActive ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))' : 'rgba(255, 255, 255, 0.05)',
-                  border: isSlideshowActive ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '6px',
-                  height: '28px',
-                  padding: '0 8px',
-                  color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'var(--text, #fff)',
-                  fontSize: '11px',
-                  fontFamily: 'monospace',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  transition: 'all 0.2s',
-                  marginLeft: '4px',
-                  marginRight: '4px',
-                  pointerEvents: 'auto',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isSlideshowActive 
-                    ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.25), rgba(0, 150, 255, 0.25))'
-                    : 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
-                  e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.2)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isSlideshowActive
-                    ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))'
-                    : 'rgba(255, 255, 255, 0.05)';
-                  e.currentTarget.style.borderColor = isSlideshowActive ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
-              >
-                {isSlideshowActive ? <Pause size={11} /> : <Play size={11} />}
-                <RefreshCw size={11} className={isSlideshowActive ? "spin-slow" : ""} style={{ color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.7)' }} />
-                <span>{(slideshowInterval && !isNaN(slideshowInterval)) ? slideshowInterval : 5}s</span>
-              </div>
+              {(() => {
+                const currentInterval = (typeof slideshowInterval === 'number' && !isNaN(slideshowInterval))
+                  ? slideshowInterval
+                  : (typeof storeSlideshowInterval === 'number' && !isNaN(storeSlideshowInterval))
+                    ? storeSlideshowInterval
+                    : 5;
+
+                const updateInterval = (updater: number | ((prev: number) => number)) => {
+                  if (typeof setSlideshowInterval === 'function') {
+                    setSlideshowInterval(updater as any);
+                  }
+                  if (typeof setStoreSlideshowInterval === 'function') {
+                    setStoreSlideshowInterval(updater);
+                  }
+                };
+
+                return (
+                  <div 
+                    className="slideshow-interval-badge"
+                    data-tooltip={`${isSlideshowActive ? "Pause Slideshow" : "Play All Fullscreen (Slideshow)"} - Interval: ${currentInterval}s (Scroll wheel up/down to adjust)`}
+                    onClick={() => setIsSlideshowActive && setIsSlideshowActive(!isSlideshowActive)}
+                    onWheel={(e) => {
+                      e.stopPropagation();
+                      const direction = e.deltaY < 0 ? 1 : -1;
+                      updateInterval((prev) => {
+                        const current = typeof prev === 'number' && !isNaN(prev) ? prev : currentInterval;
+                        return Math.max(1, Math.min(120, current + direction));
+                      });
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      background: isSlideshowActive ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))' : 'rgba(255, 255, 255, 0.05)',
+                      border: isSlideshowActive ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '6px',
+                      height: '28px',
+                      padding: '0 8px',
+                      color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'var(--text, #fff)',
+                      fontSize: '11px',
+                      fontFamily: 'monospace',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      transition: 'all 0.2s',
+                      marginLeft: '4px',
+                      marginRight: '4px',
+                      pointerEvents: 'auto',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = isSlideshowActive 
+                        ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.25), rgba(0, 150, 255, 0.25))'
+                        : 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
+                      e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.2)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = isSlideshowActive
+                        ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))'
+                        : 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.borderColor = isSlideshowActive ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    {isSlideshowActive ? <Pause size={11} /> : <Play size={11} />}
+                    <RefreshCw size={11} className={isSlideshowActive ? "spin-slow" : ""} style={{ color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.7)' }} />
+                    <span>{currentInterval}s</span>
+                  </div>
+                );
+              })()}
 
               {/* FOLDER FILE DELAY WIDGET */}
               <div 
