@@ -87,8 +87,6 @@ export function useVideoCard({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const [isHoldingToCutout, setIsHoldingToCutout] = useState(false);
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTime = useRef<number>(video.currentTime || 0);
   const lastWheelNav = useRef<number>(0);
   const lastProcessedControlRef = useRef<string | null>(null);
@@ -274,17 +272,6 @@ export function useVideoCard({
         !target.closest('.focused-scrub-container')
       ) {
         dragStartPos.current = { x: e.clientX, y: e.clientY };
-        
-        if (isImage && !isAiEnhancing && !isStickerLoading) {
-          setIsHoldingToCutout(true);
-          if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = setTimeout(() => {
-            setIsHoldingToCutout(false);
-            if (onCreateSticker) {
-              onCreateSticker(video);
-            }
-          }, 1200);
-        }
       }
     }
   };
@@ -1064,25 +1051,9 @@ export function useVideoCard({
       y: e.touches[0].clientY,
       time: now,
     };
-
-    if (isImage && !isAiEnhancing && !isStickerLoading) {
-      setIsHoldingToCutout(true);
-      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = setTimeout(() => {
-        setIsHoldingToCutout(false);
-        if (onCreateSticker) {
-          onCreateSticker(video);
-        }
-      }, 1200);
-    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    setIsHoldingToCutout(false);
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
 
     if (touchStart.current === null) return;
     const touchEnd = e.changedTouches[0];
@@ -1211,12 +1182,6 @@ export function useVideoCard({
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance > 24) {
-        setIsHoldingToCutout(false);
-        if (holdTimerRef.current) {
-          clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = null;
-        }
-
         const path = video.realPath;
         dragStartPos.current = null;
 
@@ -1236,11 +1201,6 @@ export function useVideoCard({
 
   const handleMouseUp = () => {
     dragStartPos.current = null;
-    setIsHoldingToCutout(false);
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
   };
 
   const dragProps = useMemo(() => {

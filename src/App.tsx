@@ -2766,6 +2766,14 @@ export default function App() {
               showHelp={showHelp}
               setShowHelp={setShowHelp}
               onOpenWifiShare={() => handleTriggerWifiShare()}
+              isSlideshowActive={isSlideshowActive}
+              setIsSlideshowActive={setIsSlideshowActive}
+              slideshowInterval={slideshowInterval}
+              setSlideshowInterval={setSlideshowInterval}
+              rotating={rotating}
+              setRotating={setRotating}
+              toggleMasterMute={toggleMasterMute}
+              globalControl={globalControl}
             />
           )}
 
