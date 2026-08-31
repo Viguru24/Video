@@ -302,7 +302,7 @@ export const useStore = create<GlobalState>((set) => ({
     const current = (() => {
       const saved = localStorage.getItem('cosmo-auto-sync-folders');
       if (saved) {
-        try { return JSON.parse(saved) || []; } catch {}
+        try { return JSON.parse(saved) || []; } catch { /* ignore JSON parse error */ }
       }
       return [];
     })();

@@ -40,12 +40,10 @@ export function WhatsAppShareModal({ target, onClose, addLog }: WhatsAppShareMod
   const [loadingQr, setLoadingQr] = useState<boolean>(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
-  if (!target) return null;
-
-  const effectivePath = target.realPath || toRealPath(target.url);
-  const mediaSrc = toCosmoUrl(target.realPath || target.url);
-  const isImage = target.type === 'picture' || 
-    (effectivePath && /\.(png|jpe?g|webp|gif|bmp|avif|tiff|ico)$/i.test(effectivePath));
+  const effectivePath = target ? (target.realPath || toRealPath(target.url)) : null;
+  const mediaSrc = target ? toCosmoUrl(target.realPath || target.url) : '';
+  const isImage = target ? (target.type === 'picture' || 
+    (effectivePath && /\.(png|jpe?g|webp|gif|bmp|avif|tiff|ico)$/i.test(effectivePath))) : false;
 
   // Initialize QR Code / Mobile Wi-Fi share room when mobile tab selected
   useEffect(() => {
@@ -90,6 +88,8 @@ export function WhatsAppShareModal({ target, onClose, addLog }: WhatsAppShareMod
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+
+  if (!target) return null;
 
   const handleShareAction = async (platform: string, mode: 'app' | 'web' | 'clipboard' | 'explorer') => {
     if (!effectivePath) {
