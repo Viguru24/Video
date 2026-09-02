@@ -701,11 +701,6 @@ export function useVideoCard({
         videoRef.current.play().catch(() => {});
       } else {
         videoRef.current.pause();
-        if (videoRef.current.currentTime === 0 && !isImage) {
-          try {
-            videoRef.current.currentTime = 0.001;
-          } catch {}
-        }
       }
     }
   }, [video.playing, isImage, focusedId, inSoloMode, video.url, trimCropModalTarget, isCropping]);

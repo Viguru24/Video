@@ -431,7 +431,8 @@ export function useWorkspacePersistence(
           }
         }
 
-        if (initialVids.length === 0) {
+        const hasExplicitlyPurged = localStorage.getItem('cosmo-purged') === 'true' || v === '[]';
+        if (initialVids.length === 0 && !hasExplicitlyPurged && v === null) {
           initialVids = defaultDemoItems.map(item => ({
             ...item,
             muted: masterMuted,
@@ -502,6 +503,11 @@ export function useWorkspacePersistence(
     if (!isInitialized || isPopout || !readyToSaveRef.current) return;
     const timer = setTimeout(() => {
       const dataStr = JSON.stringify(cleanVideosForPersistence(videos));
+      if (videos.length > 0) {
+        localStorage.removeItem('cosmo-purged');
+      } else {
+        localStorage.setItem('cosmo-purged', 'true');
+      }
       if (isTauri()) {
         invoke('save_persistence', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
         emit('workspace-changed', { key: 'cosmo-v2', data: dataStr }).catch(console.error);

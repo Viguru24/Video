@@ -116,6 +116,7 @@ interface ControlBarProps {
   onOpenWifiShare?: () => void;
   onOpenVolumeRepeat?: () => void;
   onForceSetup?: () => void;
+  onPurgeWorkspace?: () => void;
 }
 
 export function ControlBar({
@@ -164,7 +165,8 @@ export function ControlBar({
   setSlideshowInterval,
   onOpenWifiShare,
   onOpenVolumeRepeat,
-  onForceSetup
+  onForceSetup,
+  onPurgeWorkspace
 }: ControlBarProps) {
   const {
     mediaMode, setMediaMode,
@@ -942,7 +944,7 @@ export function ControlBar({
 
             {/* SYSTEM TOOLS */}
             <div className="ctrl-group system-group">
-              <button onClick={async () => { if (await showConfirm('Purge Set? This will clear all cards.', { title: 'Purge Set', kind: 'error' })) setVideos([]); }} className="hdr-btn" data-tooltip="Purge Set"><Trash2 size={14} /></button>
+              <button onClick={() => { if (onPurgeWorkspace) onPurgeWorkspace(); else { showConfirm('Purge Set? This will clear all cards.', { title: 'Purge Set', kind: 'error' }).then(yes => { if (yes) setVideos([]); }); } }} className="hdr-btn" data-tooltip="Purge Set"><Trash2 size={14} /></button>
               <button 
                 onClick={() => {
                   const nextState = !alwaysOnTop;

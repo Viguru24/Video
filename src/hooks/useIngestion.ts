@@ -37,6 +37,7 @@ interface UseIngestionProps {
  */
 export function useIngestion({
   mediaMode,
+  setMediaMode,
   setVideos,
   addLog,
   masterPlayingRef,

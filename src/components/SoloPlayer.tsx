@@ -141,6 +141,19 @@ export function SoloPlayer({
 
   const currentFocusedVideo = videos.find(v => v.id === focusedId);
 
+  // Completely close and reset any open manipulation mode, crop box, or studio whenever the focused media changes or scrolls
+  const activeMediaKey = `${focusedId}_${currentFocusedVideo?.currentIdx ?? 0}_${currentFocusedVideo?.realPath ?? currentFocusedVideo?.url ?? ''}`;
+  useEffect(() => {
+    setIsCropping(false);
+    setShowSaveCropOptions(false);
+    setShowReshapeModal(false);
+    setShowFrameModal(false);
+    setShowPortraitBlurModal(false);
+    setShowAiMenu(false);
+    setColorAdjustId(null);
+    setGlobalControl(null);
+  }, [activeMediaKey, setIsCropping, setShowSaveCropOptions, setColorAdjustId, setGlobalControl]);
+
   return (
     <div 
       ref={soloOverlayRef}
@@ -155,7 +168,7 @@ export function SoloPlayer({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.6, ease: [0.25, 1, 0.5, 1] }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
               style={{
                 position: 'absolute',
                 top: 0,

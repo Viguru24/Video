@@ -45,15 +45,14 @@ interface ModalOrchestratorProps {
   // Crop Options
   showSaveCropOptions: boolean;
   setShowSaveCropOptions: (show: boolean) => void;
-  handleSaveCrop: (choice: 'overwrite' | 'new') => void;
-
+  handleSaveCrop: (overwrite: boolean, useAi: boolean) => void;
 
   // Upscale Options
   showSaveUpscaleOptions: boolean;
   setShowSaveUpscaleOptions: (show: boolean) => void;
   upscaleTarget: VideoItem | null;
   setUpscaleTarget: (target: VideoItem | null) => void;
-  executeUpscale: (choice: 'replace' | 'new' | 'cancel') => void;
+  executeUpscale: (overwrite: boolean) => void;
 
   // Resize Options
   showResizeModal: boolean;
@@ -276,6 +275,63 @@ export function ModalOrchestrator({
             target={whatsAppShareTarget}
             onClose={() => setWhatsAppShareTarget(null)}
             addLog={addLog}
+          />
+        )}
+
+        <SaveCropModal
+          isOpen={showSaveCropOptions}
+          onClose={() => setShowSaveCropOptions(false)}
+          onSave={handleSaveCrop}
+        />
+
+        <SaveUpscaleModal
+          isOpen={showSaveUpscaleOptions && upscaleTarget !== null}
+          onClose={() => {
+            setShowSaveUpscaleOptions(false);
+            setUpscaleTarget(null);
+          }}
+          onExecute={executeUpscale}
+        />
+
+        <UpscaleStatusPanel
+          status={upscaleStatus}
+          progressPercent={upscaleProgressPercent}
+          stage={upscaleStage}
+          title={lastEnhancedTitle}
+          onCancel={cancelEnhancement}
+          onDismiss={() => setUpscaleStatus('idle')}
+        />
+
+        <AiOfflineModal
+          isOpen={aiServerOffline}
+          onClose={() => setAiServerOffline(false)}
+          onBack={() => {
+            setAiServerOffline(false);
+            setShowSaveCropOptions(true);
+          }}
+        />
+
+        {customConfirm && (
+          <CustomConfirmModal
+            title={customConfirm.title}
+            message={customConfirm.message}
+            kind={customConfirm.kind}
+            onResolve={(val) => {
+              customConfirm.resolve(val);
+              setCustomConfirm(null);
+            }}
+          />
+        )}
+
+        {customPrompt && (
+          <CustomPromptModal
+            title={customPrompt.title}
+            message={customPrompt.message}
+            defaultValue={customPrompt.defaultValue}
+            onResolve={(val) => {
+              customPrompt.resolve(val);
+              setCustomPrompt(null);
+            }}
           />
         )}
       </Suspense>

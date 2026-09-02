@@ -14,7 +14,8 @@ import {
   pathsEqual,
   extractBasePrefix,
   isTauri,
-  safeSetLocalStorage
+  safeSetLocalStorage,
+  toRealPath
 } from '../utils/videoUtils';
 import { ColorFilterDefs } from './ColorFilterDefs';
 import { CropOverlay } from './CropOverlay';
@@ -40,8 +41,9 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   
   // Safe media URL & type checks (guaranteed before any hooks)
-  const displayUrl = activeVideo ? toCosmoUrl(activeVideo.url) : toCosmoUrl(url);
-  const cleanActiveUrl = (activeVideo?.url || url).split('?')[0];
+  const resolvedTarget = activeVideo?.realPath || activeVideo?.url || url || '';
+  const displayUrl = toCosmoUrl(resolvedTarget);
+  const cleanActiveUrl = toRealPath(resolvedTarget) || resolvedTarget.split('?')[0];
   const isImage = isValidPictureExtension(cleanActiveUrl);
   
   // Custom video states
@@ -149,14 +151,16 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setPlaylist(parsed);
-            const cleanInitialUrl = toCosmoUrl(url);
-            const found = parsed.find(v => 
-              pathsEqual(v.url, url) || 
-              pathsEqual(v.realPath, url) ||
-              pathsEqual(v.url, cleanInitialUrl) || 
-              pathsEqual(v.realPath, cleanInitialUrl)
-            );
-            if (found) {
+            const targetRealPath = toRealPath(url) || url;
+            const found = parsed.find(v => {
+              const vReal = toRealPath(v.realPath || v.url);
+              return (
+                pathsEqual(vReal, targetRealPath) || 
+                pathsEqual(v.url, url) || 
+                pathsEqual(v.realPath, url)
+              );
+            });
+            if (found && (found.realPath || found.url)) {
               setActiveVideo(found);
               initialized = true;
             }
@@ -167,12 +171,12 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
       }
 
       if (!initialized && active) {
-        const cleanInitialUrl = toCosmoUrl(url);
+        const real = toRealPath(url) || url;
         const tempVid: VideoItem = {
           id: 'temp-popout',
-          title: localStorage.getItem('cosmo-popout-active-title') || getFileNameFromPath(url) || 'Popped Out Media',
-          url: cleanInitialUrl,
-          realPath: url,
+          title: getFileNameFromPath(real) || 'Popped Out Media',
+          url: toCosmoUrl(real),
+          realPath: real,
           currentTime: 0,
           playing: true,
           muted: false,
