@@ -216,7 +216,7 @@ export default function App() {
       try {
         const label = getCurrentWindow().label;
         if (label.startsWith('pop-') || label === 'popout') {
-          return localStorage.getItem(`cosmo-popout-active-url-${label}`) || localStorage.getItem('cosmo-popout-active-url') || '';
+          return localStorage.getItem(`cosmo-popout-active-url-${label}`) || '';
         }
       } catch {}
     }
@@ -356,27 +356,30 @@ export default function App() {
   const [isPopoutChecking, setIsPopoutChecking] = useState(!isPopout);
 
   useEffect(() => {
-    if (isPopout && popoutUrl) {
-      setIsPopoutChecking(false);
-      return;
-    }
-
-    invoke<string | null>('get_popout_url')
-      .then(url => {
-        if (url) {
-          setIsPopout(true);
-          setPopoutUrl(url);
-          try {
-            const label = getCurrentWindow().label;
-            localStorage.setItem(`cosmo-popout-active-url-${label}`, url);
-          } catch {}
+    if (isTauri()) {
+      try {
+        const label = getCurrentWindow().label;
+        if (label.startsWith('pop-') || label === 'popout' || isPopout) {
+          invoke<string | null>('get_popout_url')
+            .then(url => {
+              if (url) {
+                setIsPopout(true);
+                setPopoutUrl(url);
+                try {
+                  localStorage.setItem(`cosmo-popout-active-url-${label}`, url);
+                } catch {}
+              }
+              setIsPopoutChecking(false);
+            })
+            .catch(() => {
+              setIsPopoutChecking(false);
+            });
+          return;
         }
-        setIsPopoutChecking(false);
-      })
-      .catch(() => {
-        setIsPopoutChecking(false);
-      });
-  }, [isPopout, popoutUrl]);
+      } catch {}
+    }
+    setIsPopoutChecking(false);
+  }, [isPopout]);
 
   useEffect(() => {
     if (isTauri()) {
@@ -1321,6 +1324,24 @@ export default function App() {
     addLog("Removed item from grid");
   }, [setVideos, addLog, confirmDeletion, focusedId, filtered, exitSoloMode]);
 
+  const handlePurgeWorkspace = useCallback(async () => {
+    const yes = await showConfirm('Purge Workspace? This will clear all cards from your grid.', { title: 'Purge Workspace', kind: 'error' });
+    if (!yes) return;
+    setVideos([]);
+    setSelectedIds(new Set());
+    setFocusedId(null);
+    setColorAdjustId(null);
+    pendingAutoAddRef.current.clear();
+    localStorage.setItem('cosmo-purged', 'true');
+    const dataStr = JSON.stringify([]);
+    if (isTauri()) {
+      invoke('save_persistence', { key: 'cosmo-v2', data: dataStr }).catch(() => {});
+      emit('workspace-changed', { key: 'cosmo-v2', data: dataStr }).catch(() => {});
+    }
+    safeSetLocalStorage('cosmo-v2', dataStr);
+    addLog('SYSTEM: Workspace purged.');
+  }, [addLog, setVideos, setSelectedIds, setFocusedId, setColorAdjustId]);
+
   const handleRefreshTiles = useCallback(async () => {
     addLog('Refreshing tiles — validating files on disk & checking temporary drives...');
     const toRemoveIds: string[] = [];
@@ -1735,6 +1756,12 @@ export default function App() {
     const nextIdx = (currentIdx + direction + filtered.length) % filtered.length;
     const nextVideo = filtered[nextIdx];
     if (nextVideo) {
+      setIsCropping(false);
+      setShowSaveCropOptions(false);
+      setShowSaveUpscaleOptions(false);
+      setShowResizeModal(false);
+      setColorAdjustId(null);
+      setGlobalControl(null);
       setNavDirection(direction);
       setFocusedId(nextVideo.id);
       // If slideshow is active and the next item is a video, auto-play it
@@ -1747,7 +1774,7 @@ export default function App() {
       }
       addLog(`Folder Navigate [${filtered[currentIdx].title}] → ${nextVideo.title}`);
     }
-  }, [filtered, focusedId, masterMuted, setFocusedId, setVideos, addLog]);
+  }, [filtered, focusedId, masterMuted, setFocusedId, setVideos, addLog, setIsCropping, setShowSaveCropOptions, setShowSaveUpscaleOptions, setShowResizeModal, setColorAdjustId, setGlobalControl]);
 
   // Reset slideshow if exiting Solo mode
   useEffect(() => {
@@ -1878,14 +1905,7 @@ export default function App() {
     return Array.from(new Set(urls));
   }, [focusedId, filtered, videos]);
 
-  const handleContext = useCallback(async (id: string, x: number, y: number) => {
-    const video = videos.find(v => v.id === id);
-    if (!video) {
-      setMenu({ x, y, id });
-      setMenuMetadata(null);
-      return;
-    }
-
+  const fetchMenuMetadata = useCallback(async (video: VideoItem) => {
     // For folder-browsing units, use currently-displayed file
     const effectivePath = (video.folderFiles && video.currentIdx !== undefined)
       ? video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url
@@ -1908,7 +1928,6 @@ export default function App() {
     };
 
     setMenuMetadata(initialMeta);
-    setMenu({ x, y, id });
 
     // 2. Fast background ffprobe probe (if not cached)
     if (pathClean && !metadataCache.current[pathClean]) {
@@ -1927,14 +1946,43 @@ export default function App() {
         try {
           const targetPath = toRealPath(pathClean) || pathClean;
           const data = await invoke<any>('get_video_metadata', { path: targetPath });
-          metadataCache.current[pathClean] = data;
-          setMenuMetadata(data);
+          if (data) {
+            metadataCache.current[pathClean] = data;
+            setMenuMetadata(data);
+          }
         } catch (e: any) {
           console.error("Failed to fetch metadata", e);
         }
       }
     }
-  }, [videos]);
+  }, []);
+
+  const handleContext = useCallback(async (id: string, x: number, y: number) => {
+    const video = videos.find(v => v.id === id);
+    if (!video) {
+      setMenu({ x, y, id });
+      setMenuMetadata(null);
+      return;
+    }
+
+    setMenu({ x, y, id });
+    await fetchMenuMetadata(video);
+  }, [videos, fetchMenuMetadata]);
+
+  // Keep ContextMenu and top info header dynamically updated when scrolling/navigating in fullscreen
+  const activeSoloVideo = focusedId ? videos.find(v => v.id === focusedId) : null;
+  const activeSoloKey = activeSoloVideo 
+    ? `${activeSoloVideo.id}_${activeSoloVideo.currentIdx ?? 0}_${activeSoloVideo.realPath ?? activeSoloVideo.url ?? ''}`
+    : null;
+
+  useEffect(() => {
+    if (focusedId && menu && activeSoloVideo) {
+      if (menu.id !== focusedId) {
+        setMenu(prev => prev ? { ...prev, id: focusedId } : null);
+      }
+      fetchMenuMetadata(activeSoloVideo);
+    }
+  }, [activeSoloKey, focusedId, activeSoloVideo, fetchMenuMetadata]);
 
   const handleUpdate = useCallback((idOrIds: string | string[], updates: any) => {
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
@@ -2223,27 +2271,20 @@ export default function App() {
   const prevFocusedIdForMute = useRef(focusedId);
   useEffect(() => {
     if (prevFocusedIdForMute.current && !focusedId) {
-      // Exiting solo mode: Muted and paused all media (Panic Reset)
+      // Exiting solo mode: Muted and paused master media
       setMasterPlaying(false);
       setMasterMuted(true);
       setGlobalVolume(0);
-      setVideos(p => p.map(v => ({ ...v, playing: false, muted: true })));
-      addLog("Exiting Solo Mode: Muted and paused all media (Panic Reset)");
+      addLog("Exiting Solo Mode: Returned to Grid");
     } else if (!prevFocusedIdForMute.current && focusedId) {
-      // Entering solo mode: play focused, unmute, pause/mute all others
+      // Entering solo mode: unmute and play master for focused unit
       setMasterPlaying(true);
       setMasterMuted(false);
       setGlobalVolume(1.0); // Full volume for solo focused media
-      setVideos(p => p.map(v => ({
-        ...v,
-        playing: v.id === focusedId,
-        muted: v.id !== focusedId
-      })));
-      const focusedVideo = videos.find(x => x.id === focusedId);
-      addLog(`Entering Solo Mode: Playing [${focusedVideo ? focusedVideo.title : focusedId}] with audio`);
+      addLog("Entering Solo Mode");
     }
     prevFocusedIdForMute.current = focusedId;
-  }, [focusedId, setMasterPlaying, setMasterMuted, setGlobalVolume, setVideos, addLog, videos]);
+  }, [focusedId, setMasterPlaying, setMasterMuted, setGlobalVolume, addLog]);
 
   // KEYBOARD ORCHESTRATION (v4) — Modular Hook
   useKeyboardShortcuts({
@@ -2777,6 +2818,7 @@ export default function App() {
               setRotating={setRotating}
               toggleMasterMute={toggleMasterMute}
               globalControl={globalControl}
+              onPurgeWorkspace={handlePurgeWorkspace}
             />
           )}
 
@@ -3569,7 +3611,7 @@ export default function App() {
           onClose={() => setBgMenu(null)}
           onAddFolder={handleSidebarAddFolder}
           onAddMedia={handleAddMediaFiles}
-          onPurge={async () => { if (await showConfirm('Purge Workspace? This will clear all cards.', { title: 'Purge Workspace', kind: 'error' })) setVideos([]); }}
+          onPurge={handlePurgeWorkspace}
           onSelectAll={handleSelectAll}
           onRefreshTiles={handleRefreshTiles}
           onPasteImage={() => handlePasteImage(null)}
@@ -3630,6 +3672,9 @@ export default function App() {
               break;
             case 'popout_player':
               if (videos.length > 0) togglePopout(videos[0].id);
+              break;
+            case 'purge_workspace':
+              handlePurgeWorkspace();
               break;
             case 'music_player':
               setVolumeRepeatOpen(true);

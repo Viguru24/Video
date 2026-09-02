@@ -133,17 +133,31 @@ export function CropOverlay({
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [onCancel]);
+
+  useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+      // If user scrolls mouse wheel while cropping, dismiss crop overlay so navigation continues smoothly
+      if (Math.abs(e.deltaY) > 10) {
+        onCancel();
+      }
     };
-    el.addEventListener('wheel', handleWheel, { passive: false });
+    el.addEventListener('wheel', handleWheel, { passive: true });
     return () => {
       el.removeEventListener('wheel', handleWheel);
     };
-  }, []);
+  }, [onCancel]);
 
   const imgRatio = imgSize.w / imgSize.h;
   const containerRatio = containerSize.w / containerSize.h;
@@ -257,10 +271,17 @@ export function CropOverlay({
         justifyContent: 'center',
         overflow: 'hidden'
       }}
+      onPointerDown={(e) => {
+        // Dismiss crop if clicking on empty overlay space outside the crop box & HUD
+        if (e.target === containerRef.current || (e.target as HTMLElement).classList.contains('crop-backdrop-mask')) {
+          onCancel();
+        }
+      }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
     >
       <div
+        className="crop-backdrop-mask"
         style={{
           position: 'absolute',
           left: `${offsetX}px`,
@@ -330,6 +351,8 @@ export function CropOverlay({
 
       <div
         className="presets-hud"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         style={{
           position: 'absolute',
           bottom: '20px',

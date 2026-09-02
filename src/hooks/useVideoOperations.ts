@@ -1,8 +1,9 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { VideoItem } from '../types';
 import { toCosmoUrl, toRealPath, isValidPictureExtension } from '../utils/videoUtils';
+import { useStore } from '../store/useStore';
 
 interface UseVideoOperationsProps {
   focusedId: string | null;
@@ -50,11 +51,26 @@ export function useVideoOperations({
   // Ref to cancel in-progress enhancement
   const enhancementCancelled = useRef(false);
 
+  // Reset all manipulation/edit overlays whenever the user changes media or navigates away
+  const activeMediaKey = `${focusedId}_${focusedVideo?.currentIdx ?? 0}_${focusedVideo?.realPath ?? focusedVideo?.url ?? ''}`;
+  useEffect(() => {
+    setIsCropping(false);
+    setShowSaveCropOptions(false);
+    setShowSaveUpscaleOptions(false);
+    setShowResizeModal(false);
+    setCropBox({ x: 0, y: 0, w: 100, h: 100 });
+  }, [activeMediaKey]);
+
   const handleSaveCrop = async (overwrite: boolean, useAi: boolean) => {
     try {
       if (!focusedId || !focusedVideo) return;
 
-      const originalPath = toRealPath(focusedVideo.realPath || focusedVideo.url) || focusedVideo.realPath || focusedVideo.url;
+      let originalPath = toRealPath(focusedVideo.realPath || focusedVideo.url) || focusedVideo.realPath || focusedVideo.url;
+      if (focusedVideo.folderFiles && focusedVideo.currentIdx !== undefined && focusedVideo.folderFiles[focusedVideo.currentIdx]) {
+        const item = focusedVideo.folderFiles[focusedVideo.currentIdx];
+        originalPath = toRealPath(item.path || item.url) || item.path || item.url;
+      }
+
       if (!originalPath) {
         alert('Could not resolve a disk path for this image. Try re-adding the file.');
         return;
@@ -64,7 +80,6 @@ export function useVideoOperations({
       setShowSaveCropOptions(false);
 
       const targetId = focusedVideo.id;
-      const focusedVideoCopy = { ...focusedVideo };
 
       (async () => {
         try {
@@ -143,11 +158,25 @@ export function useVideoOperations({
           }
 
           if (overwrite) {
-            setVideos(prev => prev.map(v =>
-              v.id === targetId
-                ? { ...v, realPath: savedPath, url: `${toCosmoUrl(savedPath)}?t=${Date.now()}` }
-                : v
-            ));
+            setVideos(prev => prev.map(v => {
+              if (v.id === targetId) {
+                if (v.folderFiles && v.currentIdx !== undefined) {
+                  const updatedFiles = [...v.folderFiles];
+                  updatedFiles[v.currentIdx] = {
+                    ...updatedFiles[v.currentIdx],
+                    path: savedPath,
+                    url: `${toCosmoUrl(savedPath)}?t=${Date.now()}`
+                  };
+                  return {
+                    ...v,
+                    folderFiles: updatedFiles,
+                    url: `${toCosmoUrl(savedPath)}?t=${Date.now()}`
+                  };
+                }
+                return { ...v, realPath: savedPath, url: `${toCosmoUrl(savedPath)}?t=${Date.now()}` };
+              }
+              return v;
+            }));
             addLog(`Original overwritten with crop: ${savedPath}`);
             setToast('Original media overwritten with crop!');
             setToastPath(savedPath);
@@ -210,9 +239,10 @@ export function useVideoOperations({
   };
 
   const handleUpscale = useCallback((v: any) => {
-    const effectiveRealPath = (v.folderFiles && v.currentIdx !== undefined)
+    const rawPath = (v.folderFiles && v.currentIdx !== undefined)
       ? (v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url)
-      : v.realPath;
+      : (v.realPath || v.url);
+    const effectiveRealPath = toRealPath(rawPath) || rawPath;
     const effectiveTitle = (v.folderFiles && v.currentIdx !== undefined)
       ? (v.folderFiles[v.currentIdx]?.name || v.title)
       : v.title;
@@ -232,9 +262,10 @@ export function useVideoOperations({
   }, [addLog]);
 
   const handleResize = useCallback((v: any) => {
-    const effectiveRealPath = (v.folderFiles && v.currentIdx !== undefined)
+    const rawPath = (v.folderFiles && v.currentIdx !== undefined)
       ? (v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url)
-      : v.realPath;
+      : (v.realPath || v.url);
+    const effectiveRealPath = toRealPath(rawPath) || rawPath;
     const effectiveTitle = (v.folderFiles && v.currentIdx !== undefined)
       ? (v.folderFiles[v.currentIdx]?.name || v.title)
       : v.title;
@@ -390,7 +421,7 @@ export function useVideoOperations({
       setUpscaleStatus(isFallback ? 'fallback' : 'success');
       
       if (overwrite) {
-        const cacheBustUrl = `local://${v.realPath}?t=${Date.now()}`;
+        const cacheBustUrl = `${toCosmoUrl(v.realPath)}?t=${Date.now()}`;
         const originalId = focusedId;
         setFocusedId(null);
         await new Promise(resolve => setTimeout(resolve, 120));
@@ -429,7 +460,7 @@ export function useVideoOperations({
         const newUnit: VideoItem = {
           id: `upscale-${Date.now()}`,
           title: cleanTitle,
-          url: `local://${cleanResult}`,
+          url: toCosmoUrl(cleanResult),
           realPath: cleanResult,
           currentTime: v.currentTime || 0,
           repeatMode: v.repeatMode || 'none',

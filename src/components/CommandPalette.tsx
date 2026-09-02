@@ -106,6 +106,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       action: () => onSelectAction('music_player'),
     },
     {
+      id: 'purge_workspace',
+      title: 'Purge Workspace (Clear All Cards)',
+      category: 'Workspace',
+      icon: '🗑️',
+      action: () => onSelectAction('purge_workspace'),
+    },
+    {
       id: 'help',
       title: 'Help & Keyboard Shortcuts',
       category: 'General',
