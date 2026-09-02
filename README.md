@@ -4,19 +4,29 @@
 
 **The Ultimate GPU-Accelerated Multi-Media Orchestrator & AI Creative Studio for Windows**
 
-[![Windows](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Viguru24/Video/releases)
-[![MSIX](https://img.shields.io/badge/Package-MSIX%20Bundle-00a4ef?style=for-the-badge&logo=microsoft&logoColor=white)](https://github.com/Viguru24/Video/releases)
+<br/>
+
+[![Download MSIX Bundle](https://img.shields.io/badge/📥%20Download%20MSIX-v1.4.0-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Viguru24/Video/releases/download/v1.4.0/Cosmo.Symphony_1.4.0.0.msixbundle)
+[![Download Companion APK](https://img.shields.io/badge/📱%20CosmoShare%20APK-v1.3.7-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Viguru24/Video/releases/download/v1.4.0/CosmoShare-v1.3.7.apk)
+[![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-Get%20App-00a4ef?style=for-the-badge&logo=microsoft&logoColor=white)](https://apps.microsoft.com/detail/9P4DFBGWGFF6?hl=en-us&gl=GB&ocid=pdpshare)
 [![Rust](https://img.shields.io/badge/Core-Rust%20%2B%20Tauri%20v2-dea584?style=for-the-badge&logo=rust&logoColor=white)](https://tauri.app)
-[![React](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org)
 [![Local First](https://img.shields.io/badge/Privacy-100%25%20Local%20Sovereignty-00ff88?style=for-the-badge&logo=shield&logoColor=black)](https://github.com/Viguru24/Video)
+
+<p align="center">
+  <a href="#-installation">📥 <b>Download & Install</b></a> •
+  <a href="#-top-20-best-features-of-cosmo-symphony">🏆 <b>Features</b></a> •
+  <a href="#-master-keyboard-shortcuts-reference">⌨️ <b>Shortcuts</b></a> •
+  <a href="#-building-from-source">🛠️ <b>Build from Source</b></a> •
+  <a href="#-the-ecosystem">🌟 <b>Ecosystem</b></a>
+</p>
+
+</div>
 
 <br/>
 
 **Cosmo Symphony** is a high-performance, hardware-accelerated media workspace designed for creators, editors, collectors, and power users. Built on a blazing-fast **Rust (Tauri v2)** backend and dynamic **React 18 + Framer Motion** glassmorphic interface, it orchestrates dozens of 4K/8K videos, high-resolution RAW photos, audio tracks, and live web streams concurrently with zero cloud dependency.
 
 ---
-
-</div>
 
 ## 🏆 Top 20 Best Features of Cosmo Symphony
 
@@ -80,12 +90,12 @@
 ### Windows 10 & 11 (MSIX 1-Click Install)
 
 1. Download the latest release from the **[Releases](https://github.com/Viguru24/Video/releases)** page:
-   * `Cosmo Symphony_1.4.0.0.msixbundle`
+   * [📥 Download `Cosmo.Symphony_1.4.0.0.msixbundle`](https://github.com/Viguru24/Video/releases/download/v1.4.0/Cosmo.Symphony_1.4.0.0.msixbundle)
 2. **First-Time Install Certificate Setup** (for sideloaded MSIX):
    * Right-click `CosmoSymphony-Developer.cer` ➔ **Install Certificate**.
    * Choose **Local Machine** ➔ Place in **Trusted People** (or **Trusted Root Certification Authorities**).
    * *(Alternatively, right-click `TrustCertificate.bat` and click "Run as Administrator").*
-3. Double-click `Cosmo Symphony_1.4.0.0.msixbundle` and click **Install**.
+3. Double-click `Cosmo.Symphony_1.4.0.0.msixbundle` and click **Install**.
 
 ---
 
@@ -97,7 +107,6 @@
 * [Visual Studio 2022 / C++ Build Tools](https://visualstudio.microsoft.com/)
 * Windows 10/11 SDK
 
-### Development Setup
 ```bash
 # 1. Clone the repository
 git clone https://github.com/Viguru24/Video.git
@@ -110,11 +119,14 @@ npm install
 npm run tauri dev
 ```
 
-### Production Build
-```bash
-# Build production bundle with MSIX packaging
-.\Elite-Build.ps1
-```
+---
+
+## 🌟 The Ecosystem
+
+Explore complementary applications by **[Viguru24](https://github.com/Viguru24)**:
+- 🎬 **[Vixz YouTube Player (Android)](https://github.com/Viguru24/YouTube)** — Ad-free YouTube player with AI summaries and fluid gestures.
+- 🖥️ **[Vixz Desktop (Windows)](https://github.com/Viguru24/VixzDesktop)** — Modern glassmorphic desktop YouTube client.
+- 🎙️ **[CosmoWhisper](https://github.com/Viguru24/CosmoWhisper-Native)** — Native, 100% local AI speech dictation for Windows & macOS.
 
 ---
 
