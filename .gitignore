@@ -44,3 +44,9 @@ __pycache__/
 # Backup files
 *.bak
 
+# Android build outputs
+.gradle/
+**/build/
+*.apk
+!src-tauri/resources/CosmoShare.apk
+!src-tauri/resources/wifi-share-web/CosmoShare.apk

@@ -90,15 +90,17 @@ export function useVideoOperations({
             setLastEnhancedTitle('Image Crop');
           }
 
-          // Retrieve raw physical dimensions from backend to guarantee alignment with unrotated layout
+          // Retrieve true visual / oriented dimensions (matching the upright image rendered on screen and autorotated by FFmpeg)
           let imgW = 1920;
           let imgH = 1080;
           try {
             const [w, h] = await invoke<[number, number]>('get_media_dimensions', { path: originalPath });
-            imgW = w;
-            imgH = h;
+            if (w && h) {
+              imgW = w;
+              imgH = h;
+            }
           } catch (err) {
-            console.error("Failed to query raw dimensions for crop:", err);
+            console.error("Failed to query oriented dimensions for crop:", err);
             const mediaEl = document.querySelector('.solo-container .media-wrapper img, .solo-container .media-wrapper video') as HTMLImageElement | HTMLVideoElement | null;
             if (mediaEl) {
               const isVideo = mediaEl.tagName.toLowerCase() === 'video';
@@ -116,6 +118,8 @@ export function useVideoOperations({
             imgW,
             imgH,
             overwrite,
+            rotation: focusedVideo.rotation || 0,
+            flipped: focusedVideo.flipped || false,
           });
 
           if (useAi) {
@@ -170,10 +174,12 @@ export function useVideoOperations({
                   return {
                     ...v,
                     folderFiles: updatedFiles,
-                    url: `${toCosmoUrl(savedPath)}?t=${Date.now()}`
+                    url: `${toCosmoUrl(savedPath)}?t=${Date.now()}`,
+                    rotation: 0,
+                    flipped: false
                   };
                 }
-                return { ...v, realPath: savedPath, url: `${toCosmoUrl(savedPath)}?t=${Date.now()}` };
+                return { ...v, realPath: savedPath, url: `${toCosmoUrl(savedPath)}?t=${Date.now()}`, rotation: 0, flipped: false };
               }
               return v;
             }));
@@ -353,7 +359,7 @@ export function useVideoOperations({
     setResizeTarget(null);
   }, [resizeTarget, setVideos, setToast]);
 
-  const executeUpscale = async (overwrite: boolean) => {
+  const executeUpscale = async (overwrite: boolean, options?: { restoreFaces?: boolean; restoreColor?: boolean; oneXOnly?: boolean }) => {
     if (!upscaleTarget) return;
     const v = upscaleTarget;
     setShowSaveUpscaleOptions(false);
@@ -367,8 +373,34 @@ export function useVideoOperations({
     const isVideo = v.realPath?.toLowerCase().match(/\.(mp4|webm|mov|mkv|avi|ts|mpeg|mpg)$/);
     let unlistenProgress: (() => void) | undefined;
 
-    addLog(`Upscaling: ${v.title} (${overwrite ? 'Overwrite' : 'Save As'}) — running local ${isVideo ? 'video' : 'image'} super-resolution...`);
+    const actionName = options?.oneXOnly ? 'Restoring Face & Color' : 'Upscaling';
+    addLog(`${actionName}: ${v.title} (${overwrite ? 'Overwrite' : 'Save As'}) — running local ${isVideo ? 'video' : 'image'} enhancement...`);
     try {
+      // Automatic safety check: block oversized files before locking up GPU
+      if (v.realPath) {
+        try {
+          const meta = await invoke<any>('get_video_metadata', { path: v.realPath });
+          if (meta && meta.width && meta.height) {
+            const totalPixels = meta.width * meta.height;
+            const isImageTooLarge = !isVideo && (Math.max(meta.width, meta.height) > 4096 || totalPixels > 12_000_000);
+            const isVideoTooLarge = isVideo && (Math.max(meta.width, meta.height) > 1920 || totalPixels > 2_073_600);
+
+            if ((isImageTooLarge || isVideoTooLarge) && !options?.oneXOnly) {
+              const limitMsg = isVideo ? '1080p (1920×1080)' : '4K (3840×2160)';
+              addLog(`⚠️ Upscale Blocked: File resolution (${meta.width}×${meta.height}) is too large for AI super-resolution.`);
+              setToast(`Upscale Blocked: File (${meta.width}×${meta.height}) is too large. Upscale will not work. Please resize below ${limitMsg} first.`);
+              setTimeout(() => setToast(null), 6000);
+              setUpscaleStatus('idle');
+              setEnhancingVideoId(null);
+              setUpscaleTarget(null);
+              return;
+            }
+          }
+        } catch (e) {
+          // Proceed if metadata probe fails
+        }
+      }
+
       if (isVideo) {
         const win = getCurrentWindow();
         unlistenProgress = await win.listen<{ frame: number, total: number, stage: string }>('upscale-progress', (event) => {
@@ -405,7 +437,13 @@ export function useVideoOperations({
         }
       }
 
-      const result = await invoke<string>(isVideo ? 'upscale_video' : 'upscale_image', { path: v.realPath, overwrite });
+      const result = await invoke<string>(isVideo ? 'upscale_video' : 'upscale_image', {
+        path: v.realPath,
+        overwrite,
+        restoreFaces: options?.restoreFaces ?? true,
+        restoreColor: options?.restoreColor ?? false,
+        outscale: options?.oneXOnly ? 1 : 4
+      });
       (window as any).__cosmo_vram_loaded = true;
       if (unlistenProgress) unlistenProgress();
       if (enhancementCancelled.current) return;
@@ -414,7 +452,7 @@ export function useVideoOperations({
       const cleanResult = isFallback ? result.substring('[FALLBACK]'.length) : result;
       
       if (isFallback) {
-        addLog(`⚠️ Upscale completed with BASIC RESIZE (AI models not found). For true AI super-resolution, place RealESRGAN_x4plus.pth and GFPGANv1.4.pth in .cosmo_models folder.`);
+        addLog(`⚠️ Upscale completed with BASIC RESIZE (AI models not found). For true AI super-resolution, place 4x-UltraSharp.pth (or RealESRGAN_x4plus.pth) and GFPGANv1.4.pth in .cosmo_models folder.`);
       } else {
         addLog(`Upscale success (AI enhanced): ${cleanResult}`);
       }

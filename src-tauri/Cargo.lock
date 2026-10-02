@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "cosmovideo"
-version = "1.4.0"
+version = "1.4.3"
 dependencies = [
  "axum",
  "axum-server",

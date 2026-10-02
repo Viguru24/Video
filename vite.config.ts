@@ -11,6 +11,7 @@ export default defineConfig({
     postcss: {},
   },
   server: {
+    host: '0.0.0.0',
     port: 55174,
     strictPort: true,
     allowedHosts: true,
@@ -18,7 +19,7 @@ export default defineConfig({
     // WebSocket upgrades and returns 400 unless we explicitly configure the endpoint.
     hmr: {
       protocol: 'ws',
-      host: 'localhost',
+      host: '127.0.0.1',
       port: 55174,
     },
   },

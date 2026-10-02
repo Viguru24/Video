@@ -134,15 +134,23 @@ def init_models():
     ])
     
     models_dir = None
+    upscaler_filename = None
     for cand in candidates:
         cand_norm = os.path.abspath(cand)
+        ultra_path = os.path.join(cand_norm, "4x-UltraSharp.pth")
         realesrgan_path = os.path.join(cand_norm, "RealESRGAN_x4plus.pth")
         gfpgan_path = os.path.join(cand_norm, "GFPGANv1.4.pth")
-        re_exists = os.path.exists(realesrgan_path)
+        
         gfp_exists = os.path.exists(gfpgan_path)
-        print(f"Checking candidate: {cand_norm} (realesrgan_exists={re_exists}, gfpgan_exists={gfp_exists})", file=sys.stderr)
-        if re_exists and gfp_exists:
+        if os.path.exists(ultra_path) and gfp_exists:
             models_dir = cand_norm
+            upscaler_filename = "4x-UltraSharp.pth"
+            print(f"Candidate matched: {cand_norm} using primary model [4x-UltraSharp.pth]", file=sys.stderr)
+            break
+        elif os.path.exists(realesrgan_path) and gfp_exists:
+            models_dir = cand_norm
+            upscaler_filename = "RealESRGAN_x4plus.pth"
+            print(f"Candidate matched: {cand_norm} using fallback model [RealESRGAN_x4plus.pth]", file=sys.stderr)
             break
             
     if models_dir is None:
@@ -151,7 +159,7 @@ def init_models():
         print(f"Pre-trained weights not found in any candidate directories. Running in fallback filter mode.", file=sys.stderr)
         return
         
-    realesrgan_path = os.path.join(models_dir, "RealESRGAN_x4plus.pth")
+    realesrgan_path = os.path.join(models_dir, upscaler_filename or "4x-UltraSharp.pth")
     gfpgan_path = os.path.join(models_dir, "GFPGANv1.4.pth")
         
     try:
@@ -220,23 +228,27 @@ def init_models():
 
 def safe_read_image(img_or_bytes):
     img = None
+    try:
+        from PIL import Image, ImageOps
+        if isinstance(img_or_bytes, bytes):
+            import io
+            pil_img = Image.open(io.BytesIO(img_or_bytes))
+        else:
+            pil_img = Image.open(img_or_bytes)
+        pil_img = ImageOps.exif_transpose(pil_img)
+        img = cv2.cvtColor(np.array(pil_img.convert('RGB')), cv2.COLOR_RGB2BGR)
+        return img
+    except Exception:
+        pass
+
     if isinstance(img_or_bytes, bytes):
         try:
             nparr = np.frombuffer(img_or_bytes, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         except Exception:
             pass
-        if img is None:
-            try:
-                import io
-                from PIL import Image
-                pil_img = Image.open(io.BytesIO(img_or_bytes)).convert('RGB')
-                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            except Exception:
-                pass
     else:
         try:
-            # It's a file path string! Safe unicode reading on Windows
             img = cv2.imdecode(np.fromfile(img_or_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
         except Exception:
             pass
@@ -245,16 +257,46 @@ def safe_read_image(img_or_bytes):
                 img = cv2.imread(img_or_bytes, cv2.IMREAD_COLOR)
             except Exception:
                 pass
-        if img is None:
-            try:
-                from PIL import Image
-                pil_img = Image.open(img_or_bytes).convert('RGB')
-                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            except Exception:
-                pass
     return img
 
-def process_enhance(img_or_bytes, fidelity=0.5):
+def restore_color(img):
+    """
+    Adaptive Color & Vibrance Restoration.
+    De-fades washed out photos, corrects white balance casts, and boosts natural skin vibrancy.
+    """
+    try:
+        # 1. Simplest color balance: stretch per-channel histogram to eliminate color casts (yellowing/haziness)
+        out_channels = []
+        num = img.shape[0] * img.shape[1]
+        percent = 0.5
+        for channel in cv2.split(img):
+            flat_sorted = np.sort(channel.flatten())
+            low_val = flat_sorted[int(num * percent / 100)]
+            high_val = flat_sorted[int(num * (100 - percent) / 100)]
+            if high_val > low_val:
+                norm = np.clip((channel.astype(np.float32) - low_val) / (high_val - low_val) * 255.0, 0, 255).astype(np.uint8)
+            else:
+                norm = channel
+            out_channels.append(norm)
+        bal = cv2.merge(out_channels)
+        
+        # 2. Local contrast & dynamic range equalization in LAB luminance channel
+        lab = cv2.cvtColor(bal, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(8, 8))
+        cl = clahe.apply(l)
+        bgr = cv2.cvtColor(cv2.merge((cl, a, b)), cv2.COLOR_LAB2BGR)
+        
+        # 3. Non-linear vibrance boost (enhances muted colors more than saturated ones)
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
+        sat = hsv[:, :, 1]
+        hsv[:, :, 1] = np.clip(sat * (1.0 + 0.30 * (1.0 - sat / 255.0)), 0, 255)
+        return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+    except Exception as e:
+        print(f"Color restoration note: {e}, using original colors", file=sys.stderr)
+        return img
+
+def process_enhance(img_or_bytes, fidelity=0.5, restore_faces=True, restore_color_flag=False, outscale=4):
     init_models()
     img = safe_read_image(img_or_bytes)
     if img is None:
@@ -262,12 +304,31 @@ def process_enhance(img_or_bytes, fidelity=0.5):
 
     h_in, w_in = img.shape[:2]
 
+    # Handle 1x mode (no 4x scaling, only face + color restoration)
+    if outscale == 1:
+        restored = img.copy()
+        if restore_faces and gfpganer is not None:
+            try:
+                def _run_face_1x():
+                    orig_bg = gfpganer.bg_upsampler
+                    orig_scale = gfpganer.upscale
+                    gfpganer.bg_upsampler = None
+                    gfpganer.upscale = 1
+                    try:
+                        _, _, r = gfpganer.enhance(restored, has_aligned=False, only_center_face=False, paste_back=True, weight=fidelity)
+                        return r
+                    finally:
+                        gfpganer.bg_upsampler = orig_bg
+                        gfpganer.upscale = orig_scale
+                restored = _gpu_executor.submit(_run_face_1x).result()
+            except Exception as fe:
+                print(f"1x face enhancement note: {fe}", file=sys.stderr)
+
+        if restore_color_flag:
+            restored = restore_color(restored)
+        return restored, True
+
     # SAFETY GUARDRAIL: Pre-scale large input images BEFORE running 4x neural super-resolution!
-    # Real-ESRGAN scales the image 4x in width and 4x in height (16x pixel count).
-    # For high-resolution photos (e.g., 9000x8000), 4x produces 36000x32000 (1.15 GIGAPIXELS),
-    # which exhausts >19 GB of RAM/VRAM and crashes Windows.
-    # Capping max input dimension to 1280px ensures the 4x super-resolved output is safely capped
-    # at up to 5120x2880 (5K), maintaining pristine sharpness while keeping memory strictly under 500 MB.
     MAX_INPUT_DIM = 1280
     if max(h_in, w_in) > MAX_INPUT_DIM:
         scale_factor = MAX_INPUT_DIM / float(max(h_in, w_in))
@@ -277,22 +338,31 @@ def process_enhance(img_or_bytes, fidelity=0.5):
         img = cv2.resize(img, (new_in_w, new_in_h), interpolation=cv2.INTER_AREA)
 
     # Run GFPGAN & Real-ESRGAN or Fallback to bilateral unsharp filter.
-    # GPU work is dispatched to _gpu_executor (background thread) so the HTTP
-    # server event loop is never blocked and Windows driver heartbeats continue.
     if gfpganer is not None:
         try:
             print("Dispatching upscale task to GPU executor...", file=sys.stderr)
             print("Transferring image matrix to GPU VRAM...", file=sys.stderr)
             def _run_gpu():
-                print("Running Real-ESRGAN model inference...", file=sys.stderr)
-                return gfpganer.enhance(
-                    img,
-                    has_aligned=False,
-                    only_center_face=False,
-                    paste_back=True,
-                    weight=fidelity
-                )
-            _, _, restored_img = _gpu_executor.submit(_run_gpu).result()
+                if restore_faces:
+                    print("Running 4x-UltraSharp + GFPGAN face restoration...", file=sys.stderr)
+                    _, _, r = gfpganer.enhance(
+                        img,
+                        has_aligned=False,
+                        only_center_face=False,
+                        paste_back=True,
+                        weight=fidelity
+                    )
+                    return r
+                else:
+                    print("Running 4x-UltraSharp alone...", file=sys.stderr)
+                    r, _ = upscaler.enhance(img, outscale=4)
+                    return r
+
+            restored_img = _gpu_executor.submit(_run_gpu).result()
+            
+            if restore_color_flag:
+                restored_img = restore_color(restored_img)
+
             print("GPU Model inference successful! Releasing VRAM back to OS...", file=sys.stderr)
             
             # Release VRAM back to OS immediately
@@ -497,12 +567,21 @@ class EnhanceHandler(BaseHTTPRequestHandler):
                 payload = json.loads(post_data.decode('utf-8'))
                 
                 fidelity = float(payload.get('fidelity', 0.5))
+                restore_faces = bool(payload.get('restore_faces', True))
+                restore_color_flag = bool(payload.get('restore_color', False))
+                outscale = int(payload.get('outscale', 4))
                 
                 # Check if direct file path is requested
                 if 'path' in payload:
                     img_path = payload['path']
                     # Process image from path
-                    enhanced_img, used_ai = process_enhance(img_path, fidelity=fidelity)
+                    enhanced_img, used_ai = process_enhance(
+                        img_path,
+                        fidelity=fidelity,
+                        restore_faces=restore_faces,
+                        restore_color_flag=restore_color_flag,
+                        outscale=outscale
+                    )
                     
                     # Resolve output path
                     if 'output_path' in payload:

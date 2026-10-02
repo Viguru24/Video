@@ -109,8 +109,10 @@ pub async fn crop_image_on_disk(
     img_w: f64,
     img_h: f64,
     overwrite: bool,
+    rotation: Option<i32>,
+    flipped: Option<bool>,
 ) -> Result<String, String> {
-    transform::crop_image_on_disk(app, path, crop_x, crop_y, crop_w, crop_h, img_w, img_h, overwrite).await
+    transform::crop_image_on_disk(app, path, crop_x, crop_y, crop_w, crop_h, img_w, img_h, overwrite, rotation, flipped).await
 }
 
 #[tauri::command]
@@ -163,8 +165,15 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
 }
 
 #[tauri::command]
-pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Result<String, String> {
-    upscale::upscale_image(app, path, overwrite).await
+pub async fn upscale_image(
+    app: AppHandle,
+    path: String,
+    overwrite: bool,
+    restore_faces: Option<bool>,
+    restore_color: Option<bool>,
+    outscale: Option<u32>,
+) -> Result<String, String> {
+    upscale::upscale_image(app, path, overwrite, restore_faces, restore_color, outscale).await
 }
 
 #[tauri::command]

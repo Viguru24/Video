@@ -66,11 +66,19 @@ export function toRealPath(urlOrPath: string): string | null {
     return null;
   }
 
-  if (/^[A-Za-z]:[/\\]/.test(clean) || clean.startsWith('/')) return clean.replace(/\x00/g, '').trim();
+  // Strip any leading slashes before a drive letter (e.g. "/C:/..." or "///D:/...")
+  const normalized = clean.replace(/^\/+([A-Za-z]:)/, '$1');
+
+  if (/^[A-Za-z]:[/\\]/.test(normalized) || normalized.startsWith('/')) {
+    return normalized.replace(/\x00/g, '').trim();
+  }
+
+  const stripDrivePrefix = (p: string) => p.replace(/^\/+([A-Za-z]:)/, '$1').replace(/\x00/g, '').trim();
 
   if (clean.startsWith('local://')) {
     try {
-      return decodeURIComponent(clean.slice('local://'.length)).replace(/\x00/g, '').trim();
+      const decoded = decodeURIComponent(clean.slice('local://'.length));
+      return stripDrivePrefix(decoded);
     } catch {
       return null;
     }
@@ -83,7 +91,8 @@ export function toRealPath(urlOrPath: string): string | null {
       .replace(/^media[/\\]/i, '')
       .replace(/^video[/\\]/i, '');
     try {
-      return decodeURIComponent(withoutSubroute).replace(/\x00/g, '').trim();
+      const decoded = decodeURIComponent(withoutSubroute);
+      return stripDrivePrefix(decoded);
     } catch {
       return null;
     }
@@ -96,7 +105,8 @@ export function toRealPath(urlOrPath: string): string | null {
       .replace(/^media[/\\]/i, '')
       .replace(/^video[/\\]/i, '');
     try {
-      return decodeURIComponent(withoutSubroute).replace(/\x00/g, '').trim();
+      const decoded = decodeURIComponent(withoutSubroute);
+      return stripDrivePrefix(decoded);
     } catch {
       return null;
     }
@@ -105,8 +115,8 @@ export function toRealPath(urlOrPath: string): string | null {
   if (clean.includes('asset.localhost/')) {
     const encoded = clean.split('asset.localhost/')[1] || '';
     try {
-      const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
-      return decoded || null;
+      const decoded = decodeURIComponent(encoded);
+      return stripDrivePrefix(decoded) || null;
     } catch {
       return null;
     }
@@ -115,8 +125,8 @@ export function toRealPath(urlOrPath: string): string | null {
   if (clean.includes('tauri.localhost/')) {
     const encoded = clean.split('tauri.localhost/')[1] || '';
     try {
-      const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
-      return decoded || null;
+      const decoded = decodeURIComponent(encoded);
+      return stripDrivePrefix(decoded) || null;
     } catch {
       return null;
     }
@@ -125,8 +135,8 @@ export function toRealPath(urlOrPath: string): string | null {
   if (clean.startsWith('asset://localhost/')) {
     const encoded = clean.slice('asset://localhost/'.length);
     try {
-      const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
-      return decoded || null;
+      const decoded = decodeURIComponent(encoded);
+      return stripDrivePrefix(decoded) || null;
     } catch {
       return null;
     }
@@ -135,8 +145,8 @@ export function toRealPath(urlOrPath: string): string | null {
   if (clean.startsWith('asset://')) {
     const encoded = clean.slice('asset://'.length);
     try {
-      const decoded = decodeURIComponent(encoded).replace(/\x00/g, '').trim();
-      return decoded || null;
+      const decoded = decodeURIComponent(encoded);
+      return stripDrivePrefix(decoded) || null;
     } catch {
       return null;
     }

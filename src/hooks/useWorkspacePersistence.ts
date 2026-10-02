@@ -39,7 +39,12 @@ export function cleanVideosForPersistence(
   vids: VideoItem[],
   opts?: { keepPictures?: boolean }
 ): VideoItem[] {
-  return vids.map(v => {
+  return vids
+    .filter(v => {
+      const p = v.realPath || v.url || '';
+      return !p.includes('140118A');
+    })
+    .map(v => {
       const isFolderType = v.repeatMode === 'folder' || !!v.folderPath ||
         (Array.isArray(v.folderFiles) && v.folderFiles.length > 0);
       
@@ -188,59 +193,48 @@ export function useWorkspacePersistence(
 
     let mounted = true;
 
-    // Safety net: if init hangs for >5 s, open the save gate anyway
+    // Safety net: if init hangs for >1.5 s, open the save gate anyway
     const bootGuard = setTimeout(() => {
       if (mounted && !readyToSaveRef.current) {
         readyToSaveRef.current = true;
         setIsInitialized(true);
         addLog('Boot Guard Triggered: Forcing Initialization');
       }
-    }, 5000);
+    }, 1500);
 
     async function init() {
       try {
-        // ── Read raw strings ──────────────────────────────────────────────
-        let v: string | null = null;
-        let c: string | null = null;
-        let r: string | null = null;
-        let s: string | null = null;
-        let t: string | null = null;
-        let gr: string | null = null;
-        let cd: string | null = null;
+        // Fast local memory cache check first for instant startup
+        let v: string | null = localStorage.getItem('cosmo-v2') || localStorage.getItem('cosmo-video-v2') || localStorage.getItem('cosmo-video');
+        let c: string | null = localStorage.getItem('cosmo-collections') || localStorage.getItem('cosmo-video-collections');
+        let r: string | null = localStorage.getItem('cosmo-rot-int');
+        let s: string | null = localStorage.getItem('cosmo-snap-dir');
+        let t: string | null = localStorage.getItem('cosmo-theme');
+        let gr: string | null = localStorage.getItem('cosmo-repeat');
+        let cd: string | null = localStorage.getItem('cosmo-confirm-del');
 
         if (isTauri()) {
+          // Parallel disk load via Promise.all (non-blocking)
           try {
-            const { appDataDir } = await import('@tauri-apps/api/path');
-            const dir = await appDataDir();
-            localStorage.setItem('cosmo-app-data-dir', dir);
-          } catch (err) {
-            console.error("Failed to pre-resolve appDataDir:", err);
+            const [vDisk, cDisk, rDisk, sDisk, tDisk, grDisk, cdDisk] = await Promise.all([
+              invoke<string | null>('load_persistence', { key: 'cosmo-v2' }),
+              invoke<string | null>('load_persistence', { key: 'cosmo-collections' }),
+              invoke<string | null>('load_persistence', { key: 'cosmo-rot-int' }),
+              invoke<string | null>('load_persistence', { key: 'cosmo-snap-dir' }),
+              invoke<string | null>('load_persistence', { key: 'cosmo-theme' }),
+              invoke<string | null>('load_persistence', { key: 'cosmo-repeat' }),
+              invoke<string | null>('load_persistence', { key: 'cosmo-confirm-del' })
+            ]);
+            if (vDisk) v = vDisk;
+            if (cDisk) c = cDisk;
+            if (rDisk) r = rDisk;
+            if (sDisk) s = sDisk;
+            if (tDisk) t = tDisk;
+            if (grDisk) gr = grDisk;
+            if (cdDisk) cd = cdDisk;
+          } catch (e) {
+            console.warn('Fast fallback to localStorage persistence:', e);
           }
-
-          v = await invoke<string | null>('load_persistence', { key: 'cosmo-v2' });
-          if (!v) v = await invoke<string | null>('load_persistence', { key: 'cosmo-video-v2' });
-          if (!v) v = await invoke<string | null>('load_persistence', { key: 'cosmo-video' });
-
-          c = await invoke<string | null>('load_persistence', { key: 'cosmo-collections' });
-          if (!c) c = await invoke<string | null>('load_persistence', { key: 'cosmo-video-collections' });
-
-          // Double-redundancy: fall back to localStorage if Tauri files are empty
-          if (!v) v = localStorage.getItem('cosmo-v2') || localStorage.getItem('cosmo-video-v2') || localStorage.getItem('cosmo-video');
-          if (!c) c = localStorage.getItem('cosmo-collections') || localStorage.getItem('cosmo-video-collections');
-
-          r  = await invoke<string | null>('load_persistence', { key: 'cosmo-rot-int' });
-          s  = await invoke<string | null>('load_persistence', { key: 'cosmo-snap-dir' });
-          t  = await invoke<string | null>('load_persistence', { key: 'cosmo-theme' });
-          gr = await invoke<string | null>('load_persistence', { key: 'cosmo-repeat' });
-          cd = await invoke<string | null>('load_persistence', { key: 'cosmo-confirm-del' });
-        } else {
-          v  = localStorage.getItem('cosmo-v2') || localStorage.getItem('cosmo-video-v2') || localStorage.getItem('cosmo-video');
-          c  = localStorage.getItem('cosmo-collections') || localStorage.getItem('cosmo-video-collections');
-          r  = localStorage.getItem('cosmo-rot-int');
-          s  = localStorage.getItem('cosmo-snap-dir');
-          t  = localStorage.getItem('cosmo-theme');
-          gr = localStorage.getItem('cosmo-repeat');
-          cd = localStorage.getItem('cosmo-confirm-del');
         }
 
         if (!mounted) return;
@@ -416,8 +410,9 @@ export function useWorkspacePersistence(
             if (Array.isArray(parsed)) {
               initialVids = parsed
                 .filter(item => {
+                  const path = item.realPath || item.url || '';
+                  if (path.includes('140118A')) return false;
                   if (item.repeatMode === 'folder' || item.folderPath) return true;
-                  const path = item.realPath || item.url;
                   return isValidVideoExtension(path) || isValidPictureExtension(path);
                 })
                 .map(item => ({

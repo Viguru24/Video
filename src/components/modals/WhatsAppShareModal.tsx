@@ -40,8 +40,12 @@ export function WhatsAppShareModal({ target, onClose, addLog }: WhatsAppShareMod
   const [loadingQr, setLoadingQr] = useState<boolean>(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
-  const effectivePath = target ? (target.realPath || toRealPath(target.url)) : null;
-  const mediaSrc = target ? toCosmoUrl(target.realPath || target.url) : '';
+  const currentFolderFile = (target?.folderFiles && target.currentIdx !== undefined && target.folderFiles[target.currentIdx])
+    ? target.folderFiles[target.currentIdx]
+    : null;
+  const rawPath = currentFolderFile ? (currentFolderFile.path || currentFolderFile.url) : (target?.realPath || (target ? toRealPath(target.url) : null));
+  const effectivePath = rawPath ? (toRealPath(rawPath) || rawPath) : null;
+  const mediaSrc = target ? toCosmoUrl(effectivePath || target.realPath || target.url) : '';
   const isImage = target ? (target.type === 'picture' || 
     (effectivePath && /\.(png|jpe?g|webp|gif|bmp|avif|tiff|ico)$/i.test(effectivePath))) : false;
 

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Play, Pause, RefreshCw, Camera, Volume2, VolumeX, GripVertical, Minimize2, FolderOpen, X, AlertCircle, ChevronLeft, ChevronRight, Maximize, CheckCircle2, Trash2, Sliders, Crop, Sparkles, ExternalLink } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store/useStore';
-import { triggerPopOut } from '../../utils/videoUtils';
+import { triggerPopOut, isTauri } from '../../utils/videoUtils';
 import { useVideoCard } from './useVideoCard';
 import type { UseVideoCardProps } from './useVideoCard';
 import { AudioCard } from './AudioCard';
@@ -70,7 +70,7 @@ function VideoCardInternal(props: VideoCardProps) {
       }}
       onTouchStart={state.handleTouchStart}
       onTouchEnd={state.handleTouchEnd}
-      onContextMenu={(e) => { e.preventDefault(); props.onContextMenu(e.clientX, e.clientY); }}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); props.onContextMenu(e.clientX, e.clientY); }}
       data-id={props.video.id}
       style={{
         border: props.isSelected ? '2px solid var(--accent)' : undefined,
@@ -118,12 +118,12 @@ function VideoCardInternal(props: VideoCardProps) {
                 decoding="async"
                 loading="lazy"
                 fetchPriority={props.isVisible ? "high" : "low"}
-                onError={state.handleImageError}
+                onLoad={state.handleMediaSuccess}
+                onError={() => state.handleMediaError('image')}
                 style={{ 
                   width: '100%', 
                   height: '100%', 
                   objectFit: props.isCropping ? 'contain' : fitMode, 
-                  imageOrientation: 'none', 
                   filter: props.video.colorFilters ? `url(#filter-${state.filterId}) brightness(${state.filters.brightness}) contrast(${state.filters.contrast}) saturate(${state.filters.saturation}) hue-rotate(${state.filters.hue}deg)` : undefined
                 }}
                 className={props.isSlideshowActive && props.isFocused && enableSlideshowPanZoom ? state.animationClass : ''}
@@ -146,6 +146,8 @@ function VideoCardInternal(props: VideoCardProps) {
             panOffset={state.panOffset}
             onUpdateVideo={props.onUpdateVideo}
             onLog={props.onLog}
+            onMediaError={state.handleMediaError}
+            onMediaSuccess={state.handleMediaSuccess}
           />
         ) : (
           <video
@@ -201,6 +203,7 @@ function VideoCardInternal(props: VideoCardProps) {
             data-pan-y={state.panOffset.y}
             data-rotation={props.video.rotation || 0}
             onLoadedMetadata={() => {
+              state.handleMediaSuccess();
               const dur = state.videoRef.current?.duration || 0;
               state.setDuration(dur);
               if (state.lastTime.current > 0 && state.videoRef.current) {
@@ -216,7 +219,6 @@ function VideoCardInternal(props: VideoCardProps) {
                   state.videoRef.current.currentTime = 0.001;
                 } catch {}
               }
-              state.setError(null);
               
               if (props.video.playing && state.videoRef.current) {
                 state.videoRef.current.play().catch(e => console.warn("Autoplay failed:", e));
@@ -224,19 +226,7 @@ function VideoCardInternal(props: VideoCardProps) {
               setTimeout(state.handleTimeUpdate, 50);
             }}
             onError={() => {
-              const friendlyError = "LOAD ERROR";
-              // If initial load failed, attempt a quick retry in 1.2s in case file was still being written
-              if (!state.retryAttempted?.current) {
-                if (state.retryAttempted) state.retryAttempted.current = true;
-                setTimeout(() => {
-                  if (state.videoRef.current) {
-                    state.videoRef.current.load();
-                  }
-                }, 1200);
-              } else {
-                state.setError(friendlyError);
-                props.onLog(`Unit [${props.video.title}] Error: ${friendlyError}`);
-              }
+              state.handleMediaError('video');
             }}
             style={{ 
               width: '100%', 
@@ -268,9 +258,34 @@ function VideoCardInternal(props: VideoCardProps) {
         <div className="unit-error-overlay">
           <AlertCircle size={20} color="var(--danger)" />
           <p>{state.error}</p>
-          <button className="retry-btn" onClick={() => { state.videoRef.current?.load(); state.setError("RETRYING..."); }}>
+          <button className="retry-btn" onClick={() => { state.handleManualRetry(); state.setError("RETRYING..."); }}>
             <RefreshCw size={12} />
           </button>
+        </div>
+      )}
+
+      {state.isSyncingOrRecovering && !state.error && (
+        <div className="unit-syncing-overlay" style={{
+          position: 'absolute',
+          bottom: '12px',
+          left: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          background: 'rgba(10, 15, 29, 0.88)',
+          border: '1px solid var(--accent, #00ff88)',
+          borderRadius: '16px',
+          padding: '4px 10px',
+          fontSize: '10px',
+          fontWeight: 700,
+          color: 'var(--accent, #00ff88)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(10px)',
+          zIndex: 101,
+          pointerEvents: 'none'
+        }}>
+          <RefreshCw size={11} className="spin" />
+          <span>SYNCING MEDIA...</span>
         </div>
       )}
 
@@ -381,7 +396,7 @@ function VideoCardInternal(props: VideoCardProps) {
         </div>
       )}
 
-      {!props.isFocused && (state.error || (props.masterShowUI && (props.selectionMode || state.showControls || props.isSelected))) && !immersive && (
+      {!props.isFocused && !state.isSyncingOrRecovering && (state.error || (props.masterShowUI && (props.selectionMode || state.showControls || props.isSelected))) && !immersive && (
         <button 
           onClick={(e) => { e.stopPropagation(); props.onRemove(props.video.id); }} 
           className="premium-close-btn"
@@ -672,7 +687,7 @@ function VideoCardInternal(props: VideoCardProps) {
                   justifyContent: 'center',
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
-                  opacity: state.showControls ? 1 : 0
+                  opacity: (state.showControls || !isTauri() || (typeof window !== 'undefined' && 'ontouchstart' in window)) ? 1 : 0
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = '#fff';

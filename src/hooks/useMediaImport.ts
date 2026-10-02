@@ -267,9 +267,25 @@ export function useMediaImport({
       if (videoCount > 0 && pictureCount > 0) {
         setMediaMode('all');
       } else if (pictureCount > 0 && videoCount === 0) {
-        setMediaMode('picture');
+        setVideos(currentVideos => {
+          const hasExistingVideos = currentVideos.some(v => isValidMediaExtension(v.realPath || v.url, 'video'));
+          if (hasExistingVideos) {
+            setMediaMode('all');
+          } else {
+            setMediaMode('picture');
+          }
+          return currentVideos;
+        });
       } else if (videoCount > 0 && pictureCount === 0) {
-        setMediaMode('video');
+        setVideos(currentVideos => {
+          const hasExistingPictures = currentVideos.some(v => isValidMediaExtension(v.realPath || v.url, 'picture'));
+          if (hasExistingPictures) {
+            setMediaMode('all');
+          } else {
+            setMediaMode('video');
+          }
+          return currentVideos;
+        });
       }
 
       addLog(`System: Ingested ${newItems.length} file(s) into workspace.`);

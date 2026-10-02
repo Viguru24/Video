@@ -465,7 +465,14 @@ pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<AutoCrop
     })
 }
 
-pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Result<String, String> {
+pub async fn upscale_image(
+    app: AppHandle,
+    path: String,
+    overwrite: bool,
+    restore_faces: Option<bool>,
+    restore_color: Option<bool>,
+    outscale: Option<u32>,
+) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = clean_local_path(&path);
 
@@ -473,6 +480,20 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
         let p = Path::new(&path);
         if !p.exists() {
             return Err("File does not exist".into());
+        }
+
+        let scale_factor = outscale.unwrap_or(4);
+
+        // Automatic safety check: block oversized images from exhausting GPU VRAM and locking up
+        if let Ok((w, h)) = image::image_dimensions(p) {
+            let max_dim = 4096;
+            let max_pixels: u64 = 12_000_000;
+            if scale_factor > 1 && (w > max_dim || h > max_dim || (w as u64 * h as u64) > max_pixels) {
+                return Err(format!(
+                    "Image resolution ({}×{}) is too large for 4x AI super-resolution (will exhaust GPU memory and fail). Maximum supported input is 4K (~12 MP). Please resize or crop the image first, or use 1× Restore mode.",
+                    w, h
+                ));
+            }
         }
 
         let ext = p.extension()
@@ -526,7 +547,10 @@ pub async fn upscale_image(app: AppHandle, path: String, overwrite: bool) -> Res
                 let json_payload = serde_json::json!({
                     "path": path,
                     "output_path": out_str,
-                    "fidelity": 0.5
+                    "fidelity": 0.5,
+                    "restore_faces": restore_faces.unwrap_or(true),
+                    "restore_color": restore_color.unwrap_or(false),
+                    "outscale": scale_factor
                 }).to_string();
 
                 let request = format!(
@@ -809,6 +833,27 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
         if total_frames > 3600 {
             let _ = secure_delete_dir_all(&temp_frames_dir);
             return Err("Video exceeds maximum limit for local AI super-resolution (capped at 3,600 frames / ~2 minutes to protect system memory and disk space).".into());
+        }
+
+        // Automatic safety check: block videos with resolution > 1080p from blowing up disk/memory
+        let mut dim_cmd = new_hidden_ffprobe_command(Some(&app));
+        dim_cmd.args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", &path]);
+        #[cfg(windows)]
+        dim_cmd.creation_flags(CREATE_NO_WINDOW_LOW_PRIORITY);
+        if let Ok(dim_out) = dim_cmd.output() {
+            let dim_str = String::from_utf8_lossy(&dim_out.stdout).trim().to_string();
+            let parts: Vec<&str> = dim_str.split('x').collect();
+            if parts.len() == 2 {
+                let vw: u32 = parts[0].parse().unwrap_or(0);
+                let vh: u32 = parts[1].parse().unwrap_or(0);
+                if vw > 1920 || vh > 1080 {
+                    let _ = secure_delete_dir_all(&temp_frames_dir);
+                    return Err(format!(
+                        "Video resolution ({}×{}) is too large for 4x AI super-resolution (maximum supported input is 1080p). Please downscale the video before upscaling.",
+                        vw, vh
+                    ));
+                }
+            }
         }
         
         let mut ext_cmd = new_hidden_ffmpeg_command(Some(&app));

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Sliders, Crop, Sparkles, Pause, Play, RefreshCw, Volume2, VolumeX, ChevronLeft, ChevronRight, Repeat, Repeat1, Minimize2, ZoomIn, RotateCcw } from 'lucide-react';
+import { Sliders, Crop, Sparkles, Pause, Play, RefreshCw, Volume2, VolumeX, ChevronLeft, ChevronRight, Repeat, Repeat1, Minimize2, ZoomIn, RotateCcw, ArrowLeft, ExternalLink } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { DEFAULT_COLOR_FILTERS } from '../types';
 import { useStore } from '../store/useStore';
@@ -20,6 +20,7 @@ import {
 import { ColorFilterDefs } from './ColorFilterDefs';
 import { CropOverlay } from './CropOverlay';
 import { ColorAdjustmentPanel } from './ColorAdjustmentPanel';
+import { SaveUpscaleModal } from './modals/SaveUpscaleModal';
 
 interface PopoutPlayerProps {
   url: string;
@@ -1268,9 +1269,46 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
           transition: 'opacity 0.3s ease'
         }}
       >
-        <span style={{ pointerEvents: 'none' }}>
-          {activeVideo ? activeVideo.title : 'Cosmo Stream'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {!isTauri() && (
+            <button
+              onClick={() => {
+                if (window.opener && !window.opener.closed) {
+                  window.close();
+                } else {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete('popout');
+                  url.searchParams.delete('url');
+                  window.location.href = url.toString();
+                }
+              }}
+              style={{
+                background: 'rgba(255, 255, 255, 0.12)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: '#fff',
+                padding: '4px 12px',
+                borderRadius: '16px',
+                fontSize: '11px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                textTransform: 'none',
+                pointerEvents: 'auto'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.22)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'}
+            >
+              <ArrowLeft size={13} />
+              <span>Back to Studio</span>
+            </button>
+          )}
+          <span style={{ pointerEvents: 'none' }}>
+            {activeVideo ? activeVideo.title : 'Cosmo Stream'}
+          </span>
+        </div>
 
         {/* Custom Window Controls */}
         <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto', pointerEvents: 'auto' }}>
@@ -1331,7 +1369,20 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             ❑
           </button>
           <button 
-            onClick={() => invoke('close_popout').catch(() => getCurrentWindow().close())}
+            onClick={() => {
+              if (!isTauri()) {
+                if (window.opener && !window.opener.closed) {
+                  window.close();
+                } else {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete('popout');
+                  url.searchParams.delete('url');
+                  window.location.href = url.toString();
+                }
+                return;
+              }
+              invoke('close_popout').catch(() => getCurrentWindow().close());
+            }}
             style={{ 
               background: 'none', 
               border: 'none', 
@@ -1637,29 +1688,6 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
             pointerEvents: showUI ? 'auto' : 'none'
           }}
         >
-          {/* Previous Sibling Button */}
-          <button 
-            onClick={() => navigate(-1)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#fff',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '4px',
-              borderRadius: '50%',
-              transition: 'background 0.2s',
-              pointerEvents: 'auto'
-            }}
-            onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-            onMouseOut={e => e.currentTarget.style.background = 'none'}
-            title="Previous Media"
-          >
-            <ChevronLeft size={14} />
-          </button>
-
           {/* Frame Step Back (1 frame) */}
           {!isImage && (
             <button 
@@ -1766,29 +1794,6 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
               <ChevronRight size={12} />
             </button>
           )}
-
-          {/* Next Sibling Button */}
-          <button 
-            onClick={() => navigate(1)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#fff',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '4px',
-              borderRadius: '50%',
-              transition: 'background 0.2s',
-              pointerEvents: 'auto'
-            }}
-            onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-            onMouseOut={e => e.currentTarget.style.background = 'none'}
-            title="Next Media"
-          >
-            <ChevronRight size={14} />
-          </button>
 
           {/* Divider */}
           <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)' }} />
@@ -2268,129 +2273,13 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
         </div>
       )}
 
-      {showSaveUpscaleOptions && (
-        <div
-          className="save-upscale-options-overlay"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: 'rgba(5, 5, 8, 0.85)',
-            backdropFilter: 'blur(20px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 300000,
-            userSelect: 'none'
-          }}
-        >
-          <div
-            style={{
-              background: 'rgba(18, 18, 24, 0.75)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '20px',
-              padding: '30px',
-              maxWidth: '500px',
-              width: '90%',
-              boxShadow: '0 30px 60px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '20px'
-            }}
-          >
-            <div style={{ textAlign: 'center' }}>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#fff', letterSpacing: '0.5px' }}>✨ AI SUPER-RESOLUTION</h2>
-              <p style={{ margin: '6px 0 0 0', fontSize: '12px', color: '#888' }}>Enhance image resolution 4x using local GPU</p>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button
-                onClick={() => executeUpscale(false)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: '#fff',
-                  borderRadius: '12px',
-                  padding: '12px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  fontSize: '13px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
-                onMouseOut={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
-              >
-                Save as Enhanced Copy
-              </button>
-              <button
-                onClick={() => executeUpscale(true)}
-                style={{
-                  background: 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))',
-                  border: '1px solid rgba(0, 255, 136, 0.35)',
-                  color: 'var(--accent, #00ff88)',
-                  borderRadius: '12px',
-                  padding: '12px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  fontSize: '13px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseOver={e => {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0, 255, 136, 0.25), rgba(0, 150, 255, 0.25))';
-                  e.currentTarget.style.borderColor = 'rgba(0, 255, 136, 0.7)';
-                }}
-                onMouseOut={e => {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))';
-                  e.currentTarget.style.borderColor = 'rgba(0, 255, 136, 0.35)';
-                }}
-              >
-                Overwrite with Enhanced Version
-              </button>
-
-              {/* Hardware Recommendation Note */}
-              <div style={{
-                background: 'rgba(0, 255, 136, 0.04)',
-                border: '1px solid rgba(0, 255, 136, 0.12)',
-                borderRadius: '12px',
-                padding: '12px',
-                fontSize: '11px',
-                color: 'rgba(255,255,255,0.7)',
-                lineHeight: '1.4',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '8px',
-                marginTop: '10px'
-              }}>
-                <Sparkles size={14} color="var(--accent, #00ff88)" style={{ marginTop: '2px', flexShrink: 0 }} />
-                <span>
-                  <strong>Hardware Recommendation:</strong> AI super-resolution utilizes hardware acceleration on <strong>NVIDIA graphics cards</strong> (via CUDA) or <strong>AMD graphics cards</strong> (via DirectML) for maximum performance. A high-fidelity bilateral CPU filter fallback is used automatically if compatible graphics hardware is not detected.
-                </span>
-              </div>
-
-              <button
-                onClick={() => setShowSaveUpscaleOptions(false)}
-                style={{
-                  background: 'rgba(255, 77, 77, 0.1)',
-                  border: '1px solid rgba(255, 77, 77, 0.2)',
-                  color: '#ff4d4d',
-                  borderRadius: '12px',
-                  padding: '10px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  fontSize: '12px',
-                  transition: 'all 0.2s',
-                  marginTop: '10px'
-                }}
-                onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 77, 77, 0.2)'}
-                onMouseOut={e => e.currentTarget.style.background = 'rgba(255, 77, 77, 0.1)'}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+      {showSaveUpscaleOptions && upscaleTarget && (
+        <SaveUpscaleModal
+          isOpen={true}
+          target={upscaleTarget}
+          onClose={() => setShowSaveUpscaleOptions(false)}
+          onExecute={executeUpscale}
+        />
       )}
 
       {upscaleStatus === 'enhancing' && (

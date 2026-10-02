@@ -23,6 +23,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { toCosmoUrl, isValidMediaExtension, isTauri } from '../utils/videoUtils';
+import { normalizeTimestamp } from '../utils/sortUtils';
 import { useStore } from '../store/useStore';
 
 interface InAppBrowserProps {
@@ -85,15 +86,34 @@ function VideoPreview({ path, src, isHovered }: { path: string; src?: string; is
     } catch {}
   };
 
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    setRetryCount(0);
+  }, [path, src]);
+
   const handleError = () => {
+    if (retryCount < 2) {
+      const nextRetry = retryCount + 1;
+      setRetryCount(nextRetry);
+      setTimeout(() => {
+        const base = toCosmoUrl(path);
+        const sep = base.includes('?') ? '&' : '?';
+        setVideoSrc(`${base}${sep}_retry=${Date.now()}`);
+      }, nextRetry * 500);
+      return;
+    }
+
     if (!triedFallback) {
       setTriedFallback(true);
       if (videoSrc.includes('asset.localhost')) {
-        setVideoSrc(toCosmoUrl(path));
+        setVideoSrc(`http://cosmo.localhost/${encodeURIComponent(path)}`);
       } else if (isTauri()) {
         try {
           setVideoSrc(convertFileSrc(path));
-        } catch {}
+        } catch {
+          setVideoSrc(`cosmo://localhost/${encodeURIComponent(path)}`);
+        }
       }
     }
   };
@@ -104,7 +124,7 @@ function VideoPreview({ path, src, isHovered }: { path: string; src?: string; is
     <video 
       ref={videoRef}
       src={finalSrc} 
-      className="file-thumb"
+      className="file-thumb" 
       muted
       playsInline
       loop
@@ -117,29 +137,57 @@ function VideoPreview({ path, src, isHovered }: { path: string; src?: string; is
 }
 
 function ImageThumbnail({ path, name }: { path: string; name: string }) {
-  const [imgSrc, setImgSrc] = useState(() => toCosmoUrl(path));
+  const [imgSrc, setImgSrc] = useState(() => {
+    if (isTauri()) {
+      try {
+        return convertFileSrc(path);
+      } catch {}
+    }
+    return toCosmoUrl(path);
+  });
   const [hasError, setHasError] = useState(false);
-  const [triedFallback, setTriedFallback] = useState(false);
+  const [fallbackStage, setFallbackStage] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   const ext = path.split('.').pop()?.toUpperCase() || 'IMG';
 
   // Reset when path changes
   useEffect(() => {
-    setImgSrc(toCosmoUrl(path));
+    const initial = isTauri() ? (convertFileSrc(path) || toCosmoUrl(path)) : toCosmoUrl(path);
+    setImgSrc(initial);
     setHasError(false);
-    setTriedFallback(false);
+    setFallbackStage(0);
     setIsLoaded(false);
+    setRetryCount(0);
   }, [path]);
 
   const handleError = () => {
-    if (!triedFallback && isTauri()) {
-      setTriedFallback(true);
-      try {
-        setImgSrc(convertFileSrc(path));
-        return;
-      } catch {}
+    if (fallbackStage === 0) {
+      // Stage 1: Fallback from asset.localhost to the custom cosmo.localhost streaming engine
+      setFallbackStage(1);
+      setImgSrc(`http://cosmo.localhost/${encodeURIComponent(path)}`);
+      return;
     }
+
+    if (fallbackStage === 1) {
+      // Stage 2: Fallback to custom cosmo:// URI scheme
+      setFallbackStage(2);
+      setImgSrc(`cosmo://localhost/${encodeURIComponent(path)}`);
+      return;
+    }
+
+    if (retryCount < 2) {
+      // Stage 3: Auto-retry with cache-busting timestamp
+      const nextRetry = retryCount + 1;
+      setRetryCount(nextRetry);
+      setTimeout(() => {
+        const base = imgSrc.split('?')[0];
+        setImgSrc(`${base}?_r=${Date.now()}`);
+      }, nextRetry * 300);
+      return;
+    }
+
     setHasError(true);
   };
 
@@ -384,14 +432,20 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     dirs.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
     // Sort files
-    files.sort((a, b) => {
+    files.sort((a: any, b: any) => {
+      const nameCompare = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
       let comparison = 0;
       if (sortBy === 'name') {
-        comparison = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+        comparison = nameCompare;
       } else if (sortBy === 'date') {
-        comparison = (a.modified || 0) - (b.modified || 0);
+        const timeA = normalizeTimestamp(a.modified) || normalizeTimestamp(a.created);
+        const timeB = normalizeTimestamp(b.modified) || normalizeTimestamp(b.created);
+        comparison = timeA - timeB;
       } else if (sortBy === 'size') {
         comparison = (a.size || 0) - (b.size || 0);
+      }
+      if (comparison === 0) {
+        return sortOrder === 'asc' ? nameCompare : -nameCompare;
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
@@ -440,11 +494,17 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
     let isActive = true;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const setupListener = async () => {
       const unlistenFn = await listen<string>('directory-changed', (event) => {
         if (isActive && event.payload === inAppBrowserPath) {
-          loadContents(inAppBrowserPath);
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            if (isActive) {
+              loadContents(inAppBrowserPath);
+            }
+          }, 350);
         }
       });
       if (isActive) {
@@ -460,6 +520,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
 
     return () => {
       isActive = false;
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (unsubscribe) {
         unsubscribe();
       }
@@ -665,10 +726,24 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
             <button
               className="layout-toggle-btn"
               onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              title={sortOrder === 'asc' ? "Sort Ascending" : "Sort Descending"}
-              style={{ padding: '2px 5px', fontSize: '11px', fontWeight: 'bold' }}
+              title={
+                sortBy === 'date'
+                  ? sortOrder === 'desc'
+                    ? "Date: Newest First (Click for Oldest First)"
+                    : "Date: Oldest First (Click for Newest First)"
+                  : sortBy === 'name'
+                    ? sortOrder === 'asc'
+                      ? "Name: A → Z (Click for Z → A)"
+                      : "Name: Z → A (Click for A → Z)"
+                    : sortOrder === 'asc'
+                      ? "Size: Small → Large"
+                      : "Size: Large → Small"
+              }
+              style={{ padding: '2px 6px', fontSize: '11px', fontWeight: 'bold' }}
             >
-              {sortOrder === 'asc' ? '↑' : '↓'}
+              {sortBy === 'date' 
+                ? (sortOrder === 'desc' ? '↓ Newest' : '↑ Oldest')
+                : (sortOrder === 'asc' ? '↑' : '↓')}
             </button>
           </div>
 

@@ -20,12 +20,15 @@ interface AudioCardProps {
   panOffset: { x: number; y: number };
   onUpdateVideo: (id: any, updates: any) => void;
   onLog: (msg: string) => void;
+  onMediaError?: (type: 'audio') => void;
+  onMediaSuccess?: () => void;
 }
 
 export function AudioCard({
   video, displayUrl, effectiveMuted, globalRepeat, songInfo,
   videoRef, lastTime, onEnded, handleTimeUpdate,
-  setDuration, setError, zoomScale, panOffset, onUpdateVideo, onLog
+  setDuration, setError, zoomScale, panOffset, onUpdateVideo, onLog,
+  onMediaError, onMediaSuccess
 }: AudioCardProps) {
   return (
     <>
@@ -72,16 +75,24 @@ export function AudioCard({
           if (lastTime.current > 0 && videoRef.current) {
             videoRef.current.currentTime = lastTime.current;
           }
-          setError(null);
+          if (onMediaSuccess) {
+            onMediaSuccess();
+          } else {
+            setError(null);
+          }
           if (video.playing && videoRef.current) {
             videoRef.current.play().catch(e => console.warn("Autoplay failed:", e));
           }
           setTimeout(handleTimeUpdate, 50);
         }}
         onError={() => {
-          const friendlyError = "LOAD ERROR";
-          setError(friendlyError);
-          onLog(`Unit [${video.title}] Error: ${friendlyError}`);
+          if (onMediaError) {
+            onMediaError('audio');
+          } else {
+            const friendlyError = "LOAD ERROR";
+            setError(friendlyError);
+            onLog(`Unit [${video.title}] Error: ${friendlyError}`);
+          }
         }}
         style={{ 
           position: 'absolute',

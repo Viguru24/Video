@@ -556,7 +556,8 @@ export function VideoTrimCropModal({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '20px',
+        padding: '12px',
+        overflowY: 'auto',
         animation: 'fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
       }}
       onClick={(e) => { if (e.target === e.currentTarget && !isProcessing) onClose(); }}
@@ -569,7 +570,7 @@ export function VideoTrimCropModal({
           borderRadius: '20px',
           width: '100%',
           maxWidth: '1180px',
-          maxHeight: '94vh',
+          maxHeight: 'calc(100vh - 24px)',
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 32px 80px rgba(0, 0, 0, 0.85), 0 0 1px 1px rgba(255, 255, 255, 0.1), 0 0 45px rgba(0, 255, 136, 0.12)',
@@ -591,12 +592,13 @@ export function VideoTrimCropModal({
 
         {/* Header Bar */}
         <div style={{
-          padding: '14px 22px',
+          padding: '10px 20px',
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: 'rgba(255, 255, 255, 0.02)'
+          background: 'rgba(255, 255, 255, 0.02)',
+          flexShrink: 0
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <div style={{
@@ -713,16 +715,17 @@ export function VideoTrimCropModal({
           onMouseDown={handleViewportMouseDown}
           style={{
             display: 'flex',
-            flex: 1,
-            minHeight: '380px',
-            maxHeight: '52vh',
+            flex: '1 1 auto',
+            minHeight: '140px',
+            maxHeight: 'min(50vh, calc(100vh - 360px))',
             background: 'radial-gradient(circle at 50% 50%, #131722 0%, #06080d 100%)',
             position: 'relative',
             alignItems: 'center',
             justifyContent: 'center',
             overflow: 'hidden',
             cursor: zoomScale > 1 ? (isPanningViewport ? 'grabbing' : 'grab') : 'default',
-            userSelect: 'none'
+            userSelect: 'none',
+            padding: '8px'
           }}
         >
           {/* Subtle Grid Background */}
@@ -799,7 +802,9 @@ export function VideoTrimCropModal({
               onClick={togglePlay}
               style={{
                 maxWidth: '100%',
-                maxHeight: '48vh',
+                maxHeight: 'min(46vh, calc(100vh - 380px))',
+                height: 'auto',
+                width: 'auto',
                 display: 'block',
                 borderRadius: '6px',
                 cursor: 'pointer',
@@ -927,14 +932,15 @@ export function VideoTrimCropModal({
 
         {/* Toolbar & Aspect Controls Bar */}
         <div style={{
-          padding: '10px 22px',
+          padding: '8px 20px',
           background: 'rgba(255, 255, 255, 0.025)',
           borderBottom: '1px solid rgba(255, 255, 255, 0.07)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: '12px'
+          gap: '10px',
+          flexShrink: 0
         }}>
           {/* Crop Mode Switcher & Aspect Ratio Presets */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -1113,9 +1119,10 @@ export function VideoTrimCropModal({
 
         {/* Multi-Track Precision Timeline & Transport */}
         <div style={{
-          padding: '14px 22px',
+          padding: '10px 20px',
           background: 'rgba(0, 0, 0, 0.5)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          flexShrink: 0
         }}>
           {/* Real-time Timecode Readouts */}
           <div style={{
@@ -1124,7 +1131,7 @@ export function VideoTrimCropModal({
             justifyContent: 'space-between',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
             fontSize: '12px',
-            marginBottom: '10px'
+            marginBottom: '8px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontWeight: 700 }}>IN</span>
@@ -1337,7 +1344,7 @@ export function VideoTrimCropModal({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginTop: '12px'
+            marginTop: '10px'
           }}>
             {/* Left Transport Cluster */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1542,13 +1549,15 @@ export function VideoTrimCropModal({
 
         {/* Footer & Action Controls */}
         <div style={{
-          padding: '16px 22px',
-          background: 'rgba(255, 255, 255, 0.015)',
+          padding: '12px 20px',
+          background: 'rgba(255, 255, 255, 0.02)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: '12px'
+          gap: '12px',
+          flexShrink: 0
         }}>
           {/* Status or Hotkeys */}
           {errorMessage ? (
