@@ -19,71 +19,6 @@ pub struct DirectoryWatcherState {
     pub watchers: std::sync::Mutex<std::collections::HashMap<String, notify::RecommendedWatcher>>,
 }
 
-fn spawn_symphony_backend() {
-    std::thread::spawn(move || {
-        // 1. Check if port 8005 is already active (matches studio_agent.py uvicorn port)
-        if std::net::TcpStream::connect("127.0.0.1:8005").is_ok() {
-            println!("Symphony Backend already online on port 8005.");
-            return;
-        }
-
-        // 2. Kill any zombie python process holding port 8005 or 12000 from a previous unclean shutdown.
-        //    This prevents Errno 10048 "address already in use" on next startup.
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            let kill_result = std::process::Command::new("powershell.exe")
-                .args(&[
-                    "-NoProfile", "-Command",
-                    "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-                ])
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output();
-            if let Ok(output) = kill_result {
-                if output.status.success() {
-                    // Give the OS a moment to release the socket
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                }
-            }
-        }
-
-        // 3. Robust directory traversal to locate sibling "CosmoStudio"
-        if let Ok(current_dir) = std::env::current_dir() {
-            let mut check_dir = Some(current_dir.as_path());
-            
-            while let Some(dir) = check_dir {
-                // Check if CosmoStudio is a sibling of the current check directory
-                let sibling_studio = dir.join("CosmoStudio");
-                if sibling_studio.exists() && sibling_studio.join("start_backend.ps1").exists() {
-                    println!("Auto-starting Symphony Backend from: {:?}", sibling_studio);
-                    let mut cmd = std::process::Command::new("powershell.exe");
-                    cmd.args(&[
-                        "-ExecutionPolicy",
-                        "Bypass",
-                        "-File",
-                        "start_backend.ps1",
-                    ]);
-                    cmd.current_dir(sibling_studio);
-                    
-                    #[cfg(target_os = "windows")]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-                    }
-
-                    if let Err(e) = cmd.spawn() {
-                        println!("Failed to auto-start Symphony Backend: {:?}", e);
-                    } else {
-                        println!("Symphony Backend process spawned successfully.");
-                    }
-                    return;
-                }
-                check_dir = dir.parent();
-            }
-            println!("Could not locate CosmoStudio directory from current path: {:?}", std::env::current_dir());
-        }
-    });
-}
 
 pub static POPOUT_MEDIA_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -127,6 +62,15 @@ fn extract_exif_jpeg_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn main() {
+    // Set WebView2 environment variables to prevent sleep, background freezing, and white-screen issues:
+    let base_args = "--disable-features=msSleepingTabs,msEfficiencyMode,CalculateNativeWinOcclusion,ProcessPerSiteUpToLimit --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling";
+    let browser_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+        Ok(existing) => format!("{} {}", existing, base_args),
+        Err(_) => base_args.to_string(),
+    };
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", browser_args);
+    std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "0xFF0A0A10");
+
     let args: Vec<String> = std::env::args().collect();
     let mut is_popout_process = false;
     let mut popout_url = String::new();
@@ -169,53 +113,6 @@ fn main() {
         }
     }
 
-    // Self-healing: Clean up any zombie processes holding port 12000 from previous sessions
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("powershell.exe")
-            .args(&[
-                "-NoProfile", "-Command",
-                "Get-NetTCPConnection -LocalPort 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-            ])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output();
-    }
-
-    // Self-healing: Clean up .window-state.json to prevent dynamic popout windows from loading in a loop
-    if let Some(config_base) = dirs::config_dir() {
-        let targets = [
-            "com.cosmo.symphony",
-            "MicroMeadow.CosmoSymphony",
-            "MicroMeadow.CosmoSymphonyDev"
-        ];
-        for target in targets {
-            let state_file = config_base.join(target).join(".window-state.json");
-            if state_file.exists() {
-                if let Ok(content) = std::fs::read_to_string(&state_file) {
-                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(obj) = json.as_object_mut() {
-                            // Remove all window state keys that are not "main" (e.g. "popout" or starting with "pop-")
-                            let keys_to_remove: Vec<String> = obj.keys()
-                                .filter(|k| k.starts_with("pop-") || *k == "popout" || *k != "main")
-                                .map(|k| k.to_string())
-                                .collect();
-                            
-                            if !keys_to_remove.is_empty() {
-                                for k in keys_to_remove {
-                                    obj.remove(&k);
-                                }
-                                if let Ok(updated_content) = serde_json::to_string(&json) {
-                                    let _ = std::fs::write(&state_file, updated_content);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     let builder = tauri::Builder::default()
         .on_window_event(|window, event| {
             match event {
@@ -228,21 +125,30 @@ fn main() {
                         use tauri_plugin_window_state::AppHandleExt;
                         let _ = window.app_handle().save_window_state(tauri_plugin_window_state::StateFlags::all());
 
-                        // Spawn a quick background process killer command for sibling servers
-                        #[cfg(target_os = "windows")]
-                        {
-                            use std::os::windows::process::CommandExt;
-                            let _ = std::process::Command::new("powershell.exe")
-                                .args(&[
-                                    "-NoProfile", "-Command",
-                                    "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-                                ])
-                                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                                .output();
-                        }
                         std::process::exit(0);
                     } else {
                         println!("Cosmo Symphony: Close/Destroy requested on secondary window '{}'. Allowing standard window close.", window.label());
+                    }
+                }
+                tauri::WindowEvent::Focused(true) => {
+                    #[cfg(target_os = "windows")]
+                    {
+                        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE, SWP_FRAMECHANGED};
+                        use windows::Win32::Foundation::HWND;
+                        if let Ok(hwnd) = window.hwnd() {
+                            let hwnd = HWND(hwnd.0 as *mut std::ffi::c_void);
+                            unsafe {
+                                let _ = SetWindowPos(
+                                    hwnd,
+                                    None,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                                );
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -261,7 +167,14 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .register_uri_scheme_protocol("cosmo", |_app, request| {
             // HIGH-PERFORMANCE ASYNC DRIVE ENGINE (v4)
             // This handler is optimized for 24-core parallel streaming
@@ -337,10 +250,22 @@ fn main() {
                 }
 
                 if !resolved && !path.exists() {
+                    // Try waiting briefly in case it's an atomic file rename or sync write
+                    for _ in 0..6 {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        if path.exists() {
+                            resolved = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !resolved && !path.exists() {
                     println!("[Cosmo Protocol] File not found: {:?}", path);
                     return tauri::http::Response::builder()
                         .status(404)
                         .header("Access-Control-Allow-Origin", "*")
+                        .header("Cache-Control", "no-store, no-cache, must-revalidate")
                         .body(Vec::new())
                         .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
                 }
@@ -351,7 +276,15 @@ fn main() {
             if is_thumb_request {
                 let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
                 if ext == "jpg" || ext == "jpeg" || ext == "nef" || ext == "cr2" || ext == "cr3" || ext == "arw" || ext == "dng" {
-                    if let Ok(mut file) = std::fs::File::open(&path) {
+                    let mut file_opt = None;
+                    for _ in 0..4 {
+                        if let Ok(f) = std::fs::File::open(&path) {
+                            file_opt = Some(f);
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(40));
+                    }
+                    if let Some(mut file) = file_opt {
                         use std::io::Read;
                         let mut header_buf = vec![0u8; 131072];
                         if let Ok(n) = file.read(&mut header_buf) {
@@ -374,7 +307,19 @@ fn main() {
             }
 
             // Using standard fs here for metadata, but we'll use tokio for the stream
-            let file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let mut file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            if file_len == 0 {
+                // If the file was just created by sync/browser, wait up to 1.2s for initial bytes
+                for _ in 0..15 {
+                    std::thread::sleep(std::time::Duration::from_millis(80));
+                    if let Ok(m) = std::fs::metadata(&path) {
+                        file_len = m.len();
+                        if file_len > 0 {
+                            break;
+                        }
+                    }
+                }
+            }
             
             let ext_lower = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
             let is_image = matches!(ext_lower.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "tiff" | "tif" | "heic" | "heif" | "avif" | "jxl" | "cr2" | "cr3" | "nef" | "arw" | "dng" | "tga");
@@ -410,8 +355,9 @@ fn main() {
             let chunk_size = ((end.saturating_sub(start)) + 1).min(max_allowed as u64) as usize;
             if chunk_size == 0 {
                 return tauri::http::Response::builder()
-                    .status(404)
+                    .status(503)
                     .header("Access-Control-Allow-Origin", "*")
+                    .header("Cache-Control", "no-store, no-cache, must-revalidate")
                     .body(Vec::new())
                     .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
             }
@@ -439,19 +385,41 @@ fn main() {
             let mut buffer = vec![0; chunk_size];
             let mut bytes_read = 0;
             
-            let file_open_result = std::fs::File::open(&path).and_then(|mut f| {
-                f.seek(SeekFrom::Start(start))?;
-                let mut taken = f.take(chunk_size as u64);
-                while bytes_read < chunk_size {
-                    match taken.read(&mut buffer[bytes_read..]) {
-                        Ok(0) => break, // EOF reached
-                        Ok(n) => bytes_read += n,
-                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                        Err(e) => return Err(e),
+            let mut open_attempts = 0;
+            let file_open_result = loop {
+                match std::fs::File::open(&path) {
+                    Ok(mut f) => {
+                        let seek_res = f.seek(SeekFrom::Start(start));
+                        if let Err(e) = seek_res {
+                            break Err(e);
+                        }
+                        let mut taken = f.take(chunk_size as u64);
+                        let mut read_err = None;
+                        while bytes_read < chunk_size {
+                            match taken.read(&mut buffer[bytes_read..]) {
+                                Ok(0) => break, // EOF reached
+                                Ok(n) => bytes_read += n,
+                                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                                Err(e) => {
+                                    read_err = Some(e);
+                                    break;
+                                }
+                            }
+                        }
+                        if let Some(e) = read_err {
+                            break Err(e);
+                        }
+                        break Ok(());
+                    }
+                    Err(e) => {
+                        open_attempts += 1;
+                        if open_attempts >= 6 {
+                            break Err(e);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                 }
-                Ok(())
-            });
+            };
 
             if file_open_result.is_err() || bytes_read == 0 {
                 return tauri::http::Response::builder()
@@ -626,9 +594,6 @@ fn main() {
                 commands::server::start_server(dist_str).await;
             });
 
-            // Auto-start Symphony Backend (FastAPI on port 8000) if not running
-            spawn_symphony_backend();
-
             // Check for launch arguments (Open With)
             let args: Vec<String> = std::env::args().collect();
             if args.len() > 1 {
@@ -639,57 +604,6 @@ fn main() {
                     *guard = Some(potential_path.clone());
                 }
             }
-            
-            // Spawn background task to detect AI GPU vs CPU capability
-            let app_handle = app.handle().clone();
-            std::thread::spawn(move || {
-                let mut has_gpu = false;
-                let mut is_dml = false;
-                if let Ok((runner, args)) = commands::system::resolve_enhancer_command(Some(&app_handle)) {
-                    let mut check_args = args;
-                    check_args.push("--check-cuda".to_string());
-                    
-                    let mut cmd = std::process::Command::new(&runner);
-                    cmd.args(&check_args);
-
-                    // Set writable current directory so Python libraries don't fail trying to create dirs/files in system folders
-                    if let Ok(app_data) = app_handle.path().app_data_dir() {
-                        let _ = std::fs::create_dir_all(&app_data);
-                        cmd.current_dir(&app_data);
-                    }
-
-                    // Pass models directory to CUDA check process
-                    if let Some(models_dir) = commands::system::resolve_models_dir(Some(&app_handle)) {
-                        cmd.env("COSMO_MODELS_DIR", &models_dir);
-                    }
-                    #[cfg(target_os = "windows")]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-                    }
-                    
-                    if let Ok(output) = cmd.output() {
-                        let out_str = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
-                        if out_str.contains("cuda") {
-                            has_gpu = true;
-                        } else if out_str.contains("dml") || out_str.contains("directml") {
-                            has_gpu = true;
-                            is_dml = true;
-                        }
-                    }
-                }
-                
-                let mode_str = if has_gpu {
-                    if is_dml {
-                        "GPU (AMD DirectML)".to_string()
-                    } else {
-                        "GPU (NVIDIA CUDA)".to_string()
-                    }
-                } else {
-                    "CPU (Bilateral Filter Fallback)".to_string()
-                };
-                commands::system::set_ai_hardware_status(mode_str);
-            });
 
             // Copy demo files to AppData directory in a background thread so the window shows immediately
             let app_handle_clone = app.handle().clone();
@@ -697,16 +611,19 @@ fn main() {
                 let _ = commands::system::copy_demo_files_to_app_data(&app_handle_clone);
             });
 
-            // Pre-warm AI Enhancement & Upscale Server in background so first upscale is immediately ready
-            let app_handle_ai = app.handle().clone();
-            std::thread::spawn(move || {
-                let _ = commands::media::upscale::spawn_enhancement_server(Some(&app_handle_ai));
-            });
+            // Set default AI hardware status immediately without blocking boot with Python
+            commands::system::set_ai_hardware_status("GPU (DirectML/CUDA Auto)".to_string());
 
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
+            // Fallback: Ensure main window is made visible after 1.2s in case frontend rAF hook didn't fire
+            if let Some(main_win) = app.get_webview_window("main") {
+                let win_clone = main_win.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+                    let _ = win_clone.show();
+                    let _ = win_clone.set_focus();
+                });
             }
+
             Ok(())
         });
     let app = builder

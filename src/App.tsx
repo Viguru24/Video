@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
 import { ResizeHandles } from './components/ResizeHandles';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,6 +20,7 @@ import { ContextMenu } from './components/ContextMenu';
 import { ColorAdjustmentPanel } from './components/ColorAdjustmentPanel';
 import { ColorFilterDefs } from './components/ColorFilterDefs';
 import { DEFAULT_COLOR_FILTERS } from './types';
+import { sortVideoItems } from './utils/sortUtils';
 
 // Modular Component and Hook Imports
 import { ErrorFallback } from './components/ErrorFallback';
@@ -71,7 +72,8 @@ import {
   generateUUID,
   normalizeMediaKey,
   isMediaAlreadyInWorkspace,
-  fuzzyMatchScore
+  fuzzyMatchScore,
+  safeSetLocalStorage
 } from './utils/videoUtils';
 import { handleError, isAbortError } from './utils/errorHandler';
 
@@ -88,6 +90,20 @@ export default function App() {
   
   const hasCheckedQuickFolders = useRef(false);
 
+  // Reveal window only after React has painted its first frame (double-rAF ensures first paint)
+  useEffect(() => {
+    if (isTauri()) {
+      const win = getCurrentWindow();
+      // Double requestAnimationFrame: first rAF queues before paint, second fires after first paint
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          win.show().catch(() => {});
+          win.setFocus().catch(() => {});
+        });
+      });
+    }
+  }, []);
+
   useEffect(() => {
     if (hasCheckedQuickFolders.current) return;
     if (!quickFolders || quickFolders.length === 0) return;
@@ -99,7 +115,7 @@ export default function App() {
           localStorage.setItem('cosmo-app-data-dir', dir);
         }).catch(err => console.error("Failed to get appDataDir:", err));
 
-        // Self-healing path validation for pinned quick folders
+        // One-time factory default folder resolution (never overwrite user-pinned drives or folders)
         (async () => {
           try {
             const nextFolders = [...quickFolders];
@@ -107,28 +123,19 @@ export default function App() {
 
             for (let i = 0; i < nextFolders.length; i++) {
               const folder = nextFolders[i];
-              try {
-                const exists = await invoke<boolean>('file_exists', { path: folder.path });
-                if (!exists) {
-                  let fallbackPath = '';
-                  if (folder.id === 'demo-pictures') {
-                    fallbackPath = await pictureDir();
-                  } else if (folder.id === 'demo-videos') {
-                    fallbackPath = await videoDir();
-                  } else {
-                    fallbackPath = await documentDir();
-                  }
-
-                  if (fallbackPath) {
-                    nextFolders[i] = {
-                      ...folder,
-                      path: fallbackPath
-                    };
-                    modified = true;
-                  }
+              // Only resolve initial placeholder demo paths, NEVER overwrite user pins on removable drives
+              if (folder.id === 'demo-pictures' && folder.path.startsWith('G:\\')) {
+                const picPath = await pictureDir();
+                if (picPath) {
+                  nextFolders[i] = { ...folder, path: picPath };
+                  modified = true;
                 }
-              } catch (err) {
-                console.error(`Failed to check existence for ${folder.path}:`, err);
+              } else if (folder.id === 'demo-videos' && folder.path.startsWith('G:\\')) {
+                const vidPath = await videoDir();
+                if (vidPath) {
+                  nextFolders[i] = { ...folder, path: vidPath };
+                  modified = true;
+                }
               }
             }
 
@@ -136,7 +143,7 @@ export default function App() {
               setQuickFolders(nextFolders);
             }
           } catch (err) {
-            console.error("Failed to validate quick folders on startup:", err);
+            console.error("Failed to initialize default quick folders:", err);
           }
         })();
 
@@ -718,7 +725,10 @@ export default function App() {
               cols: 1, 
               currentIdx: 0, 
               playing: masterPlayingRef.current, 
-              muted: masterMutedRef.current 
+              muted: masterMutedRef.current,
+              size: file.size || 0,
+              modified: file.modified || Date.now(),
+              created: file.created || Date.now()
             }));
 
             setVideos(prev => [...prev, ...newVids]);
@@ -744,6 +754,13 @@ export default function App() {
                 }
               }
               const filename = getFileNameFromPath(finalPath);
+              let size = 0, modified = Date.now(), created = Date.now();
+              try {
+                const stats = await invoke<[number, number, number]>('get_file_stats', { path: finalPath });
+                size = stats[0];
+                modified = stats[1];
+                created = stats[2];
+              } catch {}
               const newUnit = { 
                 id: generateUUID(), 
                 url: toCosmoUrl(finalPath), 
@@ -754,7 +771,10 @@ export default function App() {
                 cols: 1, 
                 currentIdx: 0,
                 playing: masterPlayingRef.current, 
-                muted: masterMutedRef.current 
+                muted: masterMutedRef.current,
+                size,
+                modified,
+                created
               };
               setVideos(prev => [...prev, newUnit]);
               addLog(`Open With: Loaded ${filename}.`);
@@ -810,6 +830,33 @@ export default function App() {
     }
   }, [setFocusedId, setImmersive, setIsFS]);
 
+  // ── POPSTATE & MOBILE HARDWARE BACK SUPPORT FOR SOLO MODE ──────────────────
+  useEffect(() => {
+    if (focusedId) {
+      window.history.pushState({ cosmoSolo: focusedId }, '');
+      const handlePopState = () => {
+        exitSoloMode();
+      };
+      window.addEventListener('popstate', handlePopState);
+      return () => {
+        window.removeEventListener('popstate', handlePopState);
+      };
+    }
+  }, [focusedId, exitSoloMode]);
+
+  useEffect(() => {
+    (window as any).__cosmoExitSolo = () => {
+      if (focusedId) {
+        exitSoloMode();
+        return true;
+      }
+      return false;
+    };
+    return () => {
+      delete (window as any).__cosmoExitSolo;
+    };
+  }, [focusedId, exitSoloMode]);
+
   // ── GLOBAL CLIPBOARD SCREENSHOT PASTE ENGINE ─────────────────────────────────
   const handlePasteImage = useCallback((targetTileId?: string | null, customDataUrl?: string) => {
     const processDataUrl = async (dataUrl: string) => {
@@ -863,6 +910,8 @@ export default function App() {
           repeatMode: 'none' as RepeatMode,
           repeatCount: 1,
           cols: 1,
+          modified: Date.now(),
+          created: Date.now()
         };
         setVideos((prev) => [newUnit, ...prev]);
         setMediaMode('picture');
@@ -972,72 +1021,7 @@ export default function App() {
     }
 
     const items = videos.filter(isValid);
-
-    if (sortOrder !== 'custom') {
-      items.sort((a, b) => {
-        let diff = 0;
-        switch (sortOrder) {
-          case 'videos-first': {
-            const pathA = a.realPath || a.url || '';
-            const pathB = b.realPath || b.url || '';
-            const isVideoA = isValidVideoExtension(pathA);
-            const isVideoB = isValidVideoExtension(pathB);
-            if (isVideoA && !isVideoB) diff = -1;
-            else if (!isVideoA && isVideoB) diff = 1;
-            else diff = 0;
-            break;
-          }
-          case 'pictures-first': {
-            const pathA = a.realPath || a.url || '';
-            const pathB = b.realPath || b.url || '';
-            const isVideoA = isValidVideoExtension(pathA);
-            const isVideoB = isValidVideoExtension(pathB);
-            if (!isVideoA && isVideoB) diff = -1;
-            else if (isVideoA && !isVideoB) diff = 1;
-            else diff = 0;
-            break;
-          }
-          case 'name-asc':
-            diff = (a.title || '').localeCompare(b.title || '', undefined, { numeric: true, sensitivity: 'base' });
-            break;
-          case 'name-desc':
-            diff = (b.title || '').localeCompare(a.title || '', undefined, { numeric: true, sensitivity: 'base' });
-            break;
-          case 'size-asc':
-            diff = (a.size || 0) - (b.size || 0);
-            break;
-          case 'size-desc':
-            diff = (b.size || 0) - (a.size || 0);
-            break;
-          case 'modified-newest':
-            diff = (b.modified || 0) - (a.modified || 0);
-            break;
-          case 'modified-oldest':
-            diff = (a.modified || 0) - (b.modified || 0);
-            break;
-          case 'created-newest':
-            diff = (b.created || 0) - (a.created || 0);
-            break;
-          case 'created-oldest':
-            diff = (a.created || 0) - (b.created || 0);
-            break;
-          default:
-            diff = 0;
-        }
-        
-        // Stable sort fallback to prevent jumping
-        if (diff === 0) {
-          const nameCompare = (a.title || '').localeCompare(b.title || '', undefined, { numeric: true, sensitivity: 'base' });
-          if (nameCompare === 0) {
-            return a.id.localeCompare(b.id);
-          }
-          return nameCompare;
-        }
-        return diff;
-      });
-    }
-
-    return items;
+    return sortVideoItems(items, sortOrder);
   }, [videos, search, mediaMode, sortOrder]);
 
   const {
@@ -1142,17 +1126,17 @@ export default function App() {
             clearTimeout(existingTimer);
           }
 
-          const timer = setTimeout(async () => {
-            dirDebounceTimersRef.current.delete(normChanged);
+          const scanFolder = async (folderToScan: string, normKey: string, attempt = 0) => {
             if (!active) return;
-
             try {
-              const result = await invoke<any[]>('list_directory_contents', { dirPath: changedPath });
+              const result = await invoke<any[]>('list_directory_contents', { dirPath: folderToScan });
               const mediaFiles = result.filter(x => !x.is_dir && x.is_media);
-              const currentKnown = knownFolderFilesRef.current.get(normChanged) || new Set<string>();
+              const readyFiles = mediaFiles.filter(x => !x.is_writing);
+              const writingFiles = mediaFiles.filter(x => x.is_writing);
+              const currentKnown = knownFolderFilesRef.current.get(normKey) || new Set<string>();
 
-              // Find ONLY brand new incoming files that are not already in workspace or known
-              const newFiles = mediaFiles.filter(f => {
+              // Find ONLY brand new incoming files that are ready and not already in workspace or known
+              const newFiles = readyFiles.filter(f => {
                 const fileKey = normalizeMediaKey(f.path);
                 return (
                   !currentKnown.has(fileKey) &&
@@ -1160,7 +1144,7 @@ export default function App() {
                   !isMediaAlreadyInWorkspace(f.path, videosRef.current)
                 );
               });
-              
+
               if (newFiles.length > 0) {
                 const pathsToIngest: string[] = [];
                 newFiles.forEach(f => {
@@ -1169,17 +1153,31 @@ export default function App() {
                   currentKnown.add(fileKey);
                   pathsToIngest.push(f.path);
                 });
-                knownFolderFilesRef.current.set(normChanged, currentKnown);
+                knownFolderFilesRef.current.set(normKey, currentKnown);
 
                 if (pathsToIngest.length > 0) {
-                  const folderName = changedPath.split(/[\\/]/).pop() || "Folder";
+                  const folderName = folderToScan.split(/[\\/]/).pop() || "Folder";
                   addLogRef.current(`⚡ Auto-sync: Detected ${pathsToIngest.length} new file(s) in [${folderName}]. Ingesting...`);
                   await handleIngestPathsRef.current(pathsToIngest);
                 }
               }
+
+              // If files are still actively syncing/writing to disk, schedule a follow-up scan to ingest them once complete
+              if (writingFiles.length > 0 && attempt < 20) {
+                const followTimer = setTimeout(() => {
+                  dirDebounceTimersRef.current.delete(normKey + '_pending');
+                  scanFolder(folderToScan, normKey, attempt + 1);
+                }, 1500);
+                dirDebounceTimersRef.current.set(normKey + '_pending', followTimer);
+              }
             } catch (e) {
               console.error("Multi-folder auto-sync scan failed:", e);
             }
+          };
+
+          const timer = setTimeout(() => {
+            dirDebounceTimersRef.current.delete(normChanged);
+            scanFolder(changedPath, normChanged, 0);
           }, 1200);
 
           dirDebounceTimersRef.current.set(normChanged, timer);
@@ -1905,8 +1903,45 @@ export default function App() {
     return Array.from(new Set(urls));
   }, [focusedId, filtered, videos]);
 
+  const getInstantMetadata = useCallback((video: VideoItem) => {
+    const effectivePath = (video.folderFiles && video.currentIdx !== undefined)
+      ? video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url
+      : video.realPath || video.url;
+
+    const pathClean = effectivePath || video.url || '';
+    if (metadataCache.current[pathClean]) {
+      return metadataCache.current[pathClean];
+    }
+
+    const ext = pathClean.split('?')[0].split('.').pop() || 'MEDIA';
+    const isImg = isValidPictureExtension(pathClean);
+
+    // Grab visual natural dimensions immediately from DOM if available
+    let domW = video.width || 0;
+    let domH = video.height || 0;
+    if (!domW || !domH) {
+      const mediaEl = document.querySelector(`[data-id="${video.id}"] img, [data-id="${video.id}"] video, .solo-container .media-wrapper img, .solo-container .media-wrapper video`) as HTMLImageElement | HTMLVideoElement | null;
+      if (mediaEl) {
+        const isVid = mediaEl.tagName.toLowerCase() === 'video';
+        domW = isVid ? (mediaEl as HTMLVideoElement).videoWidth : (mediaEl as HTMLImageElement).naturalWidth;
+        domH = isVid ? (mediaEl as HTMLVideoElement).videoHeight : (mediaEl as HTMLImageElement).naturalHeight;
+      }
+    }
+
+    return {
+      name: (video.folderFiles && video.currentIdx !== undefined)
+        ? (video.folderFiles[video.currentIdx]?.name || video.title)
+        : (video.title || getFileNameFromPath(pathClean)),
+      format: ext.toUpperCase(),
+      size: video.size ? (video.size < 1024 * 1024 ? `${(video.size / 1024).toFixed(1)} KB` : `${(video.size / (1024 * 1024)).toFixed(1)} MB`) : 'Standard',
+      width: domW || undefined,
+      height: domH || undefined,
+      duration: isImg ? 'Static' : undefined,
+      path: pathClean
+    };
+  }, []);
+
   const fetchMenuMetadata = useCallback(async (video: VideoItem) => {
-    // For folder-browsing units, use currently-displayed file
     const effectivePath = (video.folderFiles && video.currentIdx !== undefined)
       ? video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url
       : video.realPath || video.url;
@@ -1915,26 +1950,14 @@ export default function App() {
     const ext = pathClean.split('?')[0].split('.').pop() || 'MEDIA';
     const isImg = isValidPictureExtension(pathClean);
 
-    // 1. Instant synchronous metadata (Zero-delay popup)
-    const initialMeta = metadataCache.current[pathClean] || {
-      name: (video.folderFiles && video.currentIdx !== undefined)
-        ? (video.folderFiles[video.currentIdx]?.name || video.title)
-        : (video.title || getFileNameFromPath(pathClean)),
-      format: ext.toUpperCase(),
-      size: video.size ? (video.size < 1024 * 1024 ? `${(video.size / 1024).toFixed(1)} KB` : `${(video.size / (1024 * 1024)).toFixed(1)} MB`) : 'Standard',
-      width: video.width || 0,
-      height: video.height || 0,
-      duration: isImg ? 'Static' : undefined
-    };
-
+    const initialMeta = getInstantMetadata(video);
     setMenuMetadata(initialMeta);
 
-    // 2. Fast background ffprobe probe (if not cached)
+    // Fast background probe (if not cached)
     if (pathClean && !metadataCache.current[pathClean]) {
       if (pathClean.startsWith('/demos/')) {
         const demoMeta = {
-          name: video.title || pathClean.split('/').pop() || 'Demo',
-          format: ext.toUpperCase(),
+          ...initialMeta,
           width: 1920,
           height: 1080,
           duration: isImg ? 'Static' : '0:05',
@@ -1948,14 +1971,19 @@ export default function App() {
           const data = await invoke<any>('get_video_metadata', { path: targetPath });
           if (data) {
             metadataCache.current[pathClean] = data;
-            setMenuMetadata(data);
+            setMenuMetadata((curr: any) => ({
+              ...curr,
+              ...data,
+              width: data.width || curr?.width,
+              height: data.height || curr?.height
+            }));
           }
         } catch (e: any) {
           console.error("Failed to fetch metadata", e);
         }
       }
     }
-  }, []);
+  }, [getInstantMetadata]);
 
   const handleContext = useCallback(async (id: string, x: number, y: number) => {
     const video = videos.find(v => v.id === id);
@@ -1965,9 +1993,11 @@ export default function App() {
       return;
     }
 
+    const instant = getInstantMetadata(video);
+    setMenuMetadata(instant);
     setMenu({ x, y, id });
     await fetchMenuMetadata(video);
-  }, [videos, fetchMenuMetadata]);
+  }, [videos, getInstantMetadata, fetchMenuMetadata]);
 
   // Keep ContextMenu and top info header dynamically updated when scrolling/navigating in fullscreen
   const activeSoloVideo = focusedId ? videos.find(v => v.id === focusedId) : null;
@@ -1976,13 +2006,11 @@ export default function App() {
     : null;
 
   useEffect(() => {
-    if (focusedId && menu && activeSoloVideo) {
-      if (menu.id !== focusedId) {
-        setMenu(prev => prev ? { ...prev, id: focusedId } : null);
-      }
+    if (focusedId && menu && activeSoloVideo && menu.id !== focusedId) {
+      setMenu(prev => prev ? { ...prev, id: focusedId } : null);
       fetchMenuMetadata(activeSoloVideo);
     }
-  }, [activeSoloKey, focusedId, activeSoloVideo, fetchMenuMetadata]);
+  }, [activeSoloKey, focusedId, activeSoloVideo, menu, fetchMenuMetadata]);
 
   const handleUpdate = useCallback((idOrIds: string | string[], updates: any) => {
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
@@ -2674,6 +2702,7 @@ export default function App() {
         <SoloPlayer
           focusedId={focusedId}
           setFocusedId={setFocusedId}
+          onExit={exitSoloMode}
           videos={videos}
           setVideos={setVideos}
           onUpdateVideo={onUpdateVideo}
@@ -2819,6 +2848,10 @@ export default function App() {
               toggleMasterMute={toggleMasterMute}
               globalControl={globalControl}
               onPurgeWorkspace={handlePurgeWorkspace}
+              onForceSetup={() => {
+                setForceSetup(true);
+                setNeedsSetup(true);
+              }}
             />
           )}
 
@@ -3585,11 +3618,29 @@ export default function App() {
                 break;
               }
               case 'whatsapp_share': {
-                useStore.getState().setWhatsAppShareTarget(v);
+                const currentFile = (v.folderFiles && v.currentIdx !== undefined && v.folderFiles[v.currentIdx]) 
+                  ? v.folderFiles[v.currentIdx] 
+                  : null;
+                const targetItem: VideoItem = currentFile ? {
+                  ...v,
+                  realPath: currentFile.path || currentFile.url,
+                  url: currentFile.url || currentFile.path,
+                  title: currentFile.name || v.title
+                } : v;
+                useStore.getState().setWhatsAppShareTarget(targetItem);
                 break;
               }
               case 'share_file': {
-                handleTriggerWifiShare([v]);
+                const currentFile = (v.folderFiles && v.currentIdx !== undefined && v.folderFiles[v.currentIdx]) 
+                  ? v.folderFiles[v.currentIdx] 
+                  : null;
+                const targetItem: VideoItem = currentFile ? {
+                  ...v,
+                  realPath: currentFile.path || currentFile.url,
+                  url: currentFile.url || currentFile.path,
+                  title: currentFile.name || v.title
+                } : v;
+                handleTriggerWifiShare([targetItem]);
                 break;
               }
               case 'share_selected': {

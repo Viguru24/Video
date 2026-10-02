@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
 import { SWIPE_THRESHOLD, SNAPSHOT_TOAST_DURATION, FPS, STEP_INTERVAL, STEP_DELAY } from '../../constants';
-import { convertToVideoUrl, isValidPictureExtension, isTauri, toCosmoUrl, showConfirm } from '../../utils/videoUtils';
+import { convertToVideoUrl, isValidPictureExtension, isTauri, toCosmoUrl, showConfirm, toRealPath } from '../../utils/videoUtils';
 import { useStore } from '../../store/useStore';
 import type { VideoItem, RepeatMode } from '../../types';
 import { DEFAULT_COLOR_FILTERS } from '../../types';
@@ -372,14 +372,32 @@ export function useVideoCard({
   }, [isPanning, zoomScale]);
 
   const [imageFallbackSrc, setImageFallbackSrc] = useState<string | null>(null);
+  const [imgRetryCount, setImgRetryCount] = useState(0);
+  const [isSyncingOrRecovering, setIsSyncingOrRecovering] = useState<boolean>(false);
+  const mediaRetryCountRef = useRef<number>(0);
+  const mediaRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [customProtocolOverride, setCustomProtocolOverride] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Reset image fallback when video changes
+  // Reset retry state and fallbacks when media source changes
   useEffect(() => {
+    mediaRetryCountRef.current = 0;
+    if (mediaRetryTimerRef.current) {
+      clearTimeout(mediaRetryTimerRef.current);
+      mediaRetryTimerRef.current = null;
+    }
+    setIsSyncingOrRecovering(false);
+    setCustomProtocolOverride(null);
     setImageFallbackSrc(null);
-  }, [video.realPath, video.url]);
+    setImgRetryCount(0);
+    setError(null);
+  }, [video.id, video.realPath, video.url]);
 
-  // DYNAMIC QUALITY ENGINE (v4) — Native Asset Protocol
+  // DYNAMIC QUALITY ENGINE (v4) — Native Asset Protocol + Resilient Fallbacks
   const displayUrl = React.useMemo(() => {
+    if (customProtocolOverride) {
+      return customProtocolOverride;
+    }
     const url = convertToVideoUrl(video);
     let busted = url;
     if (video.url && video.url.includes('?t=')) {
@@ -389,24 +407,95 @@ export function useVideoCard({
       busted = `${url}${url.includes('?') ? '&' : '?'}t=${reloadKey}`;
     }
     return busted;
-  }, [video.realPath, video.url, reloadKey]);
+  }, [video.realPath, video.url, reloadKey, customProtocolOverride]);
 
   const effectiveImgSrc = imageFallbackSrc || displayUrl;
 
-  const handleImageError = useCallback(() => {
-    const rawPath = toRealPath(video.realPath) || toRealPath(video.url);
-    if (rawPath && isTauri()) {
-      try {
-        if (!imageFallbackSrc || imageFallbackSrc.includes('cosmo.localhost')) {
-          setImageFallbackSrc(convertFileSrc(rawPath));
-          return;
-        } else if (imageFallbackSrc.includes('asset.localhost')) {
-          setImageFallbackSrc(`http://cosmo.localhost/${encodeURIComponent(rawPath)}`);
-          return;
-        }
-      } catch {}
+  const handleMediaSuccess = useCallback(() => {
+    if (mediaRetryTimerRef.current) {
+      clearTimeout(mediaRetryTimerRef.current);
+      mediaRetryTimerRef.current = null;
     }
-  }, [video.realPath, video.url, imageFallbackSrc]);
+    mediaRetryCountRef.current = 0;
+    setIsSyncingOrRecovering(false);
+    setError(null);
+  }, []);
+
+  const handleMediaError = useCallback((type: 'video' | 'audio' | 'image' = 'video') => {
+    const rawPath = toRealPath(video.realPath) || toRealPath(video.url);
+    const attempt = mediaRetryCountRef.current + 1;
+    mediaRetryCountRef.current = attempt;
+
+    // Retry up to 12 times spanning ~35 seconds (guaranteeing in-flight syncs/writes finish)
+    if (attempt <= 12) {
+      setIsSyncingOrRecovering(true);
+      setError(null); // Keep error null so the red X and error banner are suppressed during recovery
+
+      const delays = [400, 800, 1200, 1600, 2200, 3000, 3500, 4000, 5000, 5000, 5000, 5000];
+      const delay = delays[Math.min(attempt - 1, delays.length - 1)];
+
+      if (mediaRetryTimerRef.current) {
+        clearTimeout(mediaRetryTimerRef.current);
+      }
+
+      mediaRetryTimerRef.current = setTimeout(() => {
+        const now = Date.now();
+        setReloadKey(now);
+
+        if (rawPath && isTauri()) {
+          // Alternate between Tauri's convertFileSrc (asset.localhost) and custom cosmo.localhost
+          if (attempt % 2 === 1) {
+            const cosmoUrl = `http://cosmo.localhost/${encodeURIComponent(rawPath)}?t=${now}`;
+            if (type === 'image') {
+              setImageFallbackSrc(cosmoUrl);
+            } else {
+              setCustomProtocolOverride(cosmoUrl);
+            }
+          } else {
+            const assetUrl = `${convertFileSrc(rawPath)}?t=${now}`;
+            if (type === 'image') {
+              setImageFallbackSrc(assetUrl);
+            } else {
+              setCustomProtocolOverride(assetUrl);
+            }
+          }
+        }
+
+        if (type !== 'image' && videoRef.current) {
+          try {
+            videoRef.current.load();
+          } catch {}
+        }
+      }, delay);
+      return;
+    }
+
+    // Retries exhausted
+    setIsSyncingOrRecovering(false);
+    setError("LOAD ERROR");
+    onLog?.(`Unit [${video.title}] Error: LOAD ERROR after ${attempt} recovery attempts`);
+  }, [video.realPath, video.url, video.title, onLog]);
+
+  const handleManualRetry = useCallback(() => {
+    mediaRetryCountRef.current = 0;
+    setError(null);
+    setIsSyncingOrRecovering(true);
+    setCustomProtocolOverride(null);
+    setImageFallbackSrc(null);
+    const now = Date.now();
+    setReloadKey(now);
+    setTimeout(() => {
+      if (videoRef.current) {
+        try {
+          videoRef.current.load();
+        } catch {}
+      }
+    }, 100);
+  }, []);
+
+  const handleImageError = useCallback(() => {
+    handleMediaError('image');
+  }, [handleMediaError]);
 
   // Reset playback position when source changes (folder cycling)
   useEffect(() => {
@@ -420,7 +509,6 @@ export function useVideoCard({
     }
   }, [globalVolume, isImage]);
 
-  const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(masterPlaying);
   const [recovering, setRecovering] = useState(false);
 
@@ -1406,6 +1494,7 @@ export function useVideoCard({
 
     error,
     recovering,
+    isSyncingOrRecovering,
     retryAttempted,
     snapshotToast,
     isLocalFS,
@@ -1446,6 +1535,9 @@ export function useVideoCard({
     },
     // actions/handlers
     handleImageError,
+    handleMediaError,
+    handleMediaSuccess,
+    handleManualRetry,
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
