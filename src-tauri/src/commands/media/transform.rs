@@ -439,6 +439,8 @@ pub async fn crop_image_on_disk(
     img_w: f64,
     img_h: f64,
     overwrite: bool,
+    rotation: Option<i32>,
+    flipped: Option<bool>,
 ) -> Result<String, String> {
     let path = clean_local_path(&path);
     #[cfg(windows)]
@@ -446,8 +448,8 @@ pub async fn crop_image_on_disk(
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     debug_log(&format!(
-        "START crop_image_on_disk: path={}, crop_x={}, crop_y={}, crop_w={}, crop_h={}, img_w={}, img_h={}, overwrite={}",
-        path, crop_x, crop_y, crop_w, crop_h, img_w, img_h, overwrite
+        "START crop_image_on_disk: path={}, crop_x={}, crop_y={}, crop_w={}, crop_h={}, img_w={}, img_h={}, overwrite={}, rotation={:?}, flipped={:?}",
+        path, crop_x, crop_y, crop_w, crop_h, img_w, img_h, overwrite, rotation, flipped
     ));
 
     let app_handle = app.clone();
@@ -461,15 +463,6 @@ pub async fn crop_image_on_disk(
         let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
         let parent = path_obj.parent().ok_or("No parent dir")?;
 
-        let px_x = ((crop_x / 100.0) * img_w).round() as u64;
-        let px_y = ((crop_y / 100.0) * img_h).round() as u64;
-        let px_w = ((crop_w / 100.0) * img_w).round() as u64;
-        let px_h = ((crop_h / 100.0) * img_h).round() as u64;
-
-        if px_w == 0 || px_h == 0 {
-            return Err("Crop dimensions are zero".to_string());
-        }
-
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -479,13 +472,37 @@ pub async fn crop_image_on_disk(
         let temp_file_name = format!("{}_crop_{}.{}", stem, timestamp, ext);
         let temp_path = temp_dir.join(&temp_file_name);
 
-        let crop_filter = format!("crop={}:{}:{}:{}", px_w, px_h, px_x, px_y);
+        let fx = (crop_x / 100.0).clamp(0.0, 0.999);
+        let fy = (crop_y / 100.0).clamp(0.0, 0.999);
+        let fw = (crop_w / 100.0).clamp(0.001, 1.0 - fx);
+        let fh = (crop_h / 100.0).clamp(0.001, 1.0 - fy);
+
+        let mut vf_filters: Vec<String> = Vec::new();
+
+        if flipped.unwrap_or(false) {
+            vf_filters.push("hflip".to_string());
+        }
+
+        let norm_rot = ((rotation.unwrap_or(0) % 360) + 360) % 360;
+        match norm_rot {
+            90 => vf_filters.push("transpose=1".to_string()),
+            180 => vf_filters.push("transpose=1,transpose=1".to_string()),
+            270 => vf_filters.push("transpose=2".to_string()),
+            _ => {},
+        }
+
+        // Exact proportional crop using FFmpeg post-rotation stream dimensions
+        vf_filters.push(format!(
+            "crop=trunc(iw*{:.6}/2)*2:trunc(ih*{:.6}/2)*2:trunc(iw*{:.6}/2)*2:trunc(ih*{:.6}/2)*2",
+            fw, fh, fx, fy
+        ));
+
+        let crop_filter = vf_filters.join(",");
 
         let mut cmd = new_hidden_ffmpeg_command(Some(&app_handle));
         cmd.arg("-y")
            .arg("-nostdin")
            .arg("-threads").arg("1")
-           .arg("-noautorotate")
            .arg("-i").arg(&path)
            .arg("-vf").arg(&crop_filter)
            .arg("-map_metadata").arg("-1");
@@ -580,7 +597,6 @@ pub async fn resize_image_on_disk(
         cmd.arg("-y")
            .arg("-nostdin")
            .arg("-threads").arg("1")
-           .arg("-noautorotate")
            .arg("-i").arg(&path)
            .arg("-vf").arg(&scale_filter)
            .arg("-map_metadata").arg("-1");
@@ -751,8 +767,7 @@ pub async fn trim_crop_video(
 
         let mut cmd = new_hidden_ffmpeg_command(Some(&app_handle));
         cmd.arg("-y")
-           .arg("-nostdin")
-           .arg("-noautorotate");
+           .arg("-nostdin");
 
         // Input seeking for fast & accurate trimming
         if let Some(start) = start_sec {

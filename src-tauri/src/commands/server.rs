@@ -92,7 +92,7 @@ pub type RoomStore = Arc<Mutex<HashMap<String, Room>>>;
 
 pub static ROOMS: std::sync::OnceLock<RoomStore> = std::sync::OnceLock::new();
 
-pub fn get_file_info(code: &str, file_id: &str) -> Option<(PathBuf, String)> {
+pub fn get_file_info(code: &str, file_id: &str) -> Option<(PathBuf, String, String)> {
     let rooms = ROOMS.get_or_init(|| Arc::new(Mutex::new(HashMap::new()))).clone();
     let store = rooms.lock().unwrap();
     let room = store.get(code)?;
@@ -103,7 +103,7 @@ pub fn get_file_info(code: &str, file_id: &str) -> Option<(PathBuf, String)> {
     } else {
         upload_dir.join(&file.filename)
     };
-    Some((path, file.name.clone()))
+    Some((path, file.name.clone(), file.mime_type.clone()))
 }
 
 #[derive(Clone)]
@@ -580,35 +580,51 @@ async fn delete_file(
     State(state): State<AppState>,
     AxumPath((code, file_id)): AxumPath<(String, String)>,
 ) -> impl IntoResponse {
-    let mut rooms = state.rooms.lock().unwrap();
-    let Some(room) = rooms.get_mut(&code) else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "Room not found"})),
-        ).into_response();
-    };
+    let to_delete: Option<PathBuf>;
+    let response: axum::response::Response;
 
-    if let Some(pos) = room.files.iter().position(|f| f.id == file_id) {
-        let file = room.files.remove(pos);
-        if !file.filename.contains(':') && !file.filename.starts_with('/') && !file.filename.starts_with('\\') {
-            let path = state.upload_dir.join(&file.filename);
-            let _ = secure_delete_file(path);
+    {
+        let mut rooms = state.rooms.lock().unwrap();
+        if let Some(room) = rooms.get_mut(&code) {
+            if let Some(pos) = room.files.iter().position(|f| f.id == file_id) {
+                let file = room.files.remove(pos);
+                if !file.filename.contains(':') && !file.filename.starts_with('/') && !file.filename.starts_with('\\') {
+                    to_delete = Some(state.upload_dir.join(&file.filename));
+                } else {
+                    to_delete = None;
+                }
+                room.last_activity = now_millis();
+                response = (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "message": "File deleted successfully",
+                        "room": room.to_response()
+                    })),
+                ).into_response();
+            } else {
+                to_delete = None;
+                response = (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": "File not found"})),
+                ).into_response();
+            }
+        } else {
+            to_delete = None;
+            response = (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "Room not found"})),
+            ).into_response();
         }
-        room.last_activity = now_millis();
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "File deleted successfully",
-                "room": room.to_response()
-            })),
-        ).into_response()
-    } else {
-        (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "File not found"})),
-        ).into_response()
+    } // lock dropped here
+
+    if let Some(path) = to_delete {
+        tokio::task::spawn_blocking(move || {
+            let _ = secure_delete_file(path);
+        });
     }
+
+    response
 }
 
 async fn spa_fallback(State(state): State<AppState>) -> impl IntoResponse {
@@ -622,7 +638,7 @@ async fn spa_fallback(State(state): State<AppState>) -> impl IntoResponse {
 // ─── Background Cleanup ───
 
 fn spawn_cleanup_task(rooms: RoomStore, upload_dir: PathBuf) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
@@ -823,6 +839,103 @@ pub async fn set_wifi_shared_files(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
+fn infer_extension_from_mime(mime: &str) -> Option<&'static str> {
+    let clean = mime.to_ascii_lowercase();
+    if clean.contains("video/mp4") {
+        Some("mp4")
+    } else if clean.contains("video/webm") {
+        Some("webm")
+    } else if clean.contains("video/quicktime") {
+        Some("mov")
+    } else if clean.contains("video/x-matroska") || clean.contains("video/mkv") {
+        Some("mkv")
+    } else if clean.contains("video/x-msvideo") || clean.contains("video/avi") {
+        Some("avi")
+    } else if clean.contains("image/jpeg") || clean.contains("image/jpg") {
+        Some("jpg")
+    } else if clean.contains("image/png") {
+        Some("png")
+    } else if clean.contains("image/webp") {
+        Some("webp")
+    } else if clean.contains("image/gif") {
+        Some("gif")
+    } else if clean.contains("image/heic") || clean.contains("image/heif") {
+        Some("heic")
+    } else if clean.contains("image/avif") {
+        Some("avif")
+    } else if clean.contains("image/bmp") {
+        Some("bmp")
+    } else {
+        None
+    }
+}
+
+pub fn sanitize_filename_for_windows(name: &str, mime_type: &str) -> String {
+    // 1. Strip any directory path components (both / and \)
+    let raw_leaf = name.split(['/', '\\']).last().unwrap_or(name).trim();
+
+    // 2. Replace illegal Windows characters: < > : " / \ | ? * and ASCII control chars
+    let mut safe_chars: String = raw_leaf
+        .chars()
+        .map(|c| {
+            if c < ' ' || c == '<' || c == '>' || c == ':' || c == '"' || c == '/' || c == '\\' || c == '|' || c == '?' || c == '*' {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+
+    // 3. Trim dots and spaces from edges (Windows doesn't allow trailing dots/spaces)
+    safe_chars = safe_chars.trim_matches(|c| c == ' ' || c == '.').to_string();
+
+    // If completely empty after sanitization, generate a default name
+    if safe_chars.is_empty() {
+        safe_chars = format!("cosmo_media_{}", now_millis());
+    }
+
+    // 4. Check if it already has a recognizable extension
+    let path = std::path::Path::new(&safe_chars);
+    let has_valid_ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|ext| !ext.is_empty() && ext.len() <= 5 && ext.chars().all(|c| c.is_ascii_alphanumeric()))
+        .unwrap_or(false);
+
+    if !has_valid_ext {
+        if let Some(ext) = infer_extension_from_mime(mime_type) {
+            safe_chars = format!("{}.{}", safe_chars, ext);
+        }
+    }
+
+    safe_chars
+}
+
+fn resolve_fallback_download_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(d) = dirs::download_dir() {
+        if fs::create_dir_all(&d).is_ok() {
+            return Ok(d);
+        }
+    }
+
+    if let Ok(d) = app.path().download_dir() {
+        if fs::create_dir_all(&d).is_ok() {
+            return Ok(d);
+        }
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        let d = home.join("Downloads");
+        if fs::create_dir_all(&d).is_ok() {
+            return Ok(d);
+        }
+    }
+
+    let temp_downloads = std::env::temp_dir().join("CosmoDownloads");
+    let _ = fs::create_dir_all(&temp_downloads);
+    Ok(temp_downloads)
+}
+
 #[tauri::command]
 pub async fn download_shared_file_to_downloads(
     app: tauri::AppHandle,
@@ -830,30 +943,40 @@ pub async fn download_shared_file_to_downloads(
     file_id: String,
     custom_dir: Option<String>,
 ) -> Result<String, String> {
-    let (file_path, file_name) = get_file_info(&code, &file_id)
+    let (file_path, raw_name, mime_type) = get_file_info(&code, &file_id)
         .ok_or_else(|| "File not found or room expired".to_string())?;
 
+    if !file_path.exists() {
+        return Err(format!("Source file does not exist on disk: {:?}", file_path));
+    }
+
+    // Resolve sanitized filename for Windows
+    let safe_file_name = sanitize_filename_for_windows(&raw_name, &mime_type);
+
+    // Multi-tier download directory resolution
     let download_dir = if let Some(ref dir) = custom_dir {
-        if !dir.trim().is_empty() {
-            std::path::PathBuf::from(dir)
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            let p = PathBuf::from(trimmed);
+            if fs::create_dir_all(&p).is_ok() && p.is_dir() {
+                p
+            } else {
+                resolve_fallback_download_dir(&app)?
+            }
         } else {
-            app.path()
-                .download_dir()
-                .map_err(|e| format!("Failed to resolve downloads directory: {}", e))?
+            resolve_fallback_download_dir(&app)?
         }
     } else {
-        app.path()
-            .download_dir()
-            .map_err(|e| format!("Failed to resolve downloads directory: {}", e))?
+        resolve_fallback_download_dir(&app)?
     };
 
     let _ = fs::create_dir_all(&download_dir);
 
     // Make sure we have a unique filename
-    let mut target_path = download_dir.join(&file_name);
+    let mut target_path = download_dir.join(&safe_file_name);
     if target_path.exists() {
-        let stem = target_path.file_stem().and_then(|s: &std::ffi::OsStr| s.to_str()).unwrap_or("");
-        let extension = target_path.extension().and_then(|e: &std::ffi::OsStr| e.to_str()).unwrap_or("");
+        let stem = target_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let extension = target_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         let mut counter = 1;
         loop {
@@ -871,7 +994,10 @@ pub async fn download_shared_file_to_downloads(
         }
     }
 
-    fs::copy(&file_path, &target_path).map_err(|e| format!("Failed to copy file: {}", e))?;
+    fs::copy(&file_path, &target_path)
+        .map_err(|e| format!("Failed to copy file from {:?} to {:?}: {}", file_path, target_path, e))?;
+
+    println!("[Wi-Fi Share] Successfully saved shared file to: {:?}", target_path);
     Ok(target_path.to_string_lossy().to_string())
 }
 
@@ -955,4 +1081,33 @@ pub fn secure_cleanup_on_exit(app: &tauri::AppHandle) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_filename_for_windows() {
+        assert_eq!(
+            sanitize_filename_for_windows("image:12345", "image/jpeg"),
+            "image_12345.jpg"
+        );
+        assert_eq!(
+            sanitize_filename_for_windows("20260904_081134(0).jpg", "image/jpeg"),
+            "20260904_081134(0).jpg"
+        );
+        assert_eq!(
+            sanitize_filename_for_windows("path/to/my video?.mp4", "video/mp4"),
+            "my video_.mp4"
+        );
+        assert_eq!(
+            sanitize_filename_for_windows("VID_20260904_123", "video/mp4"),
+            "VID_20260904_123.mp4"
+        );
+        assert_eq!(
+            sanitize_filename_for_windows("..//weird*name:test..", "image/png"),
+            "weird_name_test.png"
+        );
+    }
 }

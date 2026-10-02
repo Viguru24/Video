@@ -1,0 +1,30 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Cyber Emerald Glow Ring -->
+    <path
+        android:fillColor="#064e3b"
+        android:pathData="M54,54m-38,0a38,38 0,1,1 76,0a38,38 0,1,1 -76,0" />
+    <path
+        android:fillColor="#047857"
+        android:pathData="M54,54m-32,0a32,32 0,1,1 64,0a32,32 0,1,1 -64,0" />
+    <!-- Media Studio Frame & Symphony Soundwaves -->
+    <path
+        android:fillColor="#00ff88"
+        android:pathData="M38,44 L44,44 L44,64 L38,64 Z" />
+    <path
+        android:fillColor="#00e5ff"
+        android:pathData="M48,36 L54,36 L54,72 L48,72 Z" />
+    <path
+        android:fillColor="#00ff88"
+        android:pathData="M58,40 L64,40 L64,68 L58,68 Z" />
+    <path
+        android:fillColor="#38bdf8"
+        android:pathData="M68,48 L74,48 L74,60 L68,60 Z" />
+    <!-- Center Audio Play Pulse -->
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M51,46 L51,62 L63,54 Z" />
+</vector>

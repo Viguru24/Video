@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   X, 
   Wifi, 
@@ -9,13 +9,14 @@ import {
   Smartphone, 
   Monitor, 
   CheckCircle, 
+  Check,
   Loader2, 
   Trash2, 
   Copy, 
   ExternalLink,
-  ArrowRight,
-  ArrowDownToLine,
-  HardDrive
+  Film,
+  Image as ImageIcon,
+  FileText
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -38,6 +39,17 @@ function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+function getMediaIcon(filename: string, mime?: string) {
+  const lower = ((filename || '') + ' ' + (mime || '')).toLowerCase();
+  if (lower.includes('video') || lower.endsWith('.mp4') || lower.endsWith('.mkv') || lower.endsWith('.mov') || lower.endsWith('.webm')) {
+    return <Film size={11} style={{ color: '#00d2ff', flexShrink: 0 }} />;
+  }
+  if (lower.includes('image') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp') || lower.endsWith('.gif')) {
+    return <ImageIcon size={11} style={{ color: '#00ff88', flexShrink: 0 }} />;
+  }
+  return <FileText size={11} style={{ color: 'rgba(255,255,255,0.7)', flexShrink: 0 }} />;
+}
+
 export function WifiShareModal({ 
   isOpen, 
   onClose, 
@@ -47,13 +59,26 @@ export function WifiShareModal({
   onLog, 
   onAddMultipleFiles 
 }: WifiShareModalProps) {
+  const [activeTab, setActiveTab] = useState<'phone' | 'pc'>('phone');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [shareUrl, setShareUrl] = useState<string>('');
   const [receiverConnected, setReceiverConnected] = useState<boolean>(false);
   const [roomFiles, setRoomFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
+
+  const prevPhoneCountRef = useRef(0);
+
+  // Auto-switch to phone tab if new phone uploads arrive
+  useEffect(() => {
+    const currentPhoneCount = roomFiles.filter((f: any) => f.isPhoneUpload).length;
+    if (currentPhoneCount > prevPhoneCountRef.current) {
+      setActiveTab('phone');
+    }
+    prevPhoneCountRef.current = currentPhoneCount;
+  }, [roomFiles]);
 
   const [isImportingAll, setIsImportingAll] = useState<boolean>(false);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
@@ -248,6 +273,7 @@ export function WifiShareModal({
   const handleImportUploaded = async (fileId: string, name: string) => {
     if (importingFileIds.has(fileId)) return;
     setImportingFileIds((prev) => new Set(prev).add(fileId));
+    setImportError(null);
     const dest = customDownloadDir ? `"${customDownloadDir}"` : 'Downloads';
     onLog(`Wi-Fi Share: Downloading phone upload "${name}" to ${dest}...`);
     try {
@@ -268,8 +294,11 @@ export function WifiShareModal({
         await onAddMultipleFiles([downloadedPath]);
         onClose();
       }
-    } catch (err) {
-      onLog(`Wi-Fi Share ERROR: Failed to download "${name}": ${err}`);
+    } catch (err: any) {
+      console.error(`Wi-Fi Share error downloading ${name}:`, err);
+      const msg = typeof err === 'string' ? err : err?.message || JSON.stringify(err);
+      setImportError(`Failed to import "${name}": ${msg}`);
+      onLog(`Wi-Fi Share ERROR: Failed to download "${name}": ${msg}`);
     } finally {
       setImportingFileIds((prev) => {
         const next = new Set(prev);
@@ -285,10 +314,14 @@ export function WifiShareModal({
     if (phoneUploads.length === 0 || isImportingAll) return;
 
     setIsImportingAll(true);
+    setImportError(null);
     setImportProgress({ current: 0, total: phoneUploads.length });
     onLog(`Wi-Fi Share: Starting batch import of ${phoneUploads.length} uploaded files...`);
 
     const downloadedPaths: string[] = [];
+    const successfulFileIds: string[] = [];
+    const failedFiles: { name: string; error: string }[] = [];
+
     for (let i = 0; i < phoneUploads.length; i++) {
       const file = phoneUploads[i];
       setImportProgress({ current: i + 1, total: phoneUploads.length });
@@ -300,26 +333,44 @@ export function WifiShareModal({
         });
         if (path) {
           downloadedPaths.push(path);
+          successfulFileIds.push(file.id);
           if (autoRemoveAfterImport) {
             await fetch(`http://127.0.0.1:48273/api/rooms/local/files/${file.id}`, { method: 'DELETE' }).catch(() => {});
           }
         }
-      } catch (err) {
-        onLog(`Wi-Fi Share ERROR: Failed to download "${file.name}": ${err}`);
+      } catch (err: any) {
+        console.error(`Wi-Fi Share error downloading ${file.name}:`, err);
+        const errStr = typeof err === 'string' ? err : err?.message || 'Download error';
+        failedFiles.push({ name: file.name, error: errStr });
+        onLog(`Wi-Fi Share ERROR: Failed to download "${file.name}": ${errStr}`);
       }
     }
 
     setIsImportingAll(false);
     setImportProgress(null);
 
-    if (autoRemoveAfterImport) {
-      setRoomFiles((prev) => prev.filter((f) => !f.isPhoneUpload));
+    // Only remove the files that were ACTUALLY downloaded from the room list
+    if (autoRemoveAfterImport && successfulFileIds.length > 0) {
+      setRoomFiles((prev) => prev.filter((f) => !successfulFileIds.includes(f.id)));
+    }
+
+    if (failedFiles.length > 0) {
+      const errorMsg = `Failed to import ${failedFiles.length} of ${phoneUploads.length} file(s). Error: ${failedFiles[0].name} (${failedFiles[0].error})`;
+      setImportError(errorMsg);
     }
 
     if (downloadedPaths.length > 0) {
       onLog(`Wi-Fi Share: Ingesting ${downloadedPaths.length} downloaded file(s) into workspace...`);
-      await onAddMultipleFiles(downloadedPaths);
-      onClose();
+      try {
+        await onAddMultipleFiles(downloadedPaths);
+      } catch (ingestErr: any) {
+        console.error('Failed to ingest paths:', ingestErr);
+        onLog(`Wi-Fi Share ERROR: Failed to add files to workspace: ${ingestErr}`);
+      }
+
+      if (failedFiles.length === 0) {
+        onClose();
+      }
     }
   };
 
@@ -351,11 +402,11 @@ export function WifiShareModal({
           border: '1px solid rgba(255, 255, 255, 0.15)',
           borderRadius: '16px',
           width: '100%',
-          maxWidth: '520px',
-          maxHeight: '92vh',
+          maxWidth: '470px',
+          maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.9), 0 0 30px rgba(0, 210, 255, 0.08)',
+          boxShadow: '0 24px 70px rgba(0, 0, 0, 0.9), 0 0 30px rgba(0, 210, 255, 0.08)',
           position: 'relative',
           color: '#ffffff',
           fontFamily: 'sans-serif',
@@ -364,7 +415,7 @@ export function WifiShareModal({
       >
         {/* Modal Header */}
         <div style={{
-          padding: '14px 18px 12px 18px',
+          padding: '12px 16px',
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
           display: 'flex',
           alignItems: 'center',
@@ -373,23 +424,23 @@ export function WifiShareModal({
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '8px',
+              width: '26px',
+              height: '26px',
+              borderRadius: '7px',
               background: 'linear-gradient(135deg, rgba(0, 210, 255, 0.2), rgba(0, 255, 136, 0.2))',
               border: '1px solid rgba(0, 255, 136, 0.3)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              <Wifi size={15} style={{ color: '#00ff88' }} />
+              <Wifi size={14} style={{ color: '#00ff88' }} />
             </div>
             <div>
-              <h2 style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.6px', textTransform: 'uppercase', margin: 0 }}>
-                Wi-Fi Direct Share
+              <h2 style={{ fontSize: '12.5px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', margin: 0 }}>
+                Wi-Fi Share
               </h2>
-              <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>
-                Transfer files between Desktop PC & Mobile Phone
+              <span style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>
+                Direct workspace sync with mobile
               </span>
             </div>
           </div>
@@ -399,20 +450,19 @@ export function WifiShareModal({
               display: 'flex',
               alignItems: 'center',
               gap: '5px',
-              padding: '3px 8px',
-              borderRadius: '12px',
+              padding: '2px 7px',
+              borderRadius: '10px',
               background: receiverConnected ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 255, 255, 0.05)',
               border: `1px solid ${receiverConnected ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
-              fontSize: '9.5px',
+              fontSize: '9px',
               fontWeight: 700,
               color: receiverConnected ? '#00ff88' : 'rgba(255, 255, 255, 0.5)'
             }}>
               <span style={{
-                width: '6px',
-                height: '6px',
+                width: '5px',
+                height: '5px',
                 borderRadius: '50%',
-                background: receiverConnected ? '#00ff88' : 'rgba(255, 255, 255, 0.4)',
-                animation: receiverConnected ? 'pulse 1s infinite alternate' : 'none'
+                background: receiverConnected ? '#00ff88' : 'rgba(255, 255, 255, 0.4)'
               }} />
               <span>{receiverConnected ? 'Phone Connected' : 'Waiting for Phone'}</span>
             </div>
@@ -424,93 +474,123 @@ export function WifiShareModal({
                 border: 'none',
                 color: 'rgba(255, 255, 255, 0.7)',
                 cursor: 'pointer',
-                padding: '5px',
-                borderRadius: '8px',
+                padding: '4px',
+                borderRadius: '6px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 transition: 'all 0.15s'
               }}
+              title="Close"
             >
-              <X size={15} />
+              <X size={14} />
             </button>
           </div>
         </div>
 
         {/* Modal Scrollable Body */}
-        <div style={{ padding: '14px 18px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ padding: '12px 16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '180px', gap: '8px' }}>
-              <RefreshCw size={24} className="spin" style={{ color: '#00d2ff' }} />
-              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Initializing Wi-Fi connection...</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '160px', gap: '8px' }}>
+              <RefreshCw size={22} className="spin" style={{ color: '#00d2ff' }} />
+              <span style={{ fontSize: '10.5px', color: 'rgba(255,255,255,0.6)' }}>Initializing Wi-Fi connection...</span>
             </div>
           ) : error ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '180px', gap: '10px', textAlign: 'center' }}>
-              <ShieldCheck size={32} style={{ color: '#ff4d4d' }} />
-              <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', maxWidth: '280px', margin: 0 }}>{error}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '160px', gap: '8px', textAlign: 'center' }}>
+              <ShieldCheck size={28} style={{ color: '#ff4d4d' }} />
+              <p style={{ fontSize: '10.5px', color: 'rgba(255,255,255,0.7)', maxWidth: '280px', margin: 0 }}>{error}</p>
             </div>
           ) : (
             <>
               {/* Connection & QR Header Card */}
               <div style={{
                 display: 'flex',
-                gap: '14px',
+                gap: '10px',
                 alignItems: 'center',
                 background: 'rgba(0, 0, 0, 0.35)',
-                padding: '10px 12px',
-                borderRadius: '12px',
+                padding: '8px 10px',
+                borderRadius: '10px',
                 border: '1px solid rgba(255, 255, 255, 0.08)'
               }}>
                 {qrDataUrl && (
                   <div style={{ 
                     background: '#ffffff', 
-                    padding: '5px', 
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                    padding: '3px', 
+                    borderRadius: '6px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
                     flexShrink: 0
                   }}>
-                    <img src={qrDataUrl} alt="Scan QR Code" style={{ width: '84px', height: '84px', display: 'block' }} />
+                    <img src={qrDataUrl} alt="Scan QR Code" style={{ width: '60px', height: '60px', display: 'block' }} />
                   </div>
                 )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0, flex: 1 }}>
-                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.6px' }}>
-                    📱 Connect Phone (Scan QR or Open URL):
-                  </span>
-                  <div style={{
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '6px',
-                    padding: '3px 8px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    color: '#00d2ff',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.5px' }}>
+                      Scan QR or open on phone:
+                    </span>
+                    <a
+                      href={`http://${window.location.hostname || '127.0.0.1'}:48273/CosmoShare.apk`}
+                      download="CosmoShare.apk"
+                      style={{
+                        fontSize: '8px',
+                        fontWeight: 800,
+                        color: '#00ff88',
+                        textDecoration: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '2px',
+                        background: 'rgba(0, 255, 136, 0.1)',
+                        border: '1px solid rgba(0, 255, 136, 0.25)',
+                        padding: '1px 5px',
+                        borderRadius: '4px'
+                      }}
+                      title="Download CosmoShare Android APK"
+                    >
+                      <Smartphone size={8} />
+                      <span>CosmoShare APK</span>
+                    </a>
+                  </div>
+
+                  <div 
+                    onClick={handleCopyLink}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '5px',
+                      padding: '2px 7px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: '#00d2ff',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer'
+                    }}
+                    title="Click to copy URL"
+                  >
                     {shareUrl}
                   </div>
                   
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '2px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '5px', marginTop: '1px', alignItems: 'center' }}>
                     <button
                       onClick={handleCopyLink}
                       style={{
-                        background: copied ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 255, 255, 0.08)',
-                        border: `1px solid ${copied ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.15)'}`,
+                        background: copied ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 255, 255, 0.07)',
+                        border: `1px solid ${copied ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.12)'}`,
                         color: copied ? '#00ff88' : '#ffffff',
-                        borderRadius: '6px',
-                        padding: '3px 8px',
-                        fontSize: '9.5px',
+                        borderRadius: '5px',
+                        padding: '2px 7px',
+                        fontSize: '9px',
                         fontWeight: 700,
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px',
+                        gap: '3px',
                         whiteSpace: 'nowrap'
                       }}
                     >
-                      <Copy size={10} />
-                      <span>{copied ? 'Copied!' : 'Copy Link'}</span>
+                      {copied ? <Check size={9} /> : <Copy size={9} />}
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
                     </button>
 
                     <button
@@ -522,74 +602,9 @@ export function WifiShareModal({
                         }
                       }}
                       style={{
-                        background: 'rgba(0, 210, 255, 0.15)',
-                        border: '1px solid rgba(0, 210, 255, 0.35)',
+                        background: 'rgba(0, 210, 255, 0.12)',
+                        border: '1px solid rgba(0, 210, 255, 0.3)',
                         color: '#00d2ff',
-                        borderRadius: '6px',
-                        padding: '3px 8px',
-                        fontSize: '9.5px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      <ExternalLink size={10} />
-                      <span>Open on this PC</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* ══════════════════════════════════════════════════════════════════
-                  ZONE 1: 🖥️ DESKTOP PC SIDE (OUTGOING TO PHONE) - ELECTRIC BLUE
-                 ══════════════════════════════════════════════════════════════════ */}
-              <div style={{
-                background: 'linear-gradient(135deg, rgba(0, 119, 182, 0.12) 0%, rgba(13, 27, 42, 0.5) 100%)',
-                border: '1.5px solid rgba(0, 210, 255, 0.35)',
-                borderRadius: '12px',
-                padding: '10px 12px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                {/* Zone Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <div style={{
-                      padding: '3px 6px',
-                      borderRadius: '5px',
-                      background: '#00d2ff',
-                      color: '#000000',
-                      fontSize: '9px',
-                      fontWeight: 900,
-                      letterSpacing: '0.5px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '3px'
-                    }}>
-                      <Monitor size={10} />
-                      <span>PC SIDE</span>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#00d2ff' }}>
-                        Outgoing Files (Sent from this PC ➔ Phone)
-                      </span>
-                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)', display: 'block' }}>
-                        Files hosted by this computer ({pcFiles.length})
-                      </span>
-                    </div>
-                  </div>
-
-                  {pcFiles.length > 0 && (
-                    <button
-                      onClick={() => handleClearAllSide(false)}
-                      style={{
-                        background: 'rgba(255, 77, 77, 0.12)',
-                        border: '1px solid rgba(255, 77, 77, 0.3)',
-                        color: '#ff6666',
                         borderRadius: '5px',
                         padding: '2px 7px',
                         fontSize: '9px',
@@ -597,335 +612,468 @@ export function WifiShareModal({
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '3px'
+                        gap: '3px',
+                        whiteSpace: 'nowrap'
                       }}
-                      title="Stop sharing and clear all PC files from room"
+                      title="Open share page in your browser"
                     >
-                      <Trash2 size={9} />
-                      <span>Clear All</span>
+                      <ExternalLink size={9} />
+                      <span>Open</span>
                     </button>
-                  )}
+                  </div>
                 </div>
+              </div>
 
-                {/* PC Files List */}
+              {/* Segmented Control Tabs */}
+              <div style={{
+                display: 'flex',
+                background: 'rgba(0, 0, 0, 0.45)',
+                padding: '2px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                gap: '2px'
+              }}>
+                <button
+                  onClick={() => setActiveTab('phone')}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '5px',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: activeTab === 'phone' 
+                      ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.2) 0%, rgba(0, 200, 110, 0.12) 100%)' 
+                      : 'transparent',
+                    color: activeTab === 'phone' ? '#00ff88' : 'rgba(255, 255, 255, 0.5)',
+                    boxShadow: activeTab === 'phone' ? '0 2px 6px rgba(0, 255, 136, 0.15), inset 0 0 0 1px rgba(0, 255, 136, 0.3)' : 'none',
+                    fontSize: '10.5px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <Smartphone size={12} />
+                  <span>Phone Uploads</span>
+                  <span style={{
+                    fontSize: '8.5px',
+                    padding: '0.5px 5px',
+                    borderRadius: '8px',
+                    background: activeTab === 'phone' ? 'rgba(0, 255, 136, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                    color: activeTab === 'phone' ? '#00ff88' : 'rgba(255, 255, 255, 0.6)',
+                    fontWeight: 800
+                  }}>
+                    {phoneFiles.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('pc')}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '5px',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: activeTab === 'pc' 
+                      ? 'linear-gradient(135deg, rgba(0, 210, 255, 0.2) 0%, rgba(0, 150, 255, 0.12) 100%)' 
+                      : 'transparent',
+                    color: activeTab === 'pc' ? '#00d2ff' : 'rgba(255, 255, 255, 0.5)',
+                    boxShadow: activeTab === 'pc' ? '0 2px 6px rgba(0, 210, 255, 0.15), inset 0 0 0 1px rgba(0, 210, 255, 0.3)' : 'none',
+                    fontSize: '10.5px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <Monitor size={12} />
+                  <span>Shared from PC</span>
+                  <span style={{
+                    fontSize: '8.5px',
+                    padding: '0.5px 5px',
+                    borderRadius: '8px',
+                    background: activeTab === 'pc' ? 'rgba(0, 210, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                    color: activeTab === 'pc' ? '#00d2ff' : 'rgba(255, 255, 255, 0.6)',
+                    fontWeight: 800
+                  }}>
+                    {pcFiles.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* TAB 1: PHONE UPLOADS */}
+              {activeTab === 'phone' && (
                 <div style={{
-                  maxHeight: '110px',
-                  overflowY: 'auto',
+                  background: 'linear-gradient(135deg, rgba(6, 44, 28, 0.3) 0%, rgba(16, 28, 20, 0.4) 100%)',
+                  border: '1px solid rgba(0, 255, 136, 0.25)',
+                  borderRadius: '10px',
+                  padding: '8px 10px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '4px',
-                  background: 'rgba(0, 0, 0, 0.3)',
-                  borderRadius: '8px',
-                  padding: '5px'
+                  gap: '6px'
                 }}>
-                  {pcFiles.length === 0 ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40px', color: 'rgba(255,255,255,0.4)', fontSize: '9.5px', fontStyle: 'italic' }}>
-                      No files currently being shared from PC
+                  {/* Phone Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 800, color: '#00ff88' }}>
+                        Incoming Files
+                      </span>
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.45)' }}>
+                        ({phoneFiles.length})
+                      </span>
                     </div>
-                  ) : (
-                    pcFiles.map((file) => {
-                      const isDeleting = deletingFileIds.has(file.id);
-                      return (
-                        <div
-                          key={file.id}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '4px 8px',
-                            background: 'rgba(0, 210, 255, 0.06)',
-                            border: '1px solid rgba(0, 210, 255, 0.15)',
-                            borderRadius: '6px',
-                            gap: '6px'
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-                            <Monitor size={11} style={{ color: '#00d2ff', flexShrink: 0 }} />
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={file.name}>
-                                {file.name}
-                              </span>
-                              <span style={{ fontSize: '8.5px', color: 'rgba(0, 210, 255, 0.8)', fontWeight: 600 }}>
-                                {formatFileSize(file.size)} • Ready for phone download
-                              </span>
-                            </div>
-                          </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {phoneFiles.length > 0 && (
+                        <>
+                          <button
+                            onClick={handleImportAll}
+                            disabled={isImportingAll}
+                            style={{
+                              background: 'linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)',
+                              border: 'none',
+                              color: '#000000',
+                              borderRadius: '4px',
+                              padding: '3px 8px',
+                              fontSize: '9px',
+                              fontWeight: 800,
+                              cursor: isImportingAll ? 'wait' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              boxShadow: '0 2px 6px rgba(0, 255, 136, 0.25)'
+                            }}
+                            title="Import all phone files to grid"
+                          >
+                            {isImportingAll ? (
+                              <>
+                                <Loader2 size={9} className="spin" />
+                                <span>Importing ({importProgress?.current}/{importProgress?.total})...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Download size={9} />
+                                <span>Import All ({phoneFiles.length})</span>
+                              </>
+                            )}
+                          </button>
 
                           <button
-                            onClick={() => handleDeleteRoomFile(file.id, file.name, false)}
-                            disabled={isDeleting}
+                            onClick={() => handleClearAllSide(true)}
                             style={{
                               background: 'rgba(255, 77, 77, 0.12)',
                               border: '1px solid rgba(255, 77, 77, 0.25)',
                               color: '#ff6666',
                               borderRadius: '4px',
-                              padding: '3px 6px',
+                              padding: '2px 5px',
                               fontSize: '8.5px',
                               fontWeight: 700,
-                              cursor: isDeleting ? 'wait' : 'pointer',
+                              cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '3px',
-                              flexShrink: 0
+                              gap: '2px'
                             }}
-                            title="Remove file from Wi-Fi share"
+                            title="Delete all phone uploads from room"
                           >
-                            <Trash2 size={9} />
-                            <span>Remove</span>
+                            <Trash2 size={8} />
+                            <span>Clear</span>
                           </button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* ══════════════════════════════════════════════════════════════════
-                  ZONE 2: 📱 MOBILE PHONE SIDE (INCOMING TO PC) - NEON GREEN
-                 ══════════════════════════════════════════════════════════════════ */}
-              <div style={{
-                background: 'linear-gradient(135deg, rgba(6, 44, 28, 0.4) 0%, rgba(16, 28, 20, 0.5) 100%)',
-                border: '1.5px solid rgba(0, 255, 136, 0.35)',
-                borderRadius: '12px',
-                padding: '10px 12px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                {/* Zone Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <div style={{
-                      padding: '3px 6px',
-                      borderRadius: '5px',
-                      background: '#00ff88',
-                      color: '#000000',
-                      fontSize: '9px',
-                      fontWeight: 900,
-                      letterSpacing: '0.5px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '3px'
-                    }}>
-                      <Smartphone size={10} />
-                      <span>PHONE SIDE</span>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#00ff88' }}>
-                        Incoming Files (Uploaded from Phone ➔ PC)
-                      </span>
-                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)', display: 'block' }}>
-                        Files received from your phone ({phoneFiles.length})
-                      </span>
+                        </>
+                      )}
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    {phoneFiles.length > 0 && (
-                      <>
-                        <button
-                          onClick={handleImportAll}
-                          disabled={isImportingAll}
-                          style={{
-                            background: '#00ff88',
-                            border: 'none',
-                            color: '#000000',
-                            borderRadius: '5px',
-                            padding: '3px 8px',
-                            fontSize: '9px',
-                            fontWeight: 800,
-                            cursor: isImportingAll ? 'wait' : 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px'
-                          }}
-                          title="Import all phone files to grid"
-                        >
-                          {isImportingAll ? (
-                            <>
-                              <Loader2 size={9} className="spin" />
-                              <span>Importing ({importProgress?.current}/{importProgress?.total})...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Download size={9} />
-                              <span>Import All</span>
-                            </>
-                          )}
-                        </button>
+                  {/* Import Error Banner */}
+                  {importError && (
+                    <div style={{
+                      background: 'rgba(255, 77, 77, 0.15)',
+                      border: '1px solid rgba(255, 77, 77, 0.4)',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '6px',
+                      fontSize: '9.5px',
+                      color: '#ff7b7b'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span>⚠️</span>
+                        <span>{importError}</span>
+                      </div>
+                      <button
+                        onClick={() => setImportError(null)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'rgba(255,255,255,0.6)',
+                          cursor: 'pointer',
+                          padding: '1px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  )}
 
-                        <button
-                          onClick={() => handleClearAllSide(true)}
-                          style={{
-                            background: 'rgba(255, 77, 77, 0.12)',
-                            border: '1px solid rgba(255, 77, 77, 0.3)',
-                            color: '#ff6666',
-                            borderRadius: '5px',
-                            padding: '2px 6px',
-                            fontSize: '9px',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px'
-                          }}
-                          title="Delete all phone uploads from server"
-                        >
-                          <Trash2 size={9} />
-                          <span>Clear</span>
-                        </button>
-                      </>
+                  {/* Phone Files List */}
+                  <div style={{
+                    maxHeight: '160px',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '3px',
+                    background: 'rgba(0, 0, 0, 0.25)',
+                    borderRadius: '6px',
+                    padding: '4px'
+                  }}>
+                    {phoneFiles.length === 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '65px', color: 'rgba(255,255,255,0.4)', fontSize: '9px', gap: '3px' }}>
+                        <Smartphone size={14} style={{ opacity: 0.4 }} />
+                        <span>No files uploaded from phone yet</span>
+                      </div>
+                    ) : (
+                      phoneFiles.map((file) => {
+                        const isImporting = importingFileIds.has(file.id);
+                        const isDeleting = deletingFileIds.has(file.id);
+
+                        return (
+                          <div
+                            key={file.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '3px 6px',
+                              background: 'rgba(0, 255, 136, 0.05)',
+                              border: '1px solid rgba(0, 255, 136, 0.12)',
+                              borderRadius: '5px',
+                              gap: '6px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0, flex: 1 }}>
+                              {getMediaIcon(file.name, file.mimeType)}
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <span style={{ fontSize: '9.5px', fontWeight: 700, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={file.name}>
+                                  {file.name}
+                                </span>
+                                <span style={{ fontSize: '8px', color: 'rgba(0, 255, 136, 0.8)', fontWeight: 600 }}>
+                                  {formatFileSize(file.size)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+                              <button
+                                onClick={() => handleImportUploaded(file.id, file.name)}
+                                disabled={isImporting || isImportingAll}
+                                style={{
+                                  background: '#00ff88',
+                                  color: '#000000',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  padding: '2px 6px',
+                                  fontSize: '8.5px',
+                                  fontWeight: 800,
+                                  cursor: isImporting ? 'wait' : 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '2px'
+                                }}
+                              >
+                                {isImporting ? <Loader2 size={8} className="spin" /> : <Download size={8} />}
+                                <span>Import</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteRoomFile(file.id, file.name, true)}
+                                disabled={isDeleting}
+                                style={{
+                                  background: 'rgba(255, 77, 77, 0.1)',
+                                  border: '1px solid rgba(255, 77, 77, 0.2)',
+                                  color: '#ff6666',
+                                  borderRadius: '3px',
+                                  padding: '2px 4px',
+                                  fontSize: '8px',
+                                  cursor: isDeleting ? 'wait' : 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center'
+                                }}
+                                title="Delete upload"
+                              >
+                                <Trash2 size={8} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
+              )}
 
-                {/* Phone Files List */}
+              {/* TAB 2: PC SHARED FILES */}
+              {activeTab === 'pc' && (
                 <div style={{
-                  maxHeight: '130px',
-                  overflowY: 'auto',
+                  background: 'linear-gradient(135deg, rgba(0, 119, 182, 0.1) 0%, rgba(13, 27, 42, 0.4) 100%)',
+                  border: '1px solid rgba(0, 210, 255, 0.25)',
+                  borderRadius: '10px',
+                  padding: '8px 10px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '4px',
-                  background: 'rgba(0, 0, 0, 0.3)',
-                  borderRadius: '8px',
-                  padding: '5px'
+                  gap: '6px'
                 }}>
-                  {phoneFiles.length === 0 ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '45px', color: 'rgba(255,255,255,0.4)', fontSize: '9.5px', fontStyle: 'italic' }}>
-                      No files uploaded from phone yet
+                  {/* PC Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 800, color: '#00d2ff' }}>
+                        Shared with Phone
+                      </span>
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.45)' }}>
+                        ({pcFiles.length})
+                      </span>
                     </div>
-                  ) : (
-                    phoneFiles.map((file) => {
-                      const isImporting = importingFileIds.has(file.id);
-                      const isDeleting = deletingFileIds.has(file.id);
 
-                      return (
-                        <div
-                          key={file.id}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '4px 8px',
-                            background: 'rgba(0, 255, 136, 0.06)',
-                            border: '1px solid rgba(0, 255, 136, 0.15)',
-                            borderRadius: '6px',
-                            gap: '6px'
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-                            <Smartphone size={11} style={{ color: '#00ff88', flexShrink: 0 }} />
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={file.name}>
-                                {file.name}
-                              </span>
-                              <span style={{ fontSize: '8.5px', color: 'rgba(0, 255, 136, 0.8)', fontWeight: 600 }}>
-                                {formatFileSize(file.size)} • Ready to import
-                              </span>
+                    {pcFiles.length > 0 && (
+                      <button
+                        onClick={() => handleClearAllSide(false)}
+                        style={{
+                          background: 'rgba(255, 77, 77, 0.12)',
+                          border: '1px solid rgba(255, 77, 77, 0.25)',
+                          color: '#ff6666',
+                          borderRadius: '4px',
+                          padding: '2px 5px',
+                          fontSize: '8.5px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '2px'
+                        }}
+                        title="Clear all PC files from room"
+                      >
+                        <Trash2 size={8} />
+                        <span>Clear All</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* PC Files List */}
+                  <div style={{
+                    maxHeight: '160px',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '3px',
+                    background: 'rgba(0, 0, 0, 0.25)',
+                    borderRadius: '6px',
+                    padding: '4px'
+                  }}>
+                    {pcFiles.length === 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '65px', color: 'rgba(255,255,255,0.4)', fontSize: '9px', gap: '3px' }}>
+                        <Monitor size={14} style={{ opacity: 0.4 }} />
+                        <span>No files currently shared from PC</span>
+                      </div>
+                    ) : (
+                      pcFiles.map((file) => {
+                        const isDeleting = deletingFileIds.has(file.id);
+                        return (
+                          <div
+                            key={file.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '3px 6px',
+                              background: 'rgba(0, 210, 255, 0.05)',
+                              border: '1px solid rgba(0, 210, 255, 0.12)',
+                              borderRadius: '5px',
+                              gap: '6px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0, flex: 1 }}>
+                              {getMediaIcon(file.name, file.mimeType)}
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <span style={{ fontSize: '9.5px', fontWeight: 700, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={file.name}>
+                                  {file.name}
+                                </span>
+                                <span style={{ fontSize: '8px', color: 'rgba(0, 210, 255, 0.8)', fontWeight: 600 }}>
+                                  {formatFileSize(file.size)} • Ready for phone
+                                </span>
+                              </div>
                             </div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                            <button
-                              onClick={() => handleImportUploaded(file.id, file.name)}
-                              disabled={isImporting || isImportingAll}
-                              style={{
-                                background: '#00ff88',
-                                color: '#000000',
-                                border: 'none',
-                                borderRadius: '4px',
-                                padding: '3px 8px',
-                                fontSize: '9px',
-                                fontWeight: 800,
-                                cursor: isImporting ? 'wait' : 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '3px'
-                              }}
-                            >
-                              {isImporting ? (
-                                <>
-                                  <Loader2 size={9} className="spin" />
-                                  <span>Importing...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Download size={9} />
-                                  <span>Import to Grid</span>
-                                </>
-                              )}
-                            </button>
 
                             <button
-                              onClick={() => handleDeleteRoomFile(file.id, file.name, true)}
+                              onClick={() => handleDeleteRoomFile(file.id, file.name, false)}
                               disabled={isDeleting}
                               style={{
-                                background: 'rgba(255, 77, 77, 0.12)',
-                                border: '1px solid rgba(255, 77, 77, 0.25)',
+                                background: 'rgba(255, 77, 77, 0.1)',
+                                border: '1px solid rgba(255, 77, 77, 0.2)',
                                 color: '#ff6666',
-                                borderRadius: '4px',
-                                padding: '3px 6px',
-                                fontSize: '8.5px',
-                                fontWeight: 700,
+                                borderRadius: '3px',
+                                padding: '2px 4px',
+                                fontSize: '8px',
                                 cursor: isDeleting ? 'wait' : 'pointer',
                                 display: 'flex',
-                                alignItems: 'center',
-                                gap: '3px'
+                                alignItems: 'center'
                               }}
-                              title="Delete file from server"
+                              title="Remove from room"
                             >
-                              <Trash2 size={9} />
+                              <Trash2 size={8} />
                             </button>
                           </div>
-                        </div>
-                      );
-                    })
-                  )}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* ══════════════════════════════════════════════════════════════════
-                  BOTTOM SETTINGS: DOWNLOAD FOLDER & AUTO-REMOVE TOGGLE
-                 ══════════════════════════════════════════════════════════════════ */}
+              {/* Bottom Settings Bar */}
               <div style={{
-                background: 'rgba(0, 0, 0, 0.25)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: '10px',
-                padding: '8px 10px',
+                background: 'rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.07)',
+                borderRadius: '8px',
+                padding: '5px 8px',
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '6px'
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px'
               }}>
-                {/* Auto-remove toggle */}
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '9.5px', color: 'rgba(255,255,255,0.85)', userSelect: 'none' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontSize: '9px', color: 'rgba(255,255,255,0.7)', userSelect: 'none' }}>
                   <input
                     type="checkbox"
                     checked={autoRemoveAfterImport}
                     onChange={toggleAutoRemove}
-                    style={{ accentColor: '#00ff88', cursor: 'pointer' }}
+                    style={{ accentColor: '#00ff88', cursor: 'pointer', width: '12px', height: '12px' }}
                   />
-                  <span>Automatically remove files from queue once imported to PC</span>
+                  <span>Auto-remove on import</span>
                 </label>
 
-                {/* Destination folder */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                    Save to:
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 800 }}>
+                    Save:
                   </span>
-                  <div style={{
-                    flex: 1,
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '4px',
-                    padding: '2px 6px',
-                    fontSize: '9.5px',
-                    color: customDownloadDir ? '#00d2ff' : 'rgba(255, 255, 255, 0.5)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {customDownloadDir || 'Default (Downloads)'}
-                  </div>
+                  <span 
+                    style={{ 
+                      fontSize: '9px', 
+                      color: customDownloadDir ? '#00d2ff' : 'rgba(255, 255, 255, 0.7)', 
+                      maxWidth: '120px', 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis', 
+                      whiteSpace: 'nowrap' 
+                    }} 
+                    title={customDownloadDir || 'Default Downloads folder'}
+                  >
+                    {customDownloadDir ? customDownloadDir.split(/[\\/]/).pop() || customDownloadDir : 'Downloads'}
+                  </span>
                   <button
                     onClick={selectDownloadDir}
                     style={{
@@ -933,16 +1081,17 @@ export function WifiShareModal({
                       border: '1px solid rgba(255, 255, 255, 0.15)',
                       color: '#ffffff',
                       borderRadius: '4px',
-                      padding: '2px 6px',
-                      fontSize: '9px',
+                      padding: '2px 5px',
+                      fontSize: '8.5px',
                       fontWeight: 700,
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '3px'
+                      gap: '2px'
                     }}
+                    title="Change destination folder"
                   >
-                    <FolderOpen size={9} />
+                    <FolderOpen size={8} />
                     <span>Change</span>
                   </button>
                   {customDownloadDir && (

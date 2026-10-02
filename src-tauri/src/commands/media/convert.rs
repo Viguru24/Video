@@ -12,6 +12,48 @@ use super::utils::{
     safe_recycle_file,
 };
 
+const HEIC_CONVERT_SCRIPT: &str = r#"import sys, os
+from PIL import Image, ImageOps
+import pillow_heif
+
+def main():
+    if len(sys.argv) < 3:
+        sys.exit(1)
+    src_path = sys.argv[1]
+    dest_path = sys.argv[2]
+    
+    pillow_heif.register_heif_opener()
+    image = Image.open(src_path)
+    try:
+        image = ImageOps.exif_transpose(image)
+    except Exception:
+        pass
+
+    ext = os.path.splitext(dest_path)[1].lower()
+    exif_bytes = image.info.get("exif")
+
+    if ext in [".jpg", ".jpeg"]:
+        if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+            image = image.convert("RGB")
+        if exif_bytes:
+            image.save(dest_path, "JPEG", quality=95, exif=exif_bytes)
+        else:
+            image.save(dest_path, "JPEG", quality=95)
+    else:
+        if exif_bytes:
+            image.save(dest_path, "PNG", exif=exif_bytes)
+        else:
+            image.save(dest_path, "PNG")
+    print(f"SUCCESS: Converted {src_path} to {dest_path}")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+"#;
+
 fn resolve_heic_script_path() -> PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
@@ -28,7 +70,11 @@ fn resolve_heic_script_path() -> PathBuf {
             return path;
         }
     }
-    PathBuf::from("convert_heic.py")
+
+    // Always ensure an embedded copy exists in temp_dir if not found in parent dirs (crucial for MSIX packages)
+    let temp_script = std::env::temp_dir().join("cosmo_convert_heic.py");
+    let _ = fs::write(&temp_script, HEIC_CONVERT_SCRIPT);
+    temp_script
 }
 
 fn convert_heic_pillow(src_path: &str, dest_path: &str) -> Result<(), String> {
@@ -36,26 +82,51 @@ fn convert_heic_pillow(src_path: &str, dest_path: &str) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let python_exe = resolve_python_exe();
     let script_path = resolve_heic_script_path();
 
-    debug_log(&format!("Running HEIC conversion via python: {:?} {:?} {:?} {:?}", python_exe, script_path, src_path, dest_path));
+    let mut candidates = Vec::new();
+    candidates.push(resolve_python_exe());
 
-    let mut cmd = new_hidden_command(&python_exe);
-    cmd.args([&script_path.to_string_lossy().to_string(), src_path, dest_path]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    if let Ok(cur_dir) = std::env::current_dir() {
+        candidates.push(cur_dir.join(".cosmo_cpu_venv").join("Scripts").join("python.exe"));
+    }
+    candidates.push(PathBuf::from(r"C:\Program Files\Python312\python.exe"));
+    candidates.push(PathBuf::from(r"C:\Program Files\Python311\python.exe"));
+    candidates.push(PathBuf::from("python"));
 
-    let out = cmd.output()
-        .map_err(|e| format!("Failed to spawn python for HEIC: {}", e))?;
+    let mut last_err = String::new();
+    for py in candidates {
+        let is_plain = py.to_string_lossy() == "python";
+        if !is_plain && !py.exists() {
+            continue;
+        }
 
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        return Err(format!("Python HEIC conversion failed: {}\nStdout: {}", stderr, stdout));
+        debug_log(&format!("Running HEIC conversion via python candidate: {:?} {:?} {:?} {:?}", py, script_path, src_path, dest_path));
+
+        let mut cmd = new_hidden_command(&py);
+        cmd.args([&script_path.to_string_lossy().to_string(), src_path, dest_path]);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        match cmd.output() {
+            Ok(out) => {
+                if out.status.success() {
+                    return Ok(());
+                } else {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    last_err = format!("Candidate {:?} failed:\nStderr: {}\nStdout: {}", py, stderr, stdout);
+                    debug_log(&last_err);
+                }
+            }
+            Err(e) => {
+                last_err = format!("Failed to spawn {:?}: {}", py, e);
+                debug_log(&last_err);
+            }
+        }
     }
 
-    Ok(())
+    Err(format!("Python HEIC conversion failed: {}", last_err))
 }
 
 pub async fn convert_media_to_standard(app: AppHandle, src_path: String, media_type: String) -> Result<String, String> {
@@ -141,16 +212,12 @@ pub async fn convert_media_to_standard(app: AppHandle, src_path: String, media_t
             }
         } else {
             let is_heic = src_path.to_lowercase().ends_with(".heic") || src_path.to_lowercase().ends_with(".heif");
-            let mut python_success = false;
             if is_heic {
-                if let Err(e) = convert_heic_pillow(&src_path, &dest_str) {
-                    debug_log(&format!("convert_media_to_standard: python HEIC convert failed, falling back: {}", e));
-                } else {
-                    python_success = true;
-                }
-            }
-
-            if !python_success {
+                // For HEIC/HEIF images, exclusively use pillow_heif.
+                // FFmpeg does not support HEIC decoding on Windows.
+                convert_heic_pillow(&src_path, &dest_str)
+                    .map_err(|e| format!("{}. Original HEIC preserved.", e))?;
+            } else {
                 let mut img_cmd = new_hidden_ffmpeg_command(Some(&app));
                 img_cmd.args(["-y", "-i", &src_path, "-q:v", "2", &dest_str]);
                 #[cfg(windows)]
@@ -166,9 +233,13 @@ pub async fn convert_media_to_standard(app: AppHandle, src_path: String, media_t
             }
 
             let dest_meta = fs::metadata(&dest_str).map_err(|e| format!("Output file missing: {}", e))?;
-            if dest_meta.len() < 1024 {
+            let min_bytes: u64 = if is_heic { 100 * 1024 } else { 1024 };
+            if dest_meta.len() < min_bytes {
                 let _ = fs::remove_file(&dest_str);
-                return Err("Conversion produced a suspiciously small file — original preserved.".into());
+                return Err(format!(
+                    "Conversion produced a suspiciously small file ({} bytes) — original preserved.",
+                    dest_meta.len()
+                ));
             }
             let mut header = [0u8; 2];
             fs::File::open(&dest_str)
@@ -188,43 +259,27 @@ pub async fn convert_media_to_standard(app: AppHandle, src_path: String, media_t
     }).await.map_err(|e| e.to_string())?
 }
 
-pub async fn convert_heic_to_jpg(app: AppHandle, src_path: String) -> Result<String, String> {
+pub async fn convert_heic_to_jpg(_app: AppHandle, src_path: String) -> Result<String, String> {
     let src_path = clean_local_path(&src_path);
     tauri::async_runtime::spawn_blocking(move || {
-        #[cfg(windows)]
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
         let src = Path::new(&src_path);
         let dest_path = src.with_extension("jpg");
         let dest_str = dest_path.to_string_lossy().to_string();
 
-        let mut python_success = false;
-        if let Err(e) = convert_heic_pillow(&src_path, &dest_str) {
-            debug_log(&format!("convert_heic_to_jpg: python HEIC convert failed, falling back: {}", e));
-        } else {
-            python_success = true;
-        }
+        // Convert HEIC via Python/Pillow (pillow_heif).
+        // FFmpeg on Windows does NOT support HEIC decoding and produces blank/corrupt frames.
+        convert_heic_pillow(&src_path, &dest_str)
+            .map_err(|e| format!("{}. Original HEIC preserved.", e))?;
 
-        if !python_success {
-            let mut conv_cmd = new_hidden_ffmpeg_command(Some(&app));
-            conv_cmd.args(["-y", "-i", &src_path, "-q:v", "2", &dest_str]);
-            #[cfg(windows)]
-            conv_cmd.creation_flags(CREATE_NO_WINDOW);
-
-            let output = conv_cmd.output()
-                .map_err(|e| format!("Failed to spawn ffmpeg for HEIC conversion: {}", e))?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("FFmpeg HEIC conversion failed: {}", stderr));
-            }
-        }
-
+        // Validate output — must be at least 100 KB and a valid JPEG
         let dest_meta = fs::metadata(&dest_str).map_err(|e| format!("Output file missing: {}", e))?;
-        if dest_meta.len() < 1024 {
+        let min_bytes: u64 = 100 * 1024; // 100 KB
+        if dest_meta.len() < min_bytes {
             let _ = fs::remove_file(&dest_str);
-            return Err("Output too small — original HEIC preserved.".into());
+            return Err(format!(
+                "Output is suspiciously small ({} bytes < {} KB minimum) — original HEIC preserved.",
+                dest_meta.len(), min_bytes / 1024
+            ));
         }
         let mut header = [0u8; 2];
         fs::File::open(&dest_str)
@@ -453,6 +508,150 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<Value, S
     }))
 }
 
+fn parse_tiff_orientation(data: &[u8]) -> Option<u32> {
+    if data.len() < 8 {
+        return None;
+    }
+    let is_le = if &data[0..2] == b"II" {
+        true
+    } else if &data[0..2] == b"MM" {
+        false
+    } else {
+        return None;
+    };
+
+    let read_u16 = |d: &[u8], offset: usize| -> Option<u16> {
+        if offset + 2 <= d.len() {
+            if is_le {
+                Some(u16::from_le_bytes([d[offset], d[offset + 1]]))
+            } else {
+                Some(u16::from_be_bytes([d[offset], d[offset + 1]]))
+            }
+        } else {
+            None
+        }
+    };
+
+    let read_u32 = |d: &[u8], offset: usize| -> Option<u32> {
+        if offset + 4 <= d.len() {
+            if is_le {
+                Some(u32::from_le_bytes([d[offset], d[offset + 1], d[offset + 2], d[offset + 3]]))
+            } else {
+                Some(u32::from_be_bytes([d[offset], d[offset + 1], d[offset + 2], d[offset + 3]]))
+            }
+        } else {
+            None
+        }
+    };
+
+    let magic = read_u16(data, 2)?;
+    if magic != 42 {
+        return None;
+    }
+
+    let ifd0_offset = read_u32(data, 4)? as usize;
+    if ifd0_offset + 2 > data.len() {
+        return None;
+    }
+
+    let num_entries = read_u16(data, ifd0_offset)? as usize;
+    let entries_start = ifd0_offset + 2;
+
+    for i in 0..num_entries {
+        let entry_offset = entries_start + i * 12;
+        if entry_offset + 12 > data.len() {
+            break;
+        }
+        let tag = read_u16(data, entry_offset)?;
+        if tag == 0x0112 {
+            // Orientation tag (format is usually SHORT = 3)
+            let val = read_u16(data, entry_offset + 8)?;
+            return Some(val as u32);
+        }
+    }
+    None
+}
+
+pub fn read_image_exif_orientation(path: &Path) -> Option<u32> {
+    use std::io::Read;
+    let mut file = fs::File::open(path).ok()?;
+    let mut buffer = vec![0u8; 65536];
+    let bytes_read = file.read(&mut buffer).ok()?;
+    let data = &buffer[..bytes_read];
+
+    if data.len() < 4 {
+        return None;
+    }
+
+    // 1. JPEG
+    if data[0] == 0xFF && data[1] == 0xD8 {
+        let mut pos = 2;
+        while pos + 4 <= data.len() {
+            if data[pos] != 0xFF {
+                pos += 1;
+                continue;
+            }
+            let marker = data[pos + 1];
+            if marker == 0xDA || marker == 0xD9 {
+                break;
+            }
+            let length = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+            if marker == 0xE1 && length >= 8 && pos + 4 + length <= data.len() {
+                let payload = &data[pos + 4..pos + 2 + length];
+                if payload.starts_with(b"Exif\0\0") {
+                    return parse_tiff_orientation(&payload[6..]);
+                }
+            }
+            pos += 2 + length;
+        }
+        return None;
+    }
+
+    // 2. WebP (RIFF....WEBP)
+    if data.starts_with(b"RIFF") && data.len() >= 12 && &data[8..12] == b"WEBP" {
+        let mut pos = 12;
+        while pos + 8 <= data.len() {
+            let fourcc = &data[pos..pos + 4];
+            let chunk_len = u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]) as usize;
+            let chunk_start = pos + 8;
+            let chunk_end = (chunk_start + chunk_len).min(data.len());
+            if fourcc == b"EXIF" && chunk_start < chunk_end {
+                let payload = &data[chunk_start..chunk_end];
+                if payload.starts_with(b"Exif\0\0") {
+                    return parse_tiff_orientation(&payload[6..]);
+                } else {
+                    return parse_tiff_orientation(payload);
+                }
+            }
+            pos = chunk_start + ((chunk_len + 1) & !1);
+        }
+        return None;
+    }
+
+    // 3. PNG
+    if data.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]) {
+        let mut pos = 8;
+        while pos + 8 <= data.len() {
+            let chunk_len = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+            let chunk_type = &data[pos + 4..pos + 8];
+            let chunk_start = pos + 8;
+            let chunk_end = (chunk_start + chunk_len).min(data.len());
+            if chunk_type == b"eXIf" && chunk_start < chunk_end {
+                return parse_tiff_orientation(&data[chunk_start..chunk_end]);
+            }
+            pos = chunk_start + chunk_len + 4; // length + type + data + crc
+        }
+        return None;
+    }
+
+    // 4. Raw TIFF
+    if data.starts_with(b"II") || data.starts_with(b"MM") {
+        return parse_tiff_orientation(data);
+    }
+
+    None
+}
+
 pub async fn get_media_dimensions(app: AppHandle, path: String) -> Result<(u32, u32), String> {
     let path = clean_local_path(&path);
     let path_obj = Path::new(&path);
@@ -468,24 +667,71 @@ pub async fn get_media_dimensions(app: AppHandle, path: String) -> Result<(u32, 
         let mut probe_cmd = new_hidden_ffprobe_command(Some(&app));
         probe_cmd
             .args(["-v", "error", "-select_streams", "v:0",
-                   "-show_entries", "stream=width,height",
-                   "-of", "csv=s=x:p=0", &path]);
+                   "-show_entries", "stream=width,height:stream_tags=rotate:stream_side_data=rotation",
+                   "-of", "default=noprint_wrappers=1", &path]);
         #[cfg(windows)]
         probe_cmd.creation_flags(CREATE_NO_WINDOW);
 
         let probe_out = probe_cmd.output().map_err(|e| format!("ffprobe failed: {}", e))?;
-        let dims_str = String::from_utf8_lossy(&probe_out.stdout).trim().to_string();
-        let parts: Vec<&str> = dims_str.split('x').collect();
-        if parts.len() != 2 {
-            return Err(format!("Could not parse video dimensions: '{}'", dims_str));
+        let probe_str = String::from_utf8_lossy(&probe_out.stdout);
+        let mut w: Option<u32> = None;
+        let mut h: Option<u32> = None;
+        let mut rotation: i32 = 0;
+
+        for line in probe_str.lines() {
+            let line = line.trim();
+            if let Some(val) = line.strip_prefix("width=") {
+                w = val.parse().ok();
+            } else if let Some(val) = line.strip_prefix("height=") {
+                h = val.parse().ok();
+            } else if let Some(val) = line.strip_prefix("TAG:rotate=") {
+                if let Ok(rot) = val.parse::<i32>() {
+                    rotation = rot;
+                }
+            } else if let Some(val) = line.strip_prefix("rotation=") {
+                if let Ok(rot) = val.parse::<i32>() {
+                    rotation = rot;
+                }
+            }
         }
-        let w: u32 = parts[0].trim().parse().map_err(|_| format!("Bad width: {}", parts[0]))?;
-        let h: u32 = parts[1].trim().parse().map_err(|_| format!("Bad height: {}", parts[1]))?;
-        return Ok((w, h));
+
+        let (mut final_w, mut final_h) = match (w, h) {
+            (Some(w), Some(h)) => (w, h),
+            _ => return Err(format!("Could not parse video dimensions from: '{}'", probe_str)),
+        };
+
+        let norm_rot = ((rotation % 360) + 360) % 360;
+        if norm_rot == 90 || norm_rot == 270 {
+            std::mem::swap(&mut final_w, &mut final_h);
+        }
+        return Ok((final_w, final_h));
     }
 
     match image::image_dimensions(&path) {
-        Ok((w, h)) => Ok((w, h)),
+        Ok((mut w, mut h)) => {
+            // Check EXIF orientation so width & height match visual orientation in browser/UI
+            if let Some(orient) = read_image_exif_orientation(path_obj) {
+                if orient >= 5 && orient <= 8 {
+                    std::mem::swap(&mut w, &mut h);
+                }
+            }
+            Ok((w, h))
+        }
         Err(e) => Err(format!("Failed to read image dimensions: {}", e)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_exif_orientation_parsing() {
+        let test_img_path = Path::new("scratch_exif_test.jpg");
+        if test_img_path.exists() {
+            let orient = read_image_exif_orientation(test_img_path);
+            assert_eq!(orient, Some(6));
+        }
+    }
+}
+

@@ -52,6 +52,17 @@ describe('videoUtils unit tests', () => {
       expect(toRealPath('D:\\Media\\video.mp4')).toBe('D:\\Media\\video.mp4');
       expect(toRealPath('/var/media/video.mp4')).toBe('/var/media/video.mp4');
     });
+
+    it('strips leading slashes before Windows drive letters', () => {
+      expect(toRealPath('/C:/Users/media/video.mp4')).toBe('C:/Users/media/video.mp4');
+      expect(toRealPath('///D:/Folder/clip.mkv')).toBe('D:/Folder/clip.mkv');
+    });
+
+    it('decodes asset.localhost and cosmo.localhost URLs cleanly', () => {
+      expect(toRealPath('http://asset.localhost/C%3A%2FMedia%2Ftest.mp4')).toBe('C:/Media/test.mp4');
+      expect(toRealPath('http://cosmo.localhost/D%3A%2FRecordings%2Fclip.mov')).toBe('D:/Recordings/clip.mov');
+      expect(toRealPath('http://asset.localhost/%2FC%3A%2FMedia%2Ftest.mp4')).toBe('C:/Media/test.mp4');
+    });
   });
 
   describe('formatDuration', () => {

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { 
   Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, CheckSquare, Volume2, VolumeX, 
   ExternalLink, Info, Edit2, ChevronLeft, ChevronRight, 
   Minimize2, Repeat, Repeat1, Crop, Sparkles, Save, Sliders, Copy, ShieldAlert,
-  ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, MessageSquare
+  ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, MessageSquare, Wifi
 } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { isValidPictureExtension, isTauri } from '../utils/videoUtils';
@@ -29,11 +29,18 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
     : '';
   const isImage = effectivePath ? isValidPictureExtension(effectivePath) : false;
   const isDemo = false;
-  const [coords, setCoords] = useState<{ top: number; left: number; measured: boolean }>({
+  const [positionState, setPositionState] = useState<{
+    top: number;
+    left: number;
+    transformOrigin: string;
+    isReady: boolean;
+  }>({
     top: y,
     left: x,
-    measured: false
+    transformOrigin: 'top left',
+    isReady: false
   });
+  const hasPositionedRef = useRef(false);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
 
   useEffect(() => {
@@ -52,30 +59,49 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
     };
   }, [onClose]);
 
-  useEffect(() => {
-    if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
+  useLayoutEffect(() => {
+    if (!menuRef.current || hasPositionedRef.current) return;
+
+    const el = menuRef.current;
+    const menuW = el.offsetWidth || 220;
+    const menuH = el.offsetHeight || 380;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const PAD = 8;
-    // Clamp left: prefer right of cursor, flip left if not enough space
-    let left = x + PAD < vw - rect.width - PAD ? x : x - rect.width;
-    left = Math.max(PAD, Math.min(left, vw - rect.width - PAD));
-    // Clamp top: prefer below cursor, flip up if not enough space
-    let top = y + PAD < vh - rect.height - PAD ? y : y - rect.height;
-    top = Math.max(PAD, Math.min(top, vh - rect.height - PAD));
-    setCoords({ top, left, measured: true });
-  }, [x, y, metadata, selectedCount]);
+
+    // Determine direction before opening:
+    // If opening downwards would clip below the viewport, or cursor is in bottom half:
+    const spaceBelow = vh - y - PAD;
+    const spaceAbove = y - PAD;
+    const goUp = (menuH > spaceBelow) && (spaceAbove >= menuH || spaceAbove > spaceBelow);
+    const goLeft = (x + menuW + PAD > vw) && (x > vw / 2);
+
+    const top = goUp ? Math.max(PAD, y - menuH) : Math.min(y, vh - menuH - PAD);
+    const left = goLeft ? Math.max(PAD, x - menuW) : Math.min(x, vw - menuW - PAD);
+
+    const originY = goUp ? 'bottom' : 'top';
+    const originX = goLeft ? 'right' : 'left';
+
+    setPositionState({
+      top,
+      left,
+      transformOrigin: `${originY} ${originX}`,
+      isReady: true
+    });
+    hasPositionedRef.current = true;
+  }, [x, y]);
 
   if (!video) return null;
 
   const style: React.CSSProperties = {
     position: 'fixed',
-    top: coords.top,
-    left: coords.left,
+    top: positionState.top,
+    left: positionState.left,
+    transformOrigin: positionState.transformOrigin,
     zIndex: 1000000,
-    opacity: coords.measured ? 1 : 0,
-    visibility: coords.measured ? 'visible' : 'hidden',
+    opacity: positionState.isReady ? 1 : 0,
+    visibility: positionState.isReady ? 'visible' : 'hidden',
+    animation: positionState.isReady ? 'menuPop 140ms cubic-bezier(0.16, 1, 0.3, 1) forwards' : 'none',
   };
 
   const isVideoLooping = video.repeatMode === 'always';
@@ -83,7 +109,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
   return (
     <div className="context-menu" ref={menuRef} style={style}>
       {metadata && (
-        <div style={{ padding: '6px 10px 5px', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '3px', width: '220px' }}>
+        <div style={{ padding: '6px 8px 5px', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '3px', width: '100%', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
             <Info size={10} style={{ color: 'var(--accent, #00ff88)', flexShrink: 0 }} />
             <span style={{ fontSize: '9px', fontWeight: 800, color: 'var(--accent, #00ff88)', letterSpacing: '1px', textTransform: 'uppercase' }}>
@@ -394,6 +420,14 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                 <Copy size={14} style={{ color: 'var(--accent, #00ff88)' }} />
                 <span style={{ color: 'var(--accent, #00ff88)' }}>Copy to Folder...</span>
               </div>
+              <div className="context-menu-item" onClick={() => onAction('share_file')}>
+                <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 600 }}>Wi-Fi Share to Mobile...</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('whatsapp_share')}>
+                <Share2 size={14} style={{ color: '#25D366' }} />
+                <span>Share {isImage ? 'Image' : 'Video'} to WhatsApp...</span>
+              </div>
               <div className="context-menu-item" onClick={() => onAction('duplicate_file')}>
                 <Copy size={14} />
                 <span>Duplicate File</span>
@@ -562,9 +596,13 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                 <Copy size={14} style={{ color: 'var(--accent, #00ff88)' }} />
                 <span style={{ color: 'var(--accent, #00ff88)' }}>{selectedCount > 1 && isSelected ? `Copy Selected (${selectedCount})` : 'Copy to Folder...'}</span>
               </div>
+              <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'share_selected' : 'share_file')}>
+                <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 600 }}>{selectedCount > 1 && isSelected ? `Wi-Fi Share Selected (${selectedCount})...` : 'Wi-Fi Share to Mobile...'}</span>
+              </div>
               <div className="context-menu-item" onClick={() => onAction('whatsapp_share')}>
-                <Share2 size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 600 }}>{selectedCount > 1 && isSelected ? `Share Selected (${selectedCount})...` : 'Share...'}</span>
+                <Share2 size={14} style={{ color: '#25D366' }} />
+                <span>{selectedCount > 1 && isSelected ? `Share to WhatsApp...` : 'Share to WhatsApp...'}</span>
               </div>
             </>
           )}

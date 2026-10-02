@@ -284,14 +284,25 @@ export function ModalOrchestrator({
           onSave={handleSaveCrop}
         />
 
-        <SaveUpscaleModal
-          isOpen={showSaveUpscaleOptions && upscaleTarget !== null}
-          onClose={() => {
-            setShowSaveUpscaleOptions(false);
-            setUpscaleTarget(null);
-          }}
-          onExecute={executeUpscale}
-        />
+        {showSaveUpscaleOptions && upscaleTarget && (
+          <SaveUpscaleModal
+            isOpen={true}
+            target={upscaleTarget}
+            onClose={() => {
+              setShowSaveUpscaleOptions(false);
+              setUpscaleTarget(null);
+            }}
+            onExecute={executeUpscale}
+            onOpenResize={() => {
+              if (upscaleTarget) {
+                setResizeTarget(upscaleTarget);
+                setShowResizeModal(true);
+              }
+              setShowSaveUpscaleOptions(false);
+              setUpscaleTarget(null);
+            }}
+          />
+        )}
 
         <UpscaleStatusPanel
           status={upscaleStatus}

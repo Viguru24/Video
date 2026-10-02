@@ -30,6 +30,27 @@ use std::sync::RwLock;
 
 static STATS_CACHE: std::sync::OnceLock<RwLock<std::collections::HashMap<String, (u64, u64, u64)>>> = std::sync::OnceLock::new();
 
+#[cfg(windows)]
+pub fn is_file_still_writing(p: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt;
+    // Attempt to open the file requesting GENERIC_READ with FILE_SHARE_READ | FILE_SHARE_DELETE (omitting FILE_SHARE_WRITE).
+    // If any other process currently has an open handle with write access (e.g. copy, download, sync),
+    // Windows returns ERROR_SHARING_VIOLATION (error code 32).
+    const FILE_SHARE_READ: u32 = 0x00000001;
+    const FILE_SHARE_DELETE: u32 = 0x00000004;
+
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+        .open(p)
+        .is_err()
+}
+
+#[cfg(not(windows))]
+pub fn is_file_still_writing(p: &Path) -> bool {
+    std::fs::File::open(p).is_err()
+}
+
 pub fn get_cached_file_stats(p: &Path) -> (u64, u64, u64) {
     let key = p.to_string_lossy().to_string();
     let cache = STATS_CACHE.get_or_init(|| RwLock::new(std::collections::HashMap::new()));
@@ -45,17 +66,17 @@ pub fn get_cached_file_stats(p: &Path) -> (u64, u64, u64) {
     let modified = metadata.as_ref()
         .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
+        .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let created = metadata.as_ref()
         .and_then(|m| m.created().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
+        .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     
     let stats = (size, modified, created);
     if let Ok(mut guard) = cache.write() {
-        if guard.len() < 20000 {
+        if size > 0 && !is_file_still_writing(p) && guard.len() < 20000 {
             guard.insert(key, stats);
         }
     }
@@ -598,14 +619,39 @@ pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json:
                 
                 let mut size = 0u64;
                 let mut modified = 0u64;
+                let mut created = 0u64;
+                let mut is_writing = false;
+
                 if let Ok(metadata) = p.metadata() {
                     size = metadata.len();
-                    if !is_dir && size == 0 {
-                        continue; // Skip 0-byte ghost/incomplete files
+                    if !is_dir && is_media {
+                        if size == 0 {
+                            is_writing = true;
+                        } else if is_file_still_writing(&p) {
+                            is_writing = true;
+                        } else if let Ok(time) = metadata.modified() {
+                            if let Ok(elapsed) = time.elapsed() {
+                                if elapsed.as_millis() < 400 {
+                                    // Modified in the last 400ms: verify size is stable
+                                    std::thread::sleep(std::time::Duration::from_millis(60));
+                                    if let Ok(m2) = p.metadata() {
+                                        if m2.len() != size || is_file_still_writing(&p) {
+                                            is_writing = true;
+                                            size = m2.len();
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     if let Ok(time) = metadata.modified() {
                         if let Ok(duration) = time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
-                            modified = duration.as_secs();
+                            modified = duration.as_millis() as u64;
+                        }
+                    }
+                    if let Ok(time) = metadata.created() {
+                        if let Ok(duration) = time.duration_since(std::time::SystemTime::UNIX_EPOCH) {
+                            created = duration.as_millis() as u64;
                         }
                     }
                 }
@@ -615,8 +661,10 @@ pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json:
                     "path": p.to_string_lossy().to_string(),
                     "is_dir": is_dir,
                     "is_media": is_media,
+                    "is_writing": is_writing,
                     "size": size,
-                    "modified": modified
+                    "modified": modified,
+                    "created": created
                 }));
             }
         }
@@ -1325,9 +1373,11 @@ pub async fn watch_directory(
     let app_clone = app.clone();
     let dir_path_clone = dir_path.clone();
     
-    use std::sync::atomic::{AtomicU64, Ordering};
-    let last_emit = std::sync::Arc::new(AtomicU64::new(0));
-    let last_emit_clone = last_emit.clone();
+    use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+    let last_event_time = std::sync::Arc::new(AtomicU64::new(0));
+    let last_event_time_clone = last_event_time.clone();
+    let is_debounce_active = std::sync::Arc::new(AtomicBool::new(false));
+    let is_debounce_active_clone = is_debounce_active.clone();
 
     use notify::{Watcher, RecursiveMode};
     let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
@@ -1336,10 +1386,30 @@ pub async fn watch_directory(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
-            let prev = last_emit_clone.load(Ordering::Relaxed);
-            if now.saturating_sub(prev) > 300 {
-                last_emit_clone.store(now, Ordering::Relaxed);
-                let _ = app_clone.emit("directory-changed", dir_path_clone.clone());
+            
+            last_event_time_clone.store(now, Ordering::SeqCst);
+
+            if is_debounce_active_clone.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                let app = app_clone.clone();
+                let dir_path = dir_path_clone.clone();
+                let last_time = last_event_time_clone.clone();
+                let is_active = is_debounce_active_clone.clone();
+
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                        let current_now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let last = last_time.load(Ordering::SeqCst);
+                        if current_now.saturating_sub(last) >= 300 {
+                            is_active.store(false, Ordering::SeqCst);
+                            let _ = app.emit("directory-changed", dir_path.clone());
+                            break;
+                        }
+                    }
+                });
             }
         }
     }).map_err(|e| e.to_string())?;

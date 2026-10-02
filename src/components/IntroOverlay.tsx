@@ -71,29 +71,43 @@ export function IntroOverlay({ isPopout }: IntroOverlayProps) {
       console.warn('Startup sound audio context blocked or unsupported:', e);
     }
     
-    // Step 1: Whisper for 2.2 seconds
+    // Fast, elegant startup animation: Whisper for 400ms, expand for 300ms, then finish
     const t1 = setTimeout(() => {
       setIntroStep('expand');
-    }, 2200);
+    }, 400);
     
-    // Step 2: Expand for 1.3 seconds, then complete
     const t2 = setTimeout(() => {
       setIntroStep('complete');
       setTimeout(() => {
         setShowIntro(false);
-      }, 800);
-    }, 3500);
+      }, 200);
+    }, 700);
+
+    // Instant skip on any user input anywhere in the window
+    const handleUserInput = () => {
+      setIntroStep('complete');
+      setShowIntro(false);
+    };
+
+    window.addEventListener('pointerdown', handleUserInput, { once: true });
+    window.addEventListener('keydown', handleUserInput, { once: true });
+    window.addEventListener('wheel', handleUserInput, { once: true });
 
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      window.removeEventListener('pointerdown', handleUserInput);
+      window.removeEventListener('keydown', handleUserInput);
+      window.removeEventListener('wheel', handleUserInput);
     };
   }, [isPopout]);
 
   if (!showIntro) return null;
 
   return (
-    <div className={`cosmo-intro-overlay ${introStep === 'complete' ? 'fadeout' : ''}`}>
+    <div 
+      className={`cosmo-intro-overlay ${introStep === 'complete' ? 'fadeout' : ''}`}
+    >
       <div className={`intro-glow-bg ${introStep !== 'whisper' ? 'expanded' : ''}`} />
       <div className={`intro-logo-content ${introStep !== 'whisper' ? 'expanded' : ''}`}>
         <span className="intro-title-text">COSMO</span>

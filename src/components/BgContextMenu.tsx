@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { 
   FolderOpen, Plus, Trash2, Palette, ArrowUpDown, ChevronRight,
   Check, Grid3X3, RefreshCw
@@ -27,11 +27,18 @@ export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge,
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const [submenuPos, setSubmenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
-  const [coords, setCoords] = useState<{ top: number; left: number; measured: boolean }>({
+  const [positionState, setPositionState] = useState<{
+    top: number;
+    left: number;
+    transformOrigin: string;
+    isReady: boolean;
+  }>({
     top: y,
     left: x,
-    measured: false
+    transformOrigin: 'top left',
+    isReady: false
   });
+  const hasPositionedRef = useRef(false);
 
   const { 
     sortOrder, setSortOrder, 
@@ -63,21 +70,34 @@ export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge,
     };
   }, [onClose]);
 
-  // Measure menu once and clamp to viewport
-  useEffect(() => {
-    if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
+  // Measure menu once and clamp to viewport before paint
+  useLayoutEffect(() => {
+    if (!menuRef.current || hasPositionedRef.current) return;
+    const el = menuRef.current;
+    const menuW = el.offsetWidth || 180;
+    const menuH = el.offsetHeight || 280;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const PAD = 8;
 
-    let left = x + PAD < vw - rect.width - PAD ? x : x - rect.width;
-    left = Math.max(PAD, Math.min(left, vw - rect.width - PAD));
+    const spaceBelow = vh - y - PAD;
+    const spaceAbove = y - PAD;
+    const goUp = (menuH > spaceBelow) && (spaceAbove >= menuH || spaceAbove > spaceBelow);
+    const goLeft = (x + menuW + PAD > vw) && (x > vw / 2);
 
-    let top = y + PAD < vh - rect.height - PAD ? y : y - rect.height;
-    top = Math.max(PAD, Math.min(top, vh - rect.height - PAD));
+    const top = goUp ? Math.max(PAD, y - menuH) : Math.min(y, vh - menuH - PAD);
+    const left = goLeft ? Math.max(PAD, x - menuW) : Math.min(x, vw - menuW - PAD);
 
-    setCoords({ top, left, measured: true });
+    const originY = goUp ? 'bottom' : 'top';
+    const originX = goLeft ? 'right' : 'left';
+
+    setPositionState({
+      top,
+      left,
+      transformOrigin: `${originY} ${originX}`,
+      isReady: true
+    });
+    hasPositionedRef.current = true;
   }, [x, y]);
 
   // Compute submenu position from the trigger row's bounding rect
@@ -88,17 +108,20 @@ export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge,
     const SUBMENU_W = 200;
     // Open to the right if there's room, otherwise to the left
     const left = rect.right + SUBMENU_W + 8 <= vw ? rect.right : rect.left - SUBMENU_W;
-    setSubmenuPos({ top: rect.top, left });
+    const top = Math.min(rect.top, window.innerHeight - 250);
+    setSubmenuPos({ top, left });
     setActiveSubmenu(name);
   };
 
   const menuStyle: React.CSSProperties = {
     position: 'fixed',
-    top: coords.top,
-    left: coords.left,
+    top: positionState.top,
+    left: positionState.left,
+    transformOrigin: positionState.transformOrigin,
     zIndex: 1000000,
-    opacity: coords.measured ? 1 : 0,
-    visibility: coords.measured ? 'visible' : 'hidden',
+    opacity: positionState.isReady ? 1 : 0,
+    visibility: positionState.isReady ? 'visible' : 'hidden',
+    animation: positionState.isReady ? 'menuPop 140ms cubic-bezier(0.16, 1, 0.3, 1) forwards' : 'none',
   };
 
   const submenuStyle: React.CSSProperties = {

@@ -81,5 +81,6 @@ if ($Install) {
     $installerScript = Join-Path $targetPkgDir "Install-Clean.ps1"
     if (Test-Path $installerScript) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File $installerScript
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 }

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Pause, Play, Sliders, Crop, Minimize2, Sparkles, ChevronLeft, ChevronRight, VolumeX, Volume2, Camera, FolderOpen, CheckCircle2, MoreHorizontal, Repeat, Repeat1, ExternalLink, Scissors, MessageSquare, Share2 } from 'lucide-react';
+import { Pause, Play, Sliders, Crop, Minimize2, Sparkles, ChevronLeft, ChevronRight, VolumeX, Volume2, Camera, FolderOpen, CheckCircle2, MoreHorizontal, Repeat, Repeat1, ExternalLink, Scissors, MessageSquare, Share2, ArrowLeft } from 'lucide-react';
 import { VideoCard } from './VideoCard';
 import { CropOverlay } from './CropOverlay';
 import { ReshapeStudioModal } from './ReshapeStudioModal';
@@ -13,6 +13,7 @@ import { triggerPopOut } from '../utils/videoUtils';
 interface SoloPlayerProps {
   focusedId: string;
   setFocusedId: (id: string | null) => void;
+  onExit: () => void;
   videos: VideoItem[];
   setVideos: React.Dispatch<React.SetStateAction<VideoItem[]>>;
   onUpdateVideo: (id: string, updates: Partial<VideoItem>) => void;
@@ -69,6 +70,7 @@ interface SoloPlayerProps {
 export function SoloPlayer({
   focusedId,
   setFocusedId,
+  onExit,
   videos,
   setVideos,
   onUpdateVideo,
@@ -154,11 +156,278 @@ export function SoloPlayer({
     setGlobalControl(null);
   }, [activeMediaKey, setIsCropping, setShowSaveCropOptions, setColorAdjustId, setGlobalControl]);
 
+  // Automatically close AI menu when clicking anywhere outside
+  useEffect(() => {
+    if (!showAiMenu) return;
+    const handleClickOutside = () => {
+      setShowAiMenu(false);
+    };
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, [showAiMenu]);
+
+  const renderAiMenu = () => {
+    if (!focusedVideo) return null;
+    return (
+      <div style={{ position: 'relative' }}>
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowAiMenu(!showAiMenu);
+          }}
+          style={{
+            background: showAiMenu ? 'rgba(255, 255, 255, 0.15)' : 'none',
+            border: 'none',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '4px',
+            borderRadius: '50%',
+            transition: 'all 0.2s'
+          }}
+          onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+          onMouseOut={e => {
+            if (!showAiMenu) e.currentTarget.style.background = 'none';
+          }}
+          title="✨ AI & Reshape Tools"
+        >
+          <Sparkles size={14} style={{ color: '#fff' }} />
+        </button>
+
+        {/* Popover Menu for AI & Reshape Tools */}
+        {showAiMenu && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              bottom: '40px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(10, 10, 14, 0.95)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '14px',
+              padding: '4px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.8)',
+              zIndex: 250000,
+              minWidth: '200px'
+            }}
+          >
+            {focusedVideo.type === 'video' && (
+              <button
+                onClick={() => {
+                  setShowAiMenu(false);
+                  useStore.getState().setTrimCropModalTarget(focusedVideo);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--accent, #00ff88)',
+                  padding: '5px 10px',
+                  borderRadius: '8px',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  whiteSpace: 'nowrap'
+                }}
+                onMouseOver={e => e.currentTarget.style.background = 'rgba(0, 255, 136, 0.12)'}
+                onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>✂️ Trim, Crop & Pan Studio</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                setShowAiMenu(false);
+                useStore.getState().setWhatsAppShareTarget(focusedVideo);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--accent, #00ff88)',
+                padding: '5px 10px',
+                borderRadius: '8px',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                textAlign: 'left',
+                whiteSpace: 'nowrap'
+              }}
+              onMouseOver={e => e.currentTarget.style.background = 'rgba(0, 255, 136, 0.12)'}
+              onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <Share2 size={12} />
+              <span>🚀 Share...</span>
+            </button>
+
+            {focusedVideo.type !== 'video' && (
+              <>
+                <button
+                  onClick={() => {
+                    setShowAiMenu(false);
+                    setShowReshapeModal(true);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#fff',
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <span>✨ Reshape & Sculpt Studio</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowAiMenu(false);
+                    setShowFrameModal(true);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#fff',
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <span>🖼️ Photo Frames & Corners</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowAiMenu(false);
+                    setShowPortraitBlurModal(true);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#fff',
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <span>✨ AI Portrait Blur (Bokeh)</span>
+                </button>
+              </>
+            )}
+
+            <button
+              onClick={() => {
+                setShowAiMenu(false);
+                handleUpscale(focusedVideo);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                padding: '5px 10px',
+                borderRadius: '8px',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                textAlign: 'left',
+                whiteSpace: 'nowrap'
+              }}
+              onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+              onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <span>⚡ AI Upscale (4x Enhance)</span>
+            </button>
+
+            {onCreateSticker && (
+              <button
+                onClick={() => {
+                  setShowAiMenu(false);
+                  onCreateSticker(focusedVideo);
+                }}
+                disabled={isStickerLoading}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: isStickerLoading ? '#666' : '#fff',
+                  padding: '5px 10px',
+                  borderRadius: '8px',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: isStickerLoading ? 'not-allowed' : 'pointer',
+                  textAlign: 'left',
+                  whiteSpace: 'nowrap'
+                }}
+                onMouseOver={e => {
+                  if (!isStickerLoading) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                }}
+                onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>✂️ Create AI Sticker Cutout</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div 
       ref={soloOverlayRef}
       className="solo-mode-overlay" 
       style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden' }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        if (focusedId) {
+          handleContext(focusedId, e.clientX, e.clientY);
+        }
+      }}
     >
       <div className="solo-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
         <AnimatePresence mode="wait">
@@ -195,7 +464,7 @@ export function SoloPlayer({
                 onSelectAll={handleSelectAll}
                 focusedId={focusedId}
                 inSoloMode={true}
-                onCloseFocus={() => setFocusedId(null)}
+                onCloseFocus={() => onExit()}
                 snapshotDir={snapshotDir}
                 setSnapshotDir={setSnapshotDir}
                 globalControl={globalControl}
@@ -224,6 +493,94 @@ export function SoloPlayer({
           )}
         </AnimatePresence>
 
+        {/* Top-Left Back / Close Button (Mobile & Desktop) */}
+        <button
+          onClick={() => onExit()}
+          className="solo-back-button"
+          style={{
+            position: 'absolute',
+            top: '20px',
+            left: '20px',
+            zIndex: 100001,
+            background: 'rgba(10, 10, 14, 0.85)',
+            backdropFilter: 'blur(16px) saturate(180%)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            color: '#ffffff',
+            borderRadius: '24px',
+            padding: '8px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '13px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+            opacity: showImmersiveUI ? 1 : 0,
+            pointerEvents: showImmersiveUI ? 'auto' : 'none',
+            userSelect: 'none'
+          }}
+          onMouseOver={e => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.18)';
+            e.currentTarget.style.transform = 'scale(1.04)';
+          }}
+          onMouseOut={e => {
+            e.currentTarget.style.background = 'rgba(10, 10, 14, 0.85)';
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+          title="Back to Gallery (Esc)"
+        >
+          <ArrowLeft size={16} />
+          <span>Back</span>
+        </button>
+
+        {/* Top-Right Pop-up Window / Pop Out Player Button (Always Accessible on Mobile) */}
+        {focusedVideo && (
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              const path = focusedVideo.realPath || focusedVideo.url;
+              await triggerPopOut(path, focusedVideo.title);
+            }}
+            className="solo-popout-button"
+            style={{
+              position: 'absolute',
+              top: '20px',
+              right: '20px',
+              zIndex: 100001,
+              background: 'rgba(10, 10, 14, 0.85)',
+              backdropFilter: 'blur(16px) saturate(180%)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              color: '#ffffff',
+              borderRadius: '24px',
+              padding: '8px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+              opacity: showImmersiveUI ? 1 : 0,
+              pointerEvents: showImmersiveUI ? 'auto' : 'none',
+              userSelect: 'none'
+            }}
+            onMouseOver={e => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.18)';
+              e.currentTarget.style.transform = 'scale(1.04)';
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.background = 'rgba(10, 10, 14, 0.85)';
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+            title="Pop Out Window"
+          >
+            <ExternalLink size={15} />
+            <span style={{ fontSize: '12px' }}>Pop Out</span>
+          </button>
+        )}
+
         {/* Floating Glassmorphic Solo Control Bar */}
         {focusedVideo && !isEditingOrModalOpen && (
           <div 
@@ -246,32 +603,11 @@ export function SoloPlayer({
               pointerEvents: showImmersiveUI ? 'auto' : 'none',
               opacity: showImmersiveUI ? 1 : 0,
               transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-              userSelect: 'none'
+              userSelect: 'none',
+              maxWidth: '96vw',
+              overflow: 'visible'
             }}
           >
-            {/* Previous Sibling Button */}
-            <button 
-              onClick={() => handleNavigateSibling(-1)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#fff',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '4px',
-                borderRadius: '50%',
-                transition: 'background 0.2s',
-                pointerEvents: 'auto'
-              }}
-              onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-              onMouseOut={e => e.currentTarget.style.background = 'none'}
-              title="Previous Media"
-            >
-              <ChevronLeft size={14} />
-            </button>
-
             {isFocusedImage ? (
               <>
                 <button 
@@ -301,29 +637,6 @@ export function SoloPlayer({
                   title={isSlideshowActive ? "Pause Slideshow" : "Play Slideshow"}
                 >
                   {isSlideshowActive ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
-                </button>
-
-                {/* Next Sibling Button (for images) */}
-                <button 
-                  onClick={() => handleNavigateSibling(1)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '4px',
-                    borderRadius: '50%',
-                    transition: 'background 0.2s',
-                    pointerEvents: 'auto'
-                  }}
-                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                  onMouseOut={e => e.currentTarget.style.background = 'none'}
-                  title="Next Media"
-                >
-                  <ChevronRight size={14} />
                 </button>
 
                 {/* Divider */}
@@ -393,7 +706,18 @@ export function SoloPlayer({
 
                 {/* Quick Share Button */}
                 <button
-                  onClick={() => useStore.getState().setWhatsAppShareTarget(focusedVideo)}
+                  onClick={() => {
+                    const currentFile = (focusedVideo.folderFiles && focusedVideo.currentIdx !== undefined && focusedVideo.folderFiles[focusedVideo.currentIdx])
+                      ? focusedVideo.folderFiles[focusedVideo.currentIdx]
+                      : null;
+                    const target = currentFile ? {
+                      ...focusedVideo,
+                      realPath: currentFile.path || currentFile.url,
+                      url: currentFile.url || currentFile.path,
+                      title: currentFile.name || focusedVideo.title
+                    } : focusedVideo;
+                    useStore.getState().setWhatsAppShareTarget(target);
+                  }}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -420,247 +744,7 @@ export function SoloPlayer({
                 </button>
 
                 {/* Single Consolidated AI Studio Button & Popover Menu */}
-                <div style={{ position: 'relative' }}>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowAiMenu(!showAiMenu);
-                    }}
-                    style={{
-                      background: showAiMenu ? 'rgba(255, 255, 255, 0.15)' : 'none',
-                      border: 'none',
-                      color: '#fff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: '4px',
-                      borderRadius: '50%',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                    onMouseOut={e => {
-                      if (!showAiMenu) e.currentTarget.style.background = 'none';
-                    }}
-                    title="✨ AI & Reshape Tools"
-                  >
-                    <Sparkles size={14} style={{ color: '#fff' }} />
-                  </button>
-
-                  {/* Popover Menu for AI & Reshape Tools */}
-                  {showAiMenu && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      style={{
-                        position: 'absolute',
-                        bottom: '40px',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        background: 'rgba(10, 10, 14, 0.95)',
-                        backdropFilter: 'blur(16px)',
-                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                        borderRadius: '14px',
-                        padding: '4px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '2px',
-                        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.8)',
-                        zIndex: 250000,
-                        minWidth: '200px'
-                      }}
-                    >
-                      {focusedVideo.type === 'video' && (
-                        <button
-                          onClick={() => {
-                            setShowAiMenu(false);
-                            useStore.getState().setTrimCropModalTarget(focusedVideo);
-                          }}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--accent, #00ff88)',
-                            padding: '5px 10px',
-                            borderRadius: '8px',
-                            fontSize: '10px',
-                            fontWeight: 'bold',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                            whiteSpace: 'nowrap'
-                          }}
-                          onMouseOver={e => e.currentTarget.style.background = 'rgba(0, 255, 136, 0.12)'}
-                          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <span>✂️ Trim, Crop & Pan Studio</span>
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => {
-                          setShowAiMenu(false);
-                          useStore.getState().setWhatsAppShareTarget(focusedVideo);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--accent, #00ff88)',
-                          padding: '5px 10px',
-                          borderRadius: '8px',
-                          fontSize: '10px',
-                          fontWeight: 'bold',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = 'rgba(0, 255, 136, 0.12)'}
-                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <Share2 size={12} />
-                        <span>🚀 Share...</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setShowAiMenu(false);
-                          setShowReshapeModal(true);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#fff',
-                          padding: '5px 10px',
-                          borderRadius: '8px',
-                          fontSize: '10px',
-                          fontWeight: 'bold',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <span>✨ Reshape & Sculpt Studio</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setShowAiMenu(false);
-                          setShowFrameModal(true);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#fff',
-                          padding: '5px 10px',
-                          borderRadius: '8px',
-                          fontSize: '10px',
-                          fontWeight: 'bold',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <span>🖼️ Photo Frames & Corners</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setShowAiMenu(false);
-                          setShowPortraitBlurModal(true);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#fff',
-                          padding: '5px 10px',
-                          borderRadius: '8px',
-                          fontSize: '10px',
-                          fontWeight: 'bold',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <span>✨ AI Portrait Blur (Bokeh)</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setShowAiMenu(false);
-                          handleUpscale(focusedVideo);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#fff',
-                          padding: '5px 10px',
-                          borderRadius: '8px',
-                          fontSize: '10px',
-                          fontWeight: 'bold',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <span>⚡ AI Upscale (4x Enhance)</span>
-                      </button>
-
-                      {onCreateSticker && (
-                        <button
-                          onClick={() => {
-                            setShowAiMenu(false);
-                            onCreateSticker(focusedVideo);
-                          }}
-                          disabled={isStickerLoading}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: isStickerLoading ? '#666' : '#fff',
-                            padding: '5px 10px',
-                            borderRadius: '8px',
-                            fontSize: '10px',
-                            fontWeight: 'bold',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: isStickerLoading ? 'not-allowed' : 'pointer',
-                            textAlign: 'left',
-                            whiteSpace: 'nowrap'
-                          }}
-                          onMouseOver={e => {
-                            if (!isStickerLoading) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                          }}
-                          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <span>✂️ Create AI Sticker Cutout</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {renderAiMenu()}
 
                 <button 
                   onClick={() => focusedVideo && handleResize && handleResize(focusedVideo)}
@@ -784,29 +868,6 @@ export function SoloPlayer({
                   title="Step Forward (1 Frame)"
                 >
                   <ChevronRight size={12} />
-                </button>
-
-                {/* Next Sibling Button (for videos) */}
-                <button 
-                  onClick={() => handleNavigateSibling(1)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '4px',
-                    borderRadius: '50%',
-                    transition: 'background 0.2s',
-                    pointerEvents: 'auto'
-                  }}
-                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                  onMouseOut={e => e.currentTarget.style.background = 'none'}
-                  title="Next Media"
-                >
-                  <ChevronRight size={14} />
                 </button>
 
                 {/* Divider */}
@@ -1025,6 +1086,8 @@ export function SoloPlayer({
                 >
                   <Scissors size={15} />
                 </button>
+
+                {renderAiMenu()}
               </>
             )}
 
