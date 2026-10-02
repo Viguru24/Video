@@ -71,8 +71,6 @@ export function useIngestion({
         const win = getCurrentWindow();
 
         unlistenDragDrop = await win.onDragDropEvent(async (event: any) => {
-          console.log(`[Ingestion] Event: ${event.payload.type}`);
-
           if (event.payload.type === 'over' || event.payload.type === 'enter') {
             setDragFile(true);
             return;

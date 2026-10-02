@@ -156,6 +156,15 @@ pub fn cosmo_log(app: AppHandle, msg: String) {
             let _ = fs::create_dir_all(parent);
         }
 
+        // Auto-rotate if log exceeds 5MB to prevent memory & disk I/O lockups
+        if let Ok(meta) = fs::metadata(&log_path) {
+            if meta.len() > 5 * 1024 * 1024 {
+                let mut old_log = log_path.clone();
+                old_log.set_extension("log.old");
+                let _ = fs::rename(&log_path, old_log);
+            }
+        }
+
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
         let line = format!("[{}] {}\n", timestamp, msg);
         if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(log_path) {
@@ -734,49 +743,6 @@ pub fn resolve_enhancer_command(app: Option<&AppHandle>) -> Result<(PathBuf, Vec
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
 
-    // Priority 0: Pre-built bundles (downloaded by install_dependencies / install_gpu_pack).
-    // Check these FIRST — no Python subprocess needed, and avoids startup blocking/crashes.
-    // GPU pack (CUDA) wins over CPU pack when both are present.
-    let gpu_bundle_exe = app.map(|a| {
-        resolve_install_dir(a).join("cosmo_enhance_gpu").join("cosmo_enhance.exe")
-    }).filter(|p| p.exists());
-
-    if let Some(exe) = gpu_bundle_exe {
-        return Ok((exe, vec![]));
-    }
-
-    let cpu_bundle_exe = app.map(|a| {
-        resolve_install_dir(a).join("cosmo_enhance").join("cosmo_enhance.exe")
-    }).filter(|p| p.exists());
-
-    if let Some(exe) = cpu_bundle_exe {
-        return Ok((exe, vec![]));
-    }
-
-    let resource_py = app.and_then(|a| {
-        a.path().resource_dir().ok().map(|d| d.join("resources").join("cosmo_enhance.py")).filter(|p| p.exists())
-    });
-
-    let local_exe = exe_dir.as_ref()
-        .map(|d| d.join("cosmo_enhance.exe"))
-        .filter(|p| p.exists());
-
-    let local_py = resource_py.or_else(|| {
-        exe_dir.as_ref()
-            .map(|d| d.join("cosmo_enhance.py"))
-            .filter(|p| p.exists())
-    }).or_else(|| {
-        std::env::current_dir()
-            .ok()
-            .map(|d| d.join("cosmo_enhance.py"))
-            .filter(|p| p.exists())
-    }).or_else(|| {
-        std::env::current_dir()
-            .ok()
-            .and_then(|d| d.parent().map(|p| p.join("cosmo_enhance.py")))
-            .filter(|p| p.exists())
-    });
-
     let cosmo_venv_python = app.map(|a| {
         resolve_install_dir(a).join("cosmo_venv").join("Scripts").join("python.exe")
     }).filter(|p| p.exists());
@@ -803,8 +769,6 @@ pub fn resolve_enhancer_command(app: Option<&AppHandle>) -> Result<(PathBuf, Vec
         PathBuf::from(r"C:\Python310\python.exe"),
     ];
 
-    // Priority 1: cosmo_venv always wins — it has the packages we installed (rembg, basicsr, etc.)
-    // Only fall back to studio_venv if cosmo_venv doesn't exist.
     let mut system_python = None;
 
     if let Some(ref p) = cosmo_venv_python {
@@ -830,11 +794,61 @@ pub fn resolve_enhancer_command(app: Option<&AppHandle>) -> Result<(PathBuf, Vec
         }
     }
 
-    // Priority 2: Fallback — cosmo_venv first, then system paths, studio_venv last resort
     let system_python = system_python
         .or(cosmo_venv_python)
         .or_else(|| common_python_paths.iter().find(|p| p.exists()).cloned())
         .or(studio_venv_python);
+
+    // In dev / repo environment: if cosmo_enhance.py is present and system Python has packages/GPU,
+    // run the live script directly so all new enhancements take effect immediately!
+    let dev_py = std::env::current_dir()
+        .ok()
+        .map(|d| d.join("cosmo_enhance.py"))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .and_then(|d| d.parent().map(|p| p.join("cosmo_enhance.py")))
+                .filter(|p| p.exists())
+        });
+
+    if let (Some(script), Some(ref py_exe)) = (&dev_py, &system_python) {
+        if check_python_gpu_and_packages(py_exe) {
+            return Ok((py_exe.clone(), vec!["-u".to_string(), script.to_string_lossy().to_string()]));
+        }
+    }
+
+    // Priority 0: Pre-built bundles (downloaded by install_dependencies / install_gpu_pack).
+    // GPU pack (CUDA) wins over CPU pack when both are present.
+    let gpu_bundle_exe = app.map(|a| {
+        resolve_install_dir(a).join("cosmo_enhance_gpu").join("cosmo_enhance.exe")
+    }).filter(|p| p.exists());
+
+    if let Some(exe) = gpu_bundle_exe {
+        return Ok((exe, vec![]));
+    }
+
+    let cpu_bundle_exe = app.map(|a| {
+        resolve_install_dir(a).join("cosmo_enhance").join("cosmo_enhance.exe")
+    }).filter(|p| p.exists());
+
+    if let Some(exe) = cpu_bundle_exe {
+        return Ok((exe, vec![]));
+    }
+
+    let resource_py = app.and_then(|a| {
+        a.path().resource_dir().ok().map(|d| d.join("resources").join("cosmo_enhance.py")).filter(|p| p.exists())
+    });
+
+    let local_exe = exe_dir.as_ref()
+        .map(|d| d.join("cosmo_enhance.exe"))
+        .filter(|p| p.exists());
+
+    let local_py = dev_py.or(resource_py).or_else(|| {
+        exe_dir.as_ref()
+            .map(|d| d.join("cosmo_enhance.py"))
+            .filter(|p| p.exists())
+    });
 
     if let Some(exe) = local_exe {
         Ok((exe, vec![]))
@@ -870,7 +884,7 @@ pub fn resolve_models_dir(app: Option<&AppHandle>) -> Option<String> {
     if let Some(app) = app {
         if let Ok(mut app_data) = app.path().app_data_dir() {
             app_data.push(".cosmo_models");
-            if app_data.join("RealESRGAN_x4plus.pth").exists() {
+            if app_data.join("4x-UltraSharp.pth").exists() || app_data.join("RealESRGAN_x4plus.pth").exists() {
                 return Some(app_data.to_string_lossy().to_string());
             }
         }
@@ -880,7 +894,8 @@ pub fn resolve_models_dir(app: Option<&AppHandle>) -> Option<String> {
             let mut dir = Some(exe_dir);
             while let Some(d) = dir {
                 let candidate = d.join(".cosmo_models");
-                if candidate.join("RealESRGAN_x4plus.pth").exists() && candidate.join("GFPGANv1.4.pth").exists() {
+                let has_upscaler = candidate.join("4x-UltraSharp.pth").exists() || candidate.join("RealESRGAN_x4plus.pth").exists();
+                if has_upscaler && candidate.join("GFPGANv1.4.pth").exists() {
                     return Some(candidate.to_string_lossy().to_string());
                 }
                 dir = d.parent();
@@ -906,9 +921,9 @@ pub async fn check_dependencies(app: AppHandle) -> Result<DepsStatus, String> {
         (default_venv_python, default_venv_path)
     };
 
-    let realesrgan_model = default_models_path.join("RealESRGAN_x4plus.pth");
+    let upscaler_model_ok = default_models_path.join("4x-UltraSharp.pth").exists() || default_models_path.join("RealESRGAN_x4plus.pth").exists();
     let gfpgan_model = default_models_path.join("GFPGANv1.4.pth");
-    let mut models_ok = realesrgan_model.exists() && gfpgan_model.exists();
+    let mut models_ok = upscaler_model_ok && gfpgan_model.exists();
     let mut resolved_models_path = default_models_path;
 
     if !models_ok {
@@ -917,7 +932,8 @@ pub async fn check_dependencies(app: AppHandle) -> Result<DepsStatus, String> {
                 let mut dir = Some(exe_dir);
                 while let Some(d) = dir {
                     let candidate = d.join(".cosmo_models");
-                    if candidate.join("RealESRGAN_x4plus.pth").exists() && candidate.join("GFPGANv1.4.pth").exists() {
+                    let has_upscaler = candidate.join("4x-UltraSharp.pth").exists() || candidate.join("RealESRGAN_x4plus.pth").exists();
+                    if has_upscaler && candidate.join("GFPGANv1.4.pth").exists() {
                         models_ok = true;
                         resolved_models_path = candidate;
                         break;
@@ -1332,11 +1348,25 @@ pub async fn download_models(app: AppHandle) -> Result<(), String> {
         });
     };
 
+    let upscaler_filename = if models_dir.join("4x-UltraSharp.pth").exists() {
+        "4x-UltraSharp.pth"
+    } else if models_dir.join("RealESRGAN_x4plus.pth").exists() {
+        "RealESRGAN_x4plus.pth"
+    } else {
+        "4x-UltraSharp.pth"
+    };
+
+    let upscaler_url = if upscaler_filename == "RealESRGAN_x4plus.pth" {
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+    } else {
+        "https://huggingface.co/lokcx/4x-Ultrasharp/resolve/main/4x-UltraSharp.pth"
+    };
+
     let models: &[(&str, &str, &str, u32, u32, u64)] = &[
         (
-            "realesrgan",
-            "RealESRGAN_x4plus.pth",
-            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+            "ultrasharp",
+            upscaler_filename,
+            upscaler_url,
             0, 30,
             67_000_000 // ~67 MB
         ),

@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Cosmo Symphony",
-  "version": "1.4.0",
+  "version": "1.4.3",
   "identifier": "MicroMeadow.CosmoSymphony",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:55174",
+    "devUrl": "http://127.0.0.1:55174",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -19,16 +19,49 @@
           "resizable": true,
           "fullscreen": false,
           "decorations": false,
-          "transparent": true,
-          "shadow": false,
-          "devtools": true
+          "transparent": false,
+          "shadow": true,
+          "visible": false,
+          "devtools": true,
+          "backgroundColor": "#0a0a10"
         }
       ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' asset: cosmo: http://localhost:* http://127.0.0.1:* ws://localhost:*; img-src 'self' asset: cosmo: data: https://asset.localhost http://asset.localhost; media-src 'self' asset: cosmo: blob: data: https://asset.localhost http://asset.localhost *; connect-src 'self' cosmo: http://localhost:* http://127.0.0.1:* ws://localhost:* ipc.localhost:*; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;",
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' asset: cosmo: http://localhost:* http://127.0.0.1:* ws://localhost:*; img-src 'self' asset: cosmo: data: blob: https://asset.localhost http://asset.localhost https://cosmo.localhost http://cosmo.localhost; media-src 'self' asset: cosmo: blob: data: https://asset.localhost http://asset.localhost https://cosmo.localhost http://cosmo.localhost *; connect-src 'self' cosmo: http://localhost:* http://127.0.0.1:* ws://localhost:* ipc.localhost:* http://cosmo.localhost https://cosmo.localhost; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;",
       "assetProtocol": {
         "enable": true,
-        "scope": ["**", "C:\\**", "D:\\**", "E:\\**", "F:\\**", "G:\\**", "H:\\**", "M:\\**", "S:\\**", "Z:\\**", "\\\\?\\**"]
+        "scope": [
+          "**",
+          "*/**",
+          "A:\\**", "A:/**",
+          "B:\\**", "B:/**",
+          "C:\\**", "C:/**",
+          "D:\\**", "D:/**",
+          "E:\\**", "E:/**",
+          "F:\\**", "F:/**",
+          "G:\\**", "G:/**",
+          "H:\\**", "H:/**",
+          "I:\\**", "I:/**",
+          "J:\\**", "J:/**",
+          "K:\\**", "K:/**",
+          "L:\\**", "L:/**",
+          "M:\\**", "M:/**",
+          "N:\\**", "N:/**",
+          "O:\\**", "O:/**",
+          "P:\\**", "P:/**",
+          "Q:\\**", "Q:/**",
+          "R:\\**", "R:/**",
+          "S:\\**", "S:/**",
+          "T:\\**", "T:/**",
+          "U:\\**", "U:/**",
+          "V:\\**", "V:/**",
+          "W:\\**", "W:/**",
+          "X:\\**", "X:/**",
+          "Y:\\**", "Y:/**",
+          "Z:\\**", "Z:/**",
+          "\\\\*\\**",
+          "\\\\?\\**"
+        ]
       }
     }
   },
@@ -37,6 +70,7 @@
     "targets": "all",
     "resources": [
       "cosmo_enhance.py",
+      "convert_heic.py",
       "demos/*",
       "resources/ffmpeg.exe",
       "resources/ffprobe.exe",

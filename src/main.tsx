@@ -28,12 +28,45 @@ if (typeof window !== 'undefined') {
     const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
     invoke('cosmo_log', { msg: `[Console Warn] ${msg}` }).catch(() => {});
   };
+
+  // WebGL context recovery on GPU driver reset/TDR
+  window.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault();
+    invoke('cosmo_log', { msg: '[Graphics] WebGL context lost - preventing driver abort and awaiting restore' }).catch(() => {});
+  }, false);
+
+  window.addEventListener('webglcontextrestored', () => {
+    invoke('cosmo_log', { msg: '[Graphics] WebGL context restored successfully' }).catch(() => {});
+  }, false);
+
+  // Emergency reload key (Ctrl+F5, Ctrl+Shift+R, or F5 in case of frozen view)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
+      window.location.reload();
+    }
+  });
+
+  // Re-paint on visibility change when tab/window becomes active again
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      window.requestAnimationFrame(() => {
+        document.body.style.display = 'none';
+        void document.body.offsetHeight; // force reflow
+        document.body.style.display = '';
+      });
+    }
+  });
 }
 
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}> {
   state = { hasError: false, error: null };
   static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
+  componentDidCatch() {
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      getCurrentWindow().show().catch(() => {});
+    }).catch(() => {});
+  }
   render() {
     if ((this.state as any).hasError) {
       return (
@@ -47,6 +80,8 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}> {
     return this.props.children;
   }
 }
+
+console.log('>>> [BOOT] Cosmo Symphony main.tsx rendering root...');
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
