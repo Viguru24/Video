@@ -56,6 +56,14 @@ if (typeof window !== 'undefined') {
       });
     }
   });
+
+  // Watchdog: Ensure window is revealed and responsive
+  setTimeout(() => {
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      const win = getCurrentWindow();
+      win.show().catch(() => {});
+    }).catch(() => {});
+  }, 1500);
 }
 
 

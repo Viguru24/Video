@@ -614,8 +614,36 @@ fn main() {
             // Set default AI hardware status immediately without blocking boot with Python
             commands::system::set_ai_hardware_status("GPU (DirectML/CUDA Auto)".to_string());
 
-            // Fallback: Ensure main window is made visible after 1.2s in case frontend rAF hook didn't fire
+            // Safeguard & resilience: Attach ProcessFailed recovery to main WebView2 window
             if let Some(main_win) = app.get_webview_window("main") {
+                #[cfg(target_os = "windows")]
+                {
+                    use webview2_com::ProcessFailedEventHandler;
+                    let win_for_fail = main_win.clone();
+                    let _ = main_win.with_webview(move |webview| {
+                        unsafe {
+                            let core = webview.controller().CoreWebView2();
+                            if let Ok(core_wv) = core {
+                                let core_reload = core_wv.clone();
+                                let mut token = 0i64;
+                                let handler = ProcessFailedEventHandler::create(Box::new(move |_sender, args| {
+                                    eprintln!("[Cosmo Recovery] WebView2 ProcessFailed event detected! Attempting automatic renderer/GPU reload...");
+                                    if let Some(args) = args {
+                                        let mut kind = webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
+                                        let _ = args.ProcessFailedKind(&mut kind);
+                                        eprintln!("[Cosmo Recovery] ProcessFailedKind: {:?}", kind.0);
+                                    }
+                                    let _ = core_reload.Reload();
+                                    let _ = win_for_fail.show();
+                                    Ok(())
+                                }));
+                                let _ = core_wv.add_ProcessFailed(&handler, &mut token);
+                            }
+                        }
+                    });
+                }
+
+                // Fallback: Ensure main window is made visible after 1.2s in case frontend rAF hook didn't fire
                 let win_clone = main_win.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
