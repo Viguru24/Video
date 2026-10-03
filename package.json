@@ -1,7 +1,7 @@
 {
     "name": "video",
     "private": true,
-    "version": "1.4.4.0",
+    "version": "1.4.5.0",
     "author": "Cosmo Video Symphony",
     "description": "Cosmo Video Multi-Video Workspace",
     "type": "module",
