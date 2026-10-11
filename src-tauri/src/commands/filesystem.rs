@@ -460,61 +460,83 @@ pub fn get_next_sequence_num(parent: &Path, base_prefix: &str, extension: &str) 
 
 #[tauri::command]
 pub async fn rename_video(old_path: String, new_name: String) -> Result<String, String> {
-    let old_p = PathBuf::from(&old_path);
-    if !old_p.exists() {
-        return Err("Source file not found".into());
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let old_p = PathBuf::from(&old_path);
+        if !old_p.exists() {
+            return Err("Source file not found".into());
+        }
 
-    let parent = old_p.parent().ok_or("Invalid parent directory")?;
-    let extension = old_p.extension().and_then(|e| e.to_str()).ok_or("File has no extension")?;
-    
-    let sanitized_name = new_name.replace(|c: char| !c.is_alphanumeric() && c != ' ' && c != '_' && c != '-', "");
-    if sanitized_name.is_empty() {
-        return Err("Invalid new name".into());
-    }
+        let parent = old_p.parent().ok_or("Invalid parent directory")?;
+        let extension = old_p.extension().and_then(|e| e.to_str()).ok_or("File has no extension")?;
+        
+        let sanitized_name = new_name.replace(|c: char| !c.is_alphanumeric() && c != ' ' && c != '_' && c != '-', "");
+        let sanitized_name = sanitized_name.trim();
+        if sanitized_name.is_empty() {
+            return Err("Invalid new name".into());
+        }
 
-    let new_filename = format!("{}.{}", sanitized_name, extension);
-    let mut new_p = parent.join(&new_filename);
+        let new_filename = format!("{}.{}", sanitized_name, extension);
+        let mut new_p = parent.join(&new_filename);
 
-    let canonical_old = fs::canonicalize(&old_p).unwrap_or_else(|_| old_p.clone());
-    let canonical_new = fs::canonicalize(&new_p).unwrap_or_else(|_| new_p.clone());
+        let canonical_old = fs::canonicalize(&old_p).unwrap_or_else(|_| old_p.clone());
+        let canonical_new = fs::canonicalize(&new_p).unwrap_or_else(|_| new_p.clone());
 
-    if new_p.exists() && canonical_old != canonical_new {
-        let base_prefix = extract_base_prefix(&sanitized_name);
-        let next_num = get_next_sequence_num(parent, &base_prefix, extension);
-        let numbered_name = format!("{}_{:03}.{}", base_prefix, next_num, extension);
-        new_p = parent.join(&numbered_name);
+        if new_p.exists() && canonical_old != canonical_new {
+            let base_prefix = extract_base_prefix(sanitized_name);
+            let next_num = get_next_sequence_num(parent, &base_prefix, extension);
+            let numbered_name = format!("{}_{:03}.{}", base_prefix, next_num, extension);
+            new_p = parent.join(&numbered_name);
 
-        let mut counter = next_num;
-        while new_p.exists() {
-            let canonical_candidate = fs::canonicalize(&new_p).unwrap_or_else(|_| new_p.clone());
-            if canonical_candidate == canonical_old {
-                break;
-            }
-            counter += 1;
-            let name = format!("{}_{:03}.{}", base_prefix, counter, extension);
-            new_p = parent.join(&name);
-            if counter > next_num + 10000 {
-                return Err("Could not find an available filename after 10000 attempts".into());
+            let mut counter = next_num;
+            while new_p.exists() {
+                let canonical_candidate = fs::canonicalize(&new_p).unwrap_or_else(|_| new_p.clone());
+                if canonical_candidate == canonical_old {
+                    break;
+                }
+                counter += 1;
+                let name = format!("{}_{:03}.{}", base_prefix, counter, extension);
+                new_p = parent.join(&name);
+                if counter > next_num + 10000 {
+                    return Err("Could not find an available filename after 10000 attempts".into());
+                }
             }
         }
-    }
 
-    let rename_result = fs::rename(&old_p, &new_p);
-    if rename_result.is_err() {
-        fs::copy(&old_p, &new_p).map_err(|e| {
-            format!(
-                "Rename failed and copy fallback failed. Rename error: {:?}. Copy error: {}",
-                rename_result.err(),
-                e
-            )
-        })?;
-        if let Err(_) = trash::delete(&old_p) {
-            let _ = fs::remove_file(&old_p);
+        // Attempt rename with retry in case file is briefly held by OS thumbnailer / player
+        let mut rename_err = None;
+        for attempt in 0..5 {
+            match fs::rename(&old_p, &new_p) {
+                Ok(_) => {
+                    rename_err = None;
+                    break;
+                }
+                Err(e) => {
+                    rename_err = Some(e);
+                    if attempt < 4 {
+                        std::thread::sleep(std::time::Duration::from_millis(60 * (attempt + 1)));
+                    }
+                }
+            }
         }
-    }
 
-    Ok(new_p.to_string_lossy().to_string())
+        if let Some(err) = rename_err {
+            // Fallback: copy to new destination, then delete original
+            fs::copy(&old_p, &new_p).map_err(|copy_err| {
+                format!(
+                    "Rename failed ({:?}) and copy fallback failed: {}",
+                    err,
+                    copy_err
+                )
+            })?;
+            if let Err(_) = trash::delete(&old_p) {
+                let _ = fs::remove_file(&old_p);
+            }
+        }
+
+        Ok(new_p.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

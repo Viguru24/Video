@@ -97,6 +97,7 @@ export function RenameProtocolModal({
     invoke<string>('rename_video', { oldPath: targetPath, newName })
       .then((newPath) => {
         const actualFilename = newPath.replace(/\\/g, '/').split('/').pop() || '';
+        const freshUrl = `${toCosmoUrl(newPath)}?t=${Date.now()}`;
 
         // Update across all video cards and folderFiles
         setVideos((prev) => {
@@ -110,12 +111,12 @@ export function RenameProtocolModal({
 
             if (vid.id === target.id) {
               newVid.realPath = newPath;
-              newVid.url = toCosmoUrl(newPath);
+              newVid.url = freshUrl;
               newVid.title = actualFilename;
               updated = true;
-            } else if (pathsEqual(vid.realPath, target.realPath)) {
+            } else if (pathsEqual(vid.realPath, targetPath) || (target.realPath && pathsEqual(vid.realPath, target.realPath))) {
               newVid.realPath = newPath;
-              newVid.url = toCosmoUrl(newPath);
+              newVid.url = freshUrl;
               newVid.title = actualFilename;
               updated = true;
             }
@@ -123,7 +124,7 @@ export function RenameProtocolModal({
             if (vid.folderFiles) {
               const hasOverwritten = vid.folderFiles.some((f) => pathsEqual(f.path, newPath));
               const hasRenamed = vid.folderFiles.some((f) =>
-                pathsEqual(f.path, target.realPath)
+                pathsEqual(f.path, targetPath) || (target.realPath && pathsEqual(f.path, target.realPath))
               );
 
               if (hasOverwritten || hasRenamed) {
@@ -132,16 +133,20 @@ export function RenameProtocolModal({
                   newFiles = newFiles.filter((f) => !pathsEqual(f.path, newPath));
                 }
                 newVid.folderFiles = newFiles.map((f) => {
-                  if (pathsEqual(f.path, target.realPath)) {
+                  if (pathsEqual(f.path, targetPath) || (target.realPath && pathsEqual(f.path, target.realPath))) {
                     return {
                       ...f,
                       name: actualFilename,
                       path: newPath,
-                      url: toCosmoUrl(newPath),
+                      url: freshUrl,
                     };
                   }
                   return f;
                 });
+                if (newVid.id === target.id) {
+                  newVid.url = freshUrl;
+                  newVid.title = actualFilename;
+                }
                 updated = true;
               }
             }

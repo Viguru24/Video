@@ -60,9 +60,12 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
     
     for (let i = 0; i < sorted.length; i++) {
       const v = sorted[i];
-      if (!v.realPath) continue;
+      const rawItemPath = (v.folderFiles && v.currentIdx !== undefined)
+        ? (v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url)
+        : (v.realPath || v.url);
+      if (!rawItemPath) continue;
 
-      const targetPath = toRealPath(v.realPath) || v.realPath;
+      const targetPath = toRealPath(rawItemPath) || rawItemPath;
       const parentDir = getParentDir(targetPath);
       
       if (parentDir && folderStartNums[parentDir] === undefined) {
@@ -105,6 +108,7 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
           });
           
           const finalName = resultPath.split(/[\\/]/).pop() || resultPath;
+          const freshUrl = `${toCosmoUrl(resultPath)}?t=${Date.now()}`;
           
           const overwrittenIdx = newVideos.findIndex(nv => nv.id !== v.id && pathsEqual(nv.realPath, resultPath));
           if (overwrittenIdx !== -1) {
@@ -118,12 +122,12 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
             if (nv.id === v.id) {
               nv.title = finalName;
               nv.realPath = resultPath;
-              nv.url = toCosmoUrl(resultPath);
+              nv.url = freshUrl;
               updated = true;
-            } else if (pathsEqual(nv.realPath, v.realPath)) {
+            } else if (pathsEqual(nv.realPath, targetPath) || (v.realPath && pathsEqual(nv.realPath, v.realPath))) {
               nv.title = finalName;
               nv.realPath = resultPath;
-              nv.url = toCosmoUrl(resultPath);
+              nv.url = freshUrl;
               updated = true;
             }
             
@@ -134,19 +138,23 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
                 newFiles = newFiles.filter(f => !pathsEqual(f.path, resultPath));
               }
               
-              const hasFile = newFiles.some(f => pathsEqual(f.path, v.realPath));
+              const hasFile = newFiles.some(f => pathsEqual(f.path, targetPath) || (v.realPath && pathsEqual(f.path, v.realPath)));
               if (hasFile || hasOverwritten) {
                 nv.folderFiles = newFiles.map(f => {
-                  if (pathsEqual(f.path, v.realPath)) {
+                  if (pathsEqual(f.path, targetPath) || (v.realPath && pathsEqual(f.path, v.realPath))) {
                     return {
                       ...f,
                       name: finalName,
                       path: resultPath,
-                      url: toCosmoUrl(resultPath)
+                      url: freshUrl
                     };
                   }
                   return f;
                 });
+                if (nv.id === v.id) {
+                  nv.url = freshUrl;
+                  nv.title = finalName;
+                }
                 updated = true;
               }
             }
