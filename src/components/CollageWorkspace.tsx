@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import type { VideoItem, CollageItem, CollageConfig } from '../types';
 import { isValidPictureExtension, toCosmoUrl } from '../utils/videoUtils';
+import { CollageShelf } from './collage/CollageShelf';
+import { CollageCanvasItem } from './collage/CollageCanvasItem';
 
 interface CollageWorkspaceProps {
   videos: VideoItem[]; // active grid files
@@ -385,89 +387,12 @@ export function CollageWorkspace({
       `}</style>
       
       {/* Side Media Shelf (Collapsible Tray) */}
-      <div 
-        style={{
-          width: showShelf ? '280px' : '0px',
-          background: 'rgba(12, 12, 16, 0.95)',
-          backdropFilter: 'blur(16px)',
-          borderRight: showShelf ? '1px solid rgba(255, 255, 255, 0.08)' : 'none',
-          display: 'flex',
-          flexDirection: 'column',
-          transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-          overflow: 'hidden',
-          zIndex: 10
-        }}
-      >
-        <div style={{ padding: '18px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase', color: '#fff' }}>Grid Tiles</h3>
-            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', fontWeight: 800 }}>CLICK TO DROP ON CANVAS</span>
-          </div>
-          <button 
-            className="sidebar-close-btn"
-            onClick={() => setShowShelf(false)}
-            style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: '4px' }}
-          >
-            <ChevronLeft size={16} />
-          </button>
-        </div>
-
-        {/* Media List */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }} className="video-scroll">
-          {videos.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 10px', color: 'rgba(255,255,255,0.3)', fontSize: '11px' }}>
-              No tiles available. Ingest files in the Media Grid first.
-            </div>
-          ) : (
-            videos.map(v => {
-              const isImg = isValidPictureExtension(v.realPath || '');
-              return (
-                <div 
-                  key={v.id}
-                  onClick={() => handleAddItem(v)}
-                  className="premium-glass"
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    background: 'rgba(255,255,255,0.02)',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-                    e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
-                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
-                  }}
-                >
-                  <div style={{ width: '36px', height: '36px', borderRadius: '4px', background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
-                    {isImg ? (
-                      <img src={v.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
-                    ) : (
-                      <FileVideo size={16} style={{ color: 'var(--accent, #00ff88)' }} />
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-                    <span style={{ fontSize: '11px', color: '#fff', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {v.title}
-                    </span>
-                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      {isImg ? 'IMAGE' : 'VIDEO'}
-                    </span>
-                  </div>
-                  <Plus size={14} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
+      <CollageShelf
+        showShelf={showShelf}
+        onClose={() => setShowShelf(false)}
+        videos={videos}
+        onAddItem={handleAddItem}
+      />
 
       {/* Main Workspace Area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
@@ -791,344 +716,75 @@ export function CollageWorkspace({
           {collageItems.map(item => {
             const isSelected = activeAction?.itemId === item.id;
             return (
-              <div
+              <CollageCanvasItem
                 key={item.id}
-                style={{
-                  position: 'absolute',
-                  left: `${item.x}px`,
-                  top: `${item.y}px`,
-                  width: `${item.width}px`,
-                  height: `${item.height}px`,
-                  transform: `rotate(${item.rotation}deg)`,
-                  zIndex: item.zIndex,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  borderRadius: '12px',
-                  background: item.isImage ? 'transparent' : 'rgba(10, 10, 15, 0.85)',
-                  border: isSelected ? '2px solid var(--accent, #00ff88)' : (item.isImage ? 'none' : '1px solid rgba(255, 255, 255, 0.12)'),
-                  boxShadow: isSelected 
-                    ? '0 0 30px rgba(0, 255, 136, 0.35)' 
-                    : '0 8px 30px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.1)',
-                  overflow: 'visible',
-                  transition: activeAction?.itemId === item.id && activeAction.type === 'rotate' ? 'none' : 'box-shadow 0.2s, border-color 0.2s',
-                  touchAction: 'none'
+                item={item}
+                isSelected={isSelected}
+                activeActionType={activeAction?.type}
+                onBringToFront={bringToFront}
+                onSendToBack={sendToBack}
+                onToggleFitMode={(id) => {
+                  setCollageItems(prev => prev.map(x => x.id === id ? { ...x, fitMode: x.fitMode === 'contain' ? 'cover' : 'contain' } : x));
                 }}
-              >
-                {/* Header Actions Area (Hover to display overlays) */}
-                <div 
-                  className="collage-item-header"
-                  style={{
-                    position: 'absolute',
-                    top: '8px',
-                    right: '8px',
-                    height: '24px',
-                    borderRadius: '12px',
-                    background: 'rgba(12, 12, 16, 0.9)',
-                    backdropFilter: 'blur(8px)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '0 10px',
-                    zIndex: 10,
-                    opacity: 0,
-                    transition: 'opacity 0.15s ease',
-                    pointerEvents: 'none',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-                  }}
-                >
-                  {/* Layer Z-Index controls */}
-                  <button
-                    onClick={() => bringToFront(item.id)}
-                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                    title="Bring to Front"
-                  >
-                    <Layers size={10} style={{ transform: 'rotate(180deg)', color: 'var(--accent, #00ff88)' }} />
-                  </button>
-                  <button
-                    onClick={() => sendToBack(item.id)}
-                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                    title="Send to Back"
-                  >
-                    <Layers size={10} style={{ opacity: 0.6 }} />
-                  </button>
-
-                  <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.15)' }} />
-
-                  {/* Toggle Scaling Fit Mode (Cover vs Contain) */}
-                  <button
-                    onClick={() => {
-                      setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, fitMode: x.fitMode === 'contain' ? 'cover' : 'contain' } : x));
-                    }}
-                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                    title={item.fitMode === 'contain' ? "Scale Mode: Contain (Showing whole). Click to Fill & Crop" : "Scale Mode: Cover (Fill & Crop). Click to Contain (Show whole)"}
-                  >
-                    <Crop size={10} style={{ color: item.fitMode === 'contain' ? 'var(--accent, #00ff88)' : '#fff', opacity: item.fitMode === 'contain' ? 1 : 0.6 }} />
-                  </button>
-
-                  {/* Snap to Original Aspect Ratio */}
-                  <button
-                    onClick={() => handleFitAspectRatio(item)}
-                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                    title="Snap to Original Aspect Ratio"
-                  >
-                    <Expand size={10} style={{ opacity: 0.7 }} />
-                  </button>
-
-                  <div style={{ width: '1px', height: '10px', background: 'rgba(255,255,255,0.15)' }} />
-
-                  {/* Open Solo focused view */}
-                  <button
-                    onClick={() => onDeepFocus(item.mediaId)}
-                    style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                    title="Enlarge Unit"
-                  >
-                    <Maximize2 size={10} />
-                  </button>
-
-                  {/* Remove button */}
-                  <button
-                    onClick={() => handleRemoveItem(item.id)}
-                    style={{ background: 'none', border: 'none', color: '#ff5c5c', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                    title="Remove item"
-                  >
-                    <X size={11} />
-                  </button>
-                </div>
-
-                {/* Inline Controls (Hover CSS Triggered) */}
-                <style>{`
-                  div:hover > .collage-item-header {
-                    opacity: 1 !important;
-                    pointer-events: auto !important;
-                  }
-                `}</style>
-
-                {/* Rotation Handle Line and Ball (At the top center) */}
-                 <div
-                   className="collage-rotation-handle-container"
-                   style={{
-                     position: 'absolute',
-                     top: '-30px',
-                     left: '50%',
-                     transform: 'translateX(-50%)',
-                     display: 'flex',
-                     flexDirection: 'column',
-                     alignItems: 'center',
-                     zIndex: 99
-                   }}
-                 >
-                   {/* Draggable Ball */}
-                   <div
-                     onPointerDown={(e) => {
-                       e.stopPropagation();
-                       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                       setActiveAction({
-                         itemId: item.id,
-                         type: 'rotate',
-                         startX: e.clientX,
-                         startY: e.clientY,
-                         startLeft: item.x,
-                         startTop: item.y,
-                         startWidth: item.width,
-                         startHeight: item.height,
-                         startRotation: item.rotation
-                       });
-                     }}
-                     style={{
-                       width: '14px',
-                       height: '14px',
-                       borderRadius: '50%',
-                       background: 'var(--accent, #00ff88)',
-                       border: '2px solid #fff',
-                       boxShadow: '0 2px 8px rgba(0,0,0,0.6)',
-                       cursor: 'grab',
-                       transition: 'transform 0.1s'
-                     }}
-                     onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.25)'}
-                     onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-                     title="Drag to Rotate (Hold Shift to snap to 15°)"
-                   />
-                   {/* Connecting Line */}
-                   <div 
-                     style={{
-                       width: '2px',
-                       height: '16px',
-                       background: 'var(--accent, #00ff88)',
-                       boxShadow: '0 1px 4px rgba(0,0,0,0.4)'
-                     }}
-                   />
-                 </div>
-
-                {/* Drag Handle Container (The Card Content Area) */}
-                <div
-                  onPointerDown={(e) => {
-                    // Check if resizing/editing control to not conflict dragging
-                    const target = e.target as HTMLElement;
-                    if (target.closest('.collage-inner-btn') || target.closest('.collage-resize-handle')) return;
-                    
-                    e.stopPropagation();
-                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                    bringToFront(item.id);
-                    setActiveAction({
-                      itemId: item.id,
-                      type: 'drag',
-                      startX: e.clientX,
-                      startY: e.clientY,
-                      startLeft: item.x,
-                      startTop: item.y,
-                      startWidth: item.width,
-                      startHeight: item.height,
-                      startRotation: item.rotation
-                    });
-                  }}
-                  style={{
-                    flex: 1,
-                    width: '100%',
-                    height: '100%',
-                    position: 'relative',
-                    borderRadius: '11px',
-                    overflow: 'hidden',
-                    background: item.isImage ? 'transparent' : '#000',
-                    cursor: 'move'
-                  }}
-                >
-                  {/* Media Content Render */}
-                  {item.isImage ? (
-                    <img 
-                      src={item.url} 
-                      style={{ width: '100%', height: '100%', objectFit: item.fitMode || 'cover', pointerEvents: 'none', userSelect: 'none' }} 
-                      alt="" 
-                    />
-                  ) : (
-                    <video
-                      src={item.url}
-                      autoPlay
-                      loop
-                      muted={item.muted}
-                      style={{ width: '100%', height: '100%', objectFit: item.fitMode || 'cover', pointerEvents: 'none' }}
-                      ref={(el) => {
-                        if (el) {
-                          if (item.playing) el.play().catch(() => {});
-                          else el.pause();
-                        }
-                      }}
-                    />
-                  )}
-
-                  {/* Individual Live Controls overlay inside Video card */}
-                  {!item.isImage && (
-                    <div 
-                      style={{
-                        position: 'absolute',
-                        bottom: '8px',
-                        left: '8px',
-                        display: 'flex',
-                        gap: '6px',
-                        zIndex: 5
-                      }}
-                    >
-                      <button
-                        className="collage-inner-btn"
-                        onClick={() => {
-                          setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, playing: !x.playing } : x));
-                        }}
-                        style={{
-                          width: '22px',
-                          height: '22px',
-                          borderRadius: '50%',
-                          background: 'rgba(0,0,0,0.6)',
-                          border: '1px solid rgba(255,255,255,0.2)',
-                          color: '#fff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {item.playing ? <Pause size={10} fill="currentColor" /> : <Play size={10} fill="currentColor" />}
-                      </button>
-                      
-                      <button
-                        className="collage-inner-btn"
-                        onClick={() => {
-                          setCollageItems(prev => prev.map(x => x.id === item.id ? { ...x, muted: !x.muted } : x));
-                        }}
-                        style={{
-                          width: '22px',
-                          height: '22px',
-                          borderRadius: '50%',
-                          background: 'rgba(0,0,0,0.6)',
-                          border: '1px solid rgba(255,255,255,0.2)',
-                          color: '#fff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {item.muted ? <VolumeX size={10} /> : <Volume2 size={10} />}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Title overlay in top corner */}
-                  <div 
-                    className="collage-item-title"
-                    style={{
-                      position: 'absolute',
-                      top: '8px',
-                      left: '8px',
-                      background: 'rgba(0,0,0,0.5)',
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      color: 'rgba(255,255,255,0.8)',
-                      fontSize: '9px',
-                      fontWeight: 600,
-                      maxW: '75%',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis'
-                    }}
-                  >
-                    {item.title}
-                  </div>
-                </div>
-
-                {/* Resize Handle (Bottom Right corner) */}
-                <div
-                  className="collage-resize-handle"
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                    setActiveAction({
-                      itemId: item.id,
-                      type: 'resize',
-                      startX: e.clientX,
-                      startY: e.clientY,
-                      startLeft: item.x,
-                      startTop: item.y,
-                      startWidth: item.width,
-                      startHeight: item.height,
-                      startRotation: item.rotation
-                    });
-                  }}
-                  style={{
-                    position: 'absolute',
-                    bottom: '-4px',
-                    right: '-4px',
-                    width: '14px',
-                    height: '14px',
-                    background: 'rgba(255, 255, 255, 0.9)',
-                    border: '2px solid var(--accent, #00ff88)',
-                    borderRadius: '50%',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
-                    cursor: 'se-resize',
-                    zIndex: 9
-                  }}
-                  title="Drag to Resize"
-                />
-              </div>
+                onFitAspectRatio={handleFitAspectRatio}
+                onDeepFocus={onDeepFocus}
+                onRemoveItem={handleRemoveItem}
+                onTogglePlay={(id) => {
+                  setCollageItems(prev => prev.map(x => x.id === id ? { ...x, playing: !x.playing } : x));
+                }}
+                onToggleMute={(id) => {
+                  setCollageItems(prev => prev.map(x => x.id === id ? { ...x, muted: !x.muted } : x));
+                }}
+                onStartRotate={(e, it) => {
+                  e.stopPropagation();
+                  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                  setActiveAction({
+                    itemId: it.id,
+                    type: 'rotate',
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startLeft: it.x,
+                    startTop: it.y,
+                    startWidth: it.width,
+                    startHeight: it.height,
+                    startRotation: it.rotation
+                  });
+                }}
+                onStartDrag={(e, it) => {
+                  const target = e.target as HTMLElement;
+                  if (target.closest('.collage-inner-btn') || target.closest('.collage-resize-handle')) return;
+                  
+                  e.stopPropagation();
+                  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                  bringToFront(it.id);
+                  setActiveAction({
+                    itemId: it.id,
+                    type: 'drag',
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startLeft: it.x,
+                    startTop: it.y,
+                    startWidth: it.width,
+                    startHeight: it.height,
+                    startRotation: it.rotation
+                  });
+                }}
+                onStartResize={(e, it) => {
+                  e.stopPropagation();
+                  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                  setActiveAction({
+                    itemId: it.id,
+                    type: 'resize',
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startLeft: it.x,
+                    startTop: it.y,
+                    startWidth: it.width,
+                    startHeight: it.height,
+                    startRotation: it.rotation
+                  });
+                }}
+              />
             );
           })}
         </div>
