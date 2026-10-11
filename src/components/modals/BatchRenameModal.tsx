@@ -262,7 +262,7 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
                       onClose();
                     }
                   }}
-                  placeholder=""
+                  placeholder={mediaMode === 'picture' ? 'Enter image prefix (e.g. Photo, Vacation)...' : 'Enter batch prefix...'}
                   disabled={isRenaming}
                   onMouseDown={e => e.stopPropagation()}
                   className="premium-input"

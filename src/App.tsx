@@ -3481,7 +3481,7 @@ export default function App() {
               case 'upscale': handleUpscale(v); break;
               case 'resize': handleResize(v); break;
               case 'rename_selected':
-                setGlobalControl(`batch-rename-selected-${Date.now()}`);
+                useStore.getState().setShowBatchRename(true);
                 break;
               case 'rename': {
                 // For folder units, rename the currently-displayed image, not the first file

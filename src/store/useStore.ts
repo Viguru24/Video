@@ -59,6 +59,10 @@ interface GlobalState {
   removeFromRenameHistory: (name: string) => void;
   updateRenameHistory: (oldName: string, newName: string) => void;
 
+  // Batch Rename Modal State
+  showBatchRename: boolean;
+  setShowBatchRename: (show: boolean) => void;
+
   // Trim & Crop Studio State
   trimCropModalTarget: VideoItem | null;
   setTrimCropModalTarget: (target: VideoItem | null) => void;
@@ -189,6 +193,9 @@ export const useStore = create<GlobalState>((set) => ({
     invoke('save_persistence', { key: 'rename_history', data: JSON.stringify(next) }).catch(() => {});
     return { renameHistory: next };
   }),
+
+  showBatchRename: false,
+  setShowBatchRename: (show) => set({ showBatchRename: show }),
   
   trimCropModalTarget: null,
   setTrimCropModalTarget: (target) => set({ trimCropModalTarget: target }),
