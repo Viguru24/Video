@@ -10,6 +10,9 @@ import {
 import type { VideoItem } from '../../types';
 import { toCosmoUrl, toRealPath, isTauri } from '../../utils/videoUtils';
 import { useStore } from '../../store/useStore';
+import { TrimCropToolbar, formatTime, type AspectRatio, ASPECT_RATIOS } from './trimcrop/TrimCropToolbar';
+import { TrimCropTimeline } from './trimcrop/TrimCropTimeline';
+import { CropOverlayBox, type CropBox } from './trimcrop/CropOverlayBox';
 
 interface VideoTrimCropModalProps {
   target: VideoItem | null;
@@ -17,25 +20,6 @@ interface VideoTrimCropModalProps {
   onSuccess: (newPath: string, isOverwrite: boolean, targetId?: string) => void;
   addLog: (msg: string) => void;
 }
-
-type AspectRatio = 'free' | '16:9' | '9:16' | '1:1' | '4:5' | '4:3' | '21:9';
-
-interface CropBox {
-  x: number; // Percentage 0-100
-  y: number;
-  width: number;
-  height: number;
-}
-
-const ASPECT_RATIOS: { id: AspectRatio; label: string; ratio: number | null; desc: string }[] = [
-  { id: 'free', label: 'Free', ratio: null, desc: 'Custom unconstrained' },
-  { id: '16:9', label: '16:9', ratio: 16 / 9, desc: 'YouTube / Widescreen' },
-  { id: '9:16', label: '9:16', ratio: 9 / 16, desc: 'TikTok / Reels / Shorts' },
-  { id: '1:1', label: '1:1', ratio: 1, desc: 'Square / Feed' },
-  { id: '4:5', label: '4:5', ratio: 4 / 5, desc: 'Instagram Portrait' },
-  { id: '4:3', label: '4:3', ratio: 4 / 3, desc: 'Standard Video' },
-  { id: '21:9', label: '21:9', ratio: 21 / 9, desc: 'Cinematic Ultrawide' },
-];
 
 export function VideoTrimCropModal({
   target,
@@ -532,12 +516,7 @@ export function VideoTrimCropModal({
     }
   };
 
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    const ms = Math.floor((secs % 1) * 1000);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
-  };
+
 
   const trimDuration = Math.max(0, endTime - startTime);
   const croppedPixelW = enableCrop ? Math.round((cropBox.width / 100) * nativeDim.width) : nativeDim.width;
@@ -814,738 +793,61 @@ export function VideoTrimCropModal({
 
             {/* Viewfinder Crop Overlay */}
             {enableCrop && (
-              <div 
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  pointerEvents: 'none',
-                  zIndex: 10
-                }}
-              >
-                {/* Crop Box with Shaded Backdrop and Neon Border */}
-                <div 
-                  style={{
-                    position: 'absolute',
-                    left: `${cropBox.x}%`,
-                    top: `${cropBox.y}%`,
-                    width: `${cropBox.width}%`,
-                    height: `${cropBox.height}%`,
-                    border: '2px solid var(--accent, #00ff88)',
-                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.68), 0 0 20px rgba(0, 255, 136, 0.45)',
-                    cursor: 'move',
-                    pointerEvents: 'auto',
-                    borderRadius: '2px'
-                  }}
-                  onMouseDown={(e) => handleCropMouseDown(e, null)}
-                  onDoubleClick={centerCropBox}
-                >
-                  {/* Grid Lines (Rule of Thirds) */}
-                  <div style={{ position: 'absolute', left: '33.33%', top: 0, bottom: 0, width: '1px', borderLeft: '1px dashed rgba(255, 255, 255, 0.35)', pointerEvents: 'none' }} />
-                  <div style={{ position: 'absolute', left: '66.66%', top: 0, bottom: 0, width: '1px', borderLeft: '1px dashed rgba(255, 255, 255, 0.35)', pointerEvents: 'none' }} />
-                  <div style={{ position: 'absolute', top: '33.33%', left: 0, right: 0, height: '1px', borderTop: '1px dashed rgba(255, 255, 255, 0.35)', pointerEvents: 'none' }} />
-                  <div style={{ position: 'absolute', top: '66.66%', left: 0, right: 0, height: '1px', borderTop: '1px dashed rgba(255, 255, 255, 0.35)', pointerEvents: 'none' }} />
-
-                  {/* Center Crosshair Target */}
-                  <div style={{
-                    position: 'absolute',
-                    left: '50%',
-                    top: '50%',
-                    width: '12px',
-                    height: '12px',
-                    transform: 'translate(-50%, -50%)',
-                    pointerEvents: 'none'
-                  }}>
-                    <div style={{ position: 'absolute', left: '5px', top: 0, bottom: 0, width: '2px', background: 'rgba(0, 255, 136, 0.7)' }} />
-                    <div style={{ position: 'absolute', top: '5px', left: 0, right: 0, height: '2px', background: 'rgba(0, 255, 136, 0.7)' }} />
-                  </div>
-
-                  {/* Floating Dimension Badge */}
-                  <div style={{
-                    position: 'absolute',
-                    top: '-28px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    background: 'rgba(10, 14, 22, 0.92)',
-                    backdropFilter: 'blur(8px)',
-                    border: '1px solid rgba(0, 255, 136, 0.4)',
-                    padding: '2px 8px',
-                    borderRadius: '6px',
-                    fontSize: '10px',
-                    fontWeight: 800,
-                    color: '#fff',
-                    letterSpacing: '0.4px',
-                    pointerEvents: 'none',
-                    whiteSpace: 'nowrap',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.6)'
-                  }}>
-                    <span style={{ color: 'var(--accent, #00ff88)' }}>{croppedPixelW} × {croppedPixelH} px</span>
-                    <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 4px' }}>•</span>
-                    <span style={{ color: '#00e5ff' }}>{aspectRatio.toUpperCase()}</span>
-                  </div>
-
-                  {/* Camera Viewfinder L-Brackets on Corners */}
-                  {/* Top-Left */}
-                  <div style={{ position: 'absolute', top: '-3px', left: '-3px', width: '12px', height: '12px', borderTop: '3px solid #fff', borderLeft: '3px solid #fff', pointerEvents: 'none' }} />
-                  {/* Top-Right */}
-                  <div style={{ position: 'absolute', top: '-3px', right: '-3px', width: '12px', height: '12px', borderTop: '3px solid #fff', borderRight: '3px solid #fff', pointerEvents: 'none' }} />
-                  {/* Bottom-Left */}
-                  <div style={{ position: 'absolute', bottom: '-3px', left: '-3px', width: '12px', height: '12px', borderBottom: '3px solid #fff', borderLeft: '3px solid #fff', pointerEvents: 'none' }} />
-                  {/* Bottom-Right */}
-                  <div style={{ position: 'absolute', bottom: '-3px', right: '-3px', width: '12px', height: '12px', borderBottom: '3px solid #fff', borderRight: '3px solid #fff', pointerEvents: 'none' }} />
-
-                  {/* 8 Interactive Handles */}
-                  {[
-                    { id: 'nw', cursor: 'nwse-resize', top: '-6px', left: '-6px' },
-                    { id: 'n', cursor: 'ns-resize', top: '-6px', left: 'calc(50% - 6px)' },
-                    { id: 'ne', cursor: 'nesw-resize', top: '-6px', left: 'calc(100% - 6px)' },
-                    { id: 'e', cursor: 'ew-resize', top: 'calc(50% - 6px)', left: 'calc(100% - 6px)' },
-                    { id: 'se', cursor: 'nwse-resize', top: 'calc(100% - 6px)', left: 'calc(100% - 6px)' },
-                    { id: 's', cursor: 'ns-resize', top: 'calc(100% - 6px)', left: 'calc(50% - 6px)' },
-                    { id: 'sw', cursor: 'nesw-resize', top: 'calc(100% - 6px)', left: '-6px' },
-                    { id: 'w', cursor: 'ew-resize', top: 'calc(50% - 6px)', left: '-6px' },
-                  ].map(h => (
-                    <div
-                      key={h.id}
-                      onMouseDown={(e) => handleCropMouseDown(e, h.id)}
-                      style={{
-                        position: 'absolute',
-                        width: '12px',
-                        height: '12px',
-                        background: 'var(--accent, #00ff88)',
-                        border: '2px solid #000',
-                        borderRadius: h.id.length === 1 ? '3px' : '50%',
-                        top: h.top,
-                        left: h.left,
-                        cursor: h.cursor,
-                        pointerEvents: 'auto',
-                        zIndex: 25,
-                        boxShadow: '0 0 6px rgba(0, 255, 136, 0.8)',
-                        transition: 'transform 0.1s ease'
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
+              <CropOverlayBox
+                cropBox={cropBox}
+                croppedPixelW={croppedPixelW}
+                croppedPixelH={croppedPixelH}
+                aspectRatio={aspectRatio}
+                centerCropBox={centerCropBox}
+                handleCropMouseDown={handleCropMouseDown}
+              />
             )}
           </div>
         </div>
 
         {/* Toolbar & Aspect Controls Bar */}
-        <div style={{
-          padding: '8px 20px',
-          background: 'rgba(255, 255, 255, 0.025)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.07)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '10px',
-          flexShrink: 0
-        }}>
-          {/* Crop Mode Switcher & Aspect Ratio Presets */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => setEnableCrop(prev => !prev)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '7px',
-                padding: '7px 14px',
-                borderRadius: '10px',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                background: enableCrop 
-                  ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.25) 0%, rgba(0, 229, 255, 0.15) 100%)' 
-                  : 'rgba(255, 255, 255, 0.05)',
-                border: `1px solid ${enableCrop ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.12)'}`,
-                color: enableCrop ? 'var(--accent, #00ff88)' : '#fff',
-                boxShadow: enableCrop ? '0 0 15px rgba(0, 255, 136, 0.25)' : 'none',
-                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
-              }}
-            >
-              <Crop size={15} />
-              {enableCrop ? 'Crop Active (C)' : 'Enable Crop (C)'}
-            </button>
-
-            {enableCrop && (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '4px', 
-                background: 'rgba(0, 0, 0, 0.45)', 
-                padding: '3px 5px', 
-                borderRadius: '10px',
-                border: '1px solid rgba(255, 255, 255, 0.08)'
-              }}>
-                {ASPECT_RATIOS.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => applyAspectRatio(item.id)}
-                    title={item.desc}
-                    style={{
-                      background: aspectRatio === item.id 
-                        ? 'var(--accent, #00ff88)' 
-                        : 'transparent',
-                      color: aspectRatio === item.id ? '#000' : 'rgba(255, 255, 255, 0.75)',
-                      border: 'none',
-                      padding: '4px 9px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: aspectRatio === item.id ? 800 : 500,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-
-                <div style={{ width: '1px', height: '14px', background: 'rgba(255, 255, 255, 0.12)', margin: '0 2px' }} />
-
-                <button
-                  onClick={centerCropBox}
-                  title="Center Crop Box"
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    padding: '5px',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
-                  onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)'}
-                >
-                  <Compass size={13} />
-                </button>
-
-                <button
-                  onClick={resetCrop}
-                  title="Reset Full Crop Box"
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    padding: '5px',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
-                  onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)'}
-                >
-                  <RotateCcw size={13} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* View Zoom, Speed, Audio Options */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {/* Zoom Controls */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: 'rgba(0, 0, 0, 0.3)',
-              padding: '4px 8px',
-              borderRadius: '8px',
-              border: '1px solid rgba(255, 255, 255, 0.06)'
-            }}>
-              <ZoomIn size={13} style={{ color: 'rgba(255,255,255,0.6)' }} />
-              <input
-                type="range"
-                min="1"
-                max="3"
-                step="0.05"
-                value={zoomScale}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setZoomScale(val);
-                  if (val === 1) setPanOffset({ x: 0, y: 0 });
-                }}
-                style={{ width: '75px', accentColor: 'var(--accent, #00ff88)' }}
-              />
-              <span style={{ fontSize: '11px', fontWeight: 600, color: '#fff', width: '34px' }}>
-                {Math.round(zoomScale * 100)}%
-              </span>
-            </div>
-
-            {/* Playback Speed Switcher */}
-            <button
-              onClick={cyclePlaybackRate}
-              style={{
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                color: playbackRate !== 1 ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.8)',
-                padding: '5px 9px',
-                borderRadius: '8px',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-              title="Playback Speed (Click to cycle)"
-            >
-              <span>{playbackRate}x</span>
-            </button>
-
-            {/* Mute Audio Toggle */}
-            <button
-              onClick={() => setIsMuted(prev => !prev)}
-              style={{
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                color: isMuted ? 'rgba(255, 255, 255, 0.4)' : 'var(--accent, #00ff88)',
-                padding: '6px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-              title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-            >
-              {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
-            </button>
-          </div>
-        </div>
+        <TrimCropToolbar
+          enableCrop={enableCrop}
+          setEnableCrop={setEnableCrop}
+          aspectRatio={aspectRatio}
+          applyAspectRatio={applyAspectRatio}
+          centerCropBox={centerCropBox}
+          resetCrop={resetCrop}
+          zoomScale={zoomScale}
+          setZoomScale={setZoomScale}
+          setPanOffset={setPanOffset}
+          playbackRate={playbackRate}
+          cyclePlaybackRate={cyclePlaybackRate}
+          isMuted={isMuted}
+          setIsMuted={setIsMuted}
+        />
 
         {/* Multi-Track Precision Timeline & Transport */}
-        <div style={{
-          padding: '10px 20px',
-          background: 'rgba(0, 0, 0, 0.5)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          flexShrink: 0
-        }}>
-          {/* Real-time Timecode Readouts */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-            fontSize: '12px',
-            marginBottom: '8px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontWeight: 700 }}>IN</span>
-              <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 700, background: 'rgba(0,255,136,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                {formatTime(startTime)}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontWeight: 700 }}>POS</span>
-                <span style={{ color: '#ffffff', fontWeight: 800, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-                  {formatTime(currentTime)}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontWeight: 700 }}>LENGTH</span>
-                <span style={{ color: '#00e5ff', fontWeight: 800, background: 'rgba(0,229,255,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-                  {formatTime(trimDuration)}
-                </span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontWeight: 700 }}>OUT</span>
-              <span style={{ color: '#00e5ff', fontWeight: 700, background: 'rgba(0,229,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                {formatTime(endTime)}
-              </span>
-            </div>
-          </div>
-
-          {/* Timeline Scrubber Track */}
-          <div 
-            ref={timelineRef}
-            onMouseMove={(e) => {
-              if (!timelineRef.current) return;
-              const rect = timelineRef.current.getBoundingClientRect();
-              const pos = e.clientX - rect.left;
-              const ratio = Math.max(0, Math.min(1, pos / Math.max(1, rect.width)));
-              setHoverTime(ratio * duration);
-              setHoverPos(Math.max(30, Math.min(Math.max(30, rect.width - 30), pos)));
-            }}
-            onMouseLeave={() => {
-              setHoverTime(null);
-              setHoverPos(null);
-            }}
-            onClick={(e) => {
-              if (timelineRef.current && !isDraggingTimeline) {
-                const rect = timelineRef.current.getBoundingClientRect();
-                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                seekTo(ratio * duration);
-              }
-            }}
-            style={{
-              position: 'relative',
-              height: '42px',
-              background: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '10px',
-              cursor: 'pointer',
-              overflow: 'hidden',
-              userSelect: 'none',
-              boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.6)'
-            }}
-          >
-            {/* Time Ruler Ticks along top edge */}
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '8px', display: 'flex', justifyContent: 'space-between', opacity: 0.25, pointerEvents: 'none' }}>
-              {Array.from({ length: 21 }).map((_, i) => (
-                <div key={i} style={{ width: '1px', height: i % 5 === 0 ? '8px' : '4px', background: '#fff' }} />
-              ))}
-            </div>
-
-            {/* Selected In-Out Highlight Region */}
-            <div 
-              onMouseDown={(e) => handleTimelineMouseDown(e, 'range')}
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: `${(startTime / duration) * 100}%`,
-                width: `${((endTime - startTime) / duration) * 100}%`,
-                background: 'linear-gradient(90deg, rgba(0, 255, 136, 0.18) 0%, rgba(0, 229, 255, 0.18) 100%)',
-                borderLeft: '2px solid var(--accent, #00ff88)',
-                borderRight: '2px solid #00e5ff',
-                cursor: 'grab',
-                boxShadow: '0 0 15px rgba(0, 255, 136, 0.15)'
-              }}
-            />
-
-            {/* In-Point Handle [IN] */}
-            <div
-              onMouseDown={(e) => handleTimelineMouseDown(e, 'start')}
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: `calc(${(startTime / duration) * 100}% - 10px)`,
-                width: '20px',
-                cursor: 'ew-resize',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 15
-              }}
-            >
-              <div style={{
-                width: '6px',
-                height: '28px',
-                background: 'var(--accent, #00ff88)',
-                borderRadius: '3px',
-                boxShadow: '0 0 8px rgba(0, 255, 136, 0.8)',
-                border: '1px solid #000'
-              }} />
-            </div>
-
-            {/* Out-Point Handle [OUT] */}
-            <div
-              onMouseDown={(e) => handleTimelineMouseDown(e, 'end')}
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: `calc(${(endTime / duration) * 100}% - 10px)`,
-                width: '20px',
-                cursor: 'ew-resize',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 15
-              }}
-            >
-              <div style={{
-                width: '6px',
-                height: '28px',
-                background: '#00e5ff',
-                borderRadius: '3px',
-                boxShadow: '0 0 8px rgba(0, 229, 255, 0.8)',
-                border: '1px solid #000'
-              }} />
-            </div>
-
-            {/* Hover Ghost Cursor & Tooltip */}
-            {hoverTime !== null && hoverPos !== null && (
-              <>
-                <div style={{
-                  position: 'absolute',
-                  top: 0,
-                  bottom: 0,
-                  left: `${hoverPos}px`,
-                  width: '1px',
-                  background: 'rgba(255, 255, 255, 0.4)',
-                  pointerEvents: 'none',
-                  zIndex: 18
-                }} />
-                <div style={{
-                  position: 'absolute',
-                  top: '2px',
-                  left: `${hoverPos}px`,
-                  transform: 'translateX(-50%)',
-                  background: 'rgba(0, 0, 0, 0.85)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '4px',
-                  padding: '1px 5px',
-                  fontSize: '9px',
-                  fontWeight: 700,
-                  color: '#fff',
-                  pointerEvents: 'none',
-                  zIndex: 22
-                }}>
-                  {formatTime(hoverTime)}
-                </div>
-              </>
-            )}
-
-            {/* Playhead Laser Cursor */}
-            <div
-              onMouseDown={(e) => handleTimelineMouseDown(e, 'playhead')}
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: `calc(${(currentTime / duration) * 100}% - 7px)`,
-                width: '14px',
-                cursor: 'ew-resize',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                zIndex: 20
-              }}
-            >
-              {/* Playhead Diamond Cap */}
-              <div style={{
-                width: '12px',
-                height: '12px',
-                background: '#ffffff',
-                transform: 'rotate(45deg)',
-                borderRadius: '2px',
-                boxShadow: '0 0 10px rgba(255, 255, 255, 0.9), 0 2px 4px rgba(0,0,0,0.8)',
-                border: '1px solid #000',
-                marginTop: '-1px'
-              }} />
-              {/* Laser Needle */}
-              <div style={{ width: '2px', flex: 1, background: '#ffffff', boxShadow: '0 0 6px rgba(255,255,255,0.8)' }} />
-            </div>
-          </div>
-
-          {/* Transport & Key Controls Bar */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginTop: '10px'
-          }}>
-            {/* Left Transport Cluster */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {/* Jump to IN */}
-              <button
-                onClick={jumpToIn}
-                title="Jump to IN Point (Home)"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: '#fff',
-                  padding: '7px 9px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: 600
-                }}
-              >
-                |◀
-              </button>
-
-              {/* Step -5 frames */}
-              <button
-                onClick={() => stepFrame(-5)}
-                title="Step -5 Frames (Shift + Left)"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: '#fff',
-                  padding: '7px 9px',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
-              >
-                <Rewind size={14} />
-              </button>
-
-              {/* Step -1 frame */}
-              <button
-                onClick={() => stepFrame(-1)}
-                title="Step -1 Frame (Left Arrow)"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: '#fff',
-                  padding: '7px 9px',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
-              >
-                <ChevronLeft size={16} />
-              </button>
-
-              {/* Central Play/Pause Button */}
-              <button
-                onClick={togglePlay}
-                style={{
-                  background: 'var(--accent, #00ff88)',
-                  color: '#000',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '38px',
-                  height: '38px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  fontWeight: 800,
-                  boxShadow: '0 0 20px rgba(0, 255, 136, 0.4)',
-                  transition: 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
-                  transform: isPlaying ? 'scale(1.04)' : 'scale(1)'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = isPlaying ? 'scale(1.04)' : 'scale(1)'}
-              >
-                {isPlaying ? <Pause size={18} /> : <Play size={18} style={{ marginLeft: '2px' }} />}
-              </button>
-
-              {/* Step +1 frame */}
-              <button
-                onClick={() => stepFrame(1)}
-                title="Step +1 Frame (Right Arrow)"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: '#fff',
-                  padding: '7px 9px',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
-              >
-                <ChevronRight size={16} />
-              </button>
-
-              {/* Step +5 frames */}
-              <button
-                onClick={() => stepFrame(5)}
-                title="Step +5 Frames (Shift + Right)"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: '#fff',
-                  padding: '7px 9px',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
-              >
-                <FastForward size={14} />
-              </button>
-
-              {/* Jump to OUT */}
-              <button
-                onClick={jumpToOut}
-                title="Jump to OUT Point (End)"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: '#fff',
-                  padding: '7px 9px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: 600
-                }}
-              >
-                ▶|
-              </button>
-            </div>
-
-            {/* Middle Loop Button */}
-            <button
-              onClick={() => setLoopSelection(prev => !prev)}
-              style={{
-                background: loopSelection ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                border: `1px solid ${loopSelection ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.1)'}`,
-                color: loopSelection ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.6)',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px'
-              }}
-            >
-              <RefreshCw size={12} className={loopSelection ? 'spin-once' : ''} />
-              Loop Range (L)
-            </button>
-
-            {/* Right Set In/Out Cluster */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button
-                onClick={setInPoint}
-                style={{
-                  background: 'rgba(0, 255, 136, 0.12)',
-                  border: '1px solid rgba(0, 255, 136, 0.35)',
-                  color: 'var(--accent, #00ff88)',
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  fontSize: '11px',
-                  fontWeight: 800,
-                  cursor: 'pointer'
-                }}
-              >
-                Set [IN] (I)
-              </button>
-
-              <button
-                onClick={setOutPoint}
-                style={{
-                  background: 'rgba(0, 229, 255, 0.12)',
-                  border: '1px solid rgba(0, 229, 255, 0.35)',
-                  color: '#00e5ff',
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  fontSize: '11px',
-                  fontWeight: 800,
-                  cursor: 'pointer'
-                }}
-              >
-                Set [OUT] (O)
-              </button>
-
-              <button
-                onClick={resetTrim}
-                title="Reset Trim Bounds"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  color: 'rgba(255, 255, 255, 0.6)',
-                  padding: '6px',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
-              >
-                <RotateCcw size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
+        <TrimCropTimeline
+          timelineRef={timelineRef}
+          startTime={startTime}
+          endTime={endTime}
+          currentTime={currentTime}
+          duration={duration}
+          trimDuration={trimDuration}
+          hoverTime={hoverTime}
+          hoverPos={hoverPos}
+          setHoverTime={setHoverTime}
+          setHoverPos={setHoverPos}
+          isDraggingTimeline={isDraggingTimeline}
+          handleTimelineMouseDown={handleTimelineMouseDown}
+          seekTo={seekTo}
+          jumpToIn={jumpToIn}
+          jumpToOut={jumpToOut}
+          stepFrame={stepFrame}
+          togglePlay={togglePlay}
+          isPlaying={isPlaying}
+          loopSelection={loopSelection}
+          setLoopSelection={setLoopSelection}
+          setInPoint={setInPoint}
+          setOutPoint={setOutPoint}
+          resetTrim={resetTrim}
+        />
 
         {/* Footer & Action Controls */}
         <div style={{
