@@ -289,7 +289,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
         <>
           <div className="context-menu-item accent-text" onClick={() => onAction('rename_selected')}>
             <Edit2 size={14} />
-            <span>Rename Selected ({selectedCount})</span>
+            <span>Rename Selected {isImage ? 'Images' : 'Videos'} ({selectedCount})</span>
           </div>
           <div className="context-menu-separator"></div>
         </>
@@ -610,9 +610,13 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
             <Copy size={14} />
             <span>Duplicate {isImage ? 'Image' : 'Video'}</span>
           </div>
-          <div className="context-menu-item" onClick={() => onAction('rename')}>
-            <Edit2 size={14} />
-            <span>Rename {isImage ? 'Image' : 'Video'}</span>
+          <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'rename_selected' : 'rename')}>
+            <Edit2 size={14} style={selectedCount > 1 && isSelected ? { color: 'var(--accent, #00ff88)' } : undefined} />
+            <span style={selectedCount > 1 && isSelected ? { color: 'var(--accent, #00ff88)', fontWeight: 600 } : undefined}>
+              {selectedCount > 1 && isSelected
+                ? `Rename Selected ${isImage ? 'Images' : 'Videos'} (${selectedCount})`
+                : `Rename ${isImage ? 'Image' : 'Video'}`}
+            </span>
           </div>
 
 

@@ -6,7 +6,6 @@ import { motion } from 'framer-motion';
 import type { VideoItem, RepeatMode, SortOption } from '../types';
 import { ContextMenu } from './ContextMenu';
 import { useStore } from '../store/useStore';
-import { BatchRenameModal } from './modals/BatchRenameModal';
 import { CollectionsModal } from './modals/CollectionsModal';
 import { SettingsModal } from './modals/SettingsModal';
 import { MIN_ZOOM, MAX_ZOOM } from '../constants';
@@ -194,9 +193,10 @@ export function ControlBar({
     folderSwitchDelay, setFolderSwitchDelay,
     sortOrder, setSortOrder,
     slideshowInterval: storeSlideshowInterval,
-    setSlideshowInterval: setStoreSlideshowInterval
+    setSlideshowInterval: setStoreSlideshowInterval,
+    showBatchRename,
+    setShowBatchRename
   } = useStore();
-  const [showBatchRename, setShowBatchRename] = useState(false);
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [sortDropdownPos, setSortDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const sortButtonRef = useRef<HTMLButtonElement>(null);
@@ -1318,16 +1318,6 @@ export function ControlBar({
             </div>
           </div>
         </div>
-      )}
-
-
-      {showBatchRename && (
-        <BatchRenameModal
-          videos={videos}
-          setVideos={setVideos}
-          addLog={addLog}
-          onClose={() => setShowBatchRename(false)}
-        />
       )}
     </>
   );

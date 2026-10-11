@@ -20,6 +20,7 @@ const FileManagementModal = lazy(() => import('../FileManagementModal').then(m =
 const ResizeModal = lazy(() => import('./ResizeModal').then(m => ({ default: m.ResizeModal })));
 const RenameProtocolModal = lazy(() => import('./RenameProtocolModal').then(m => ({ default: m.RenameProtocolModal })));
 const VolumeRepeatModal = lazy(() => import('../VolumeRepeatModal').then(m => ({ default: m.VolumeRepeatModal })));
+const BatchRenameModal = lazy(() => import('./BatchRenameModal').then(m => ({ default: m.BatchRenameModal })));
 
 interface ModalOrchestratorProps {
   // Help Modal
@@ -172,6 +173,8 @@ export function ModalOrchestrator({
   const setTrimCropModalTarget = useStore((s) => s.setTrimCropModalTarget);
   const whatsAppShareTarget = useStore((s) => s.whatsAppShareTarget);
   const setWhatsAppShareTarget = useStore((s) => s.setWhatsAppShareTarget);
+  const showBatchRename = useStore((s) => s.showBatchRename);
+  const setShowBatchRename = useStore((s) => s.setShowBatchRename);
 
   return (
     <>
@@ -343,6 +346,15 @@ export function ModalOrchestrator({
               customPrompt.resolve(val);
               setCustomPrompt(null);
             }}
+          />
+        )}
+
+        {showBatchRename && (
+          <BatchRenameModal
+            videos={videos}
+            setVideos={setVideos}
+            addLog={addLog}
+            onClose={() => setShowBatchRename(false)}
           />
         )}
       </Suspense>
