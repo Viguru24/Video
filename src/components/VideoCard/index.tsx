@@ -7,6 +7,7 @@ import { triggerPopOut, isTauri } from '../../utils/videoUtils';
 import { useVideoCard } from './useVideoCard';
 import type { UseVideoCardProps } from './useVideoCard';
 import { AudioCard } from './AudioCard';
+import { CardActionMenu } from './CardActionMenu';
 import { ColorFilterDefs } from '../ColorFilterDefs';
 
 interface VideoCardProps extends Omit<UseVideoCardProps, 'quality'> {
@@ -887,112 +888,19 @@ function VideoCardInternal(props: VideoCardProps) {
       )}
 
       {!props.isFocused && state.showCardMenu && (
-        <div 
-          className="card-action-menu"
-          onMouseDown={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <div className="card-menu-header">
-            <span>ACTIONS</span>
-            <button 
-              onClick={(e) => { e.stopPropagation(); state.setShowCardMenu(false); }} 
-              className="card-menu-close"
-            >
-              <X size={10} />
-            </button>
-          </div>
-          <div className="card-menu-items">
-            {state.isImage ? (
-              <>
-                {props.onSelectAll && (
-                  <button 
-                    className="card-menu-item" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.onSelectAll();
-                      state.setShowCardMenu(false);
-                    }}
-                  >
-                    <CheckCircle2 size={12} />
-                    <span>Select All</span>
-                  </button>
-                )}
-                <button 
-                  className="card-menu-item danger" 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    props.onAnnihilate(props.video.id); 
-                    state.setShowCardMenu(false); 
-                  }}
-                >
-                  <Trash2 size={12} />
-                  <span>Recycle Bin</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="card-menu-row">
-                  <button 
-                    className="card-menu-item-half" 
-                    onMouseDown={(e) => { e.stopPropagation(); state.startStep(-1); }} 
-                    onMouseUp={(e) => { e.stopPropagation(); state.stopStep(); }} 
-                    onMouseLeave={(e) => { e.stopPropagation(); state.stopStep(); }}
-                  >
-                    <ChevronLeft size={12} />
-                    <span>Step Back</span>
-                  </button>
-                  <button 
-                    className="card-menu-item-half" 
-                    onMouseDown={(e) => { e.stopPropagation(); state.startStep(1); }} 
-                    onMouseUp={(e) => { e.stopPropagation(); state.stopStep(); }} 
-                    onMouseLeave={(e) => { e.stopPropagation(); state.stopStep(); }}
-                  >
-                    <ChevronRight size={12} />
-                    <span>Step Fwd</span>
-                  </button>
-                </div>
-                <button className="card-menu-item" onClick={(e) => { e.stopPropagation(); state.takeSnapshot(); state.setShowCardMenu(false); }}>
-                  <Camera size={12} />
-                  <span>Save Snapshot</span>
-                </button>
-                <button 
-                  className="card-menu-item" 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    props.onUpdateVideo(props.video.id, { repeatMode: state.unitRepeatMode === 'always' ? 'none' : 'always' }); 
-                  }}
-                >
-                  <Repeat1 size={12} />
-                  <span>Loop: {state.unitRepeatMode === 'always' ? 'ON' : 'OFF'}</span>
-                </button>
-                {props.onSelectAll && (
-                  <button 
-                    className="card-menu-item" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.onSelectAll();
-                      state.setShowCardMenu(false);
-                    }}
-                  >
-                    <CheckCircle2 size={12} />
-                    <span>Select All</span>
-                  </button>
-                )}
-                <button 
-                  className="card-menu-item danger" 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    props.onAnnihilate(props.video.id); 
-                    state.setShowCardMenu(false); 
-                  }}
-                >
-                  <Trash2 size={12} />
-                  <span>Recycle Bin</span>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+        <CardActionMenu
+          isImage={state.isImage}
+          unitRepeatMode={state.unitRepeatMode}
+          onSelectAll={props.onSelectAll}
+          onAnnihilate={() => props.onAnnihilate(props.video.id)}
+          onClose={() => state.setShowCardMenu(false)}
+          onStartStep={state.startStep}
+          onStopStep={state.stopStep}
+          onTakeSnapshot={state.takeSnapshot}
+          onToggleUnitLoop={() => {
+            props.onUpdateVideo(props.video.id, { repeatMode: state.unitRepeatMode === 'always' ? 'none' : 'always' });
+          }}
+        />
       )}
 
       {state.hudData && (
