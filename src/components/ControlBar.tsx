@@ -10,6 +10,9 @@ import { CollectionsModal } from './modals/CollectionsModal';
 import { SettingsModal } from './modals/SettingsModal';
 import { MIN_ZOOM, MAX_ZOOM } from '../constants';
 import { validateCollectionName } from '../utils/validation';
+import { SortDropdown } from './controlbar/SortDropdown';
+import { QuickFoldersMenu } from './controlbar/QuickFoldersMenu';
+import { SystemBadges } from './controlbar/SystemBadges';
 import {
   Play,
   Pause,
@@ -530,89 +533,19 @@ export function ControlBar({
               <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
 
               {/* Quick Folders Dropdown */}
-              <div className="quick-folders-container" ref={quickFoldersRef} data-no-drag>
-                <button 
-                  className={`mode-btn quick-folders-trigger-btn ${showQuickFoldersDropdown ? 'active' : ''}`}
-                  onClick={() => setShowQuickFoldersDropdown(!showQuickFoldersDropdown)}
-                  data-tooltip="Quick Access Pinned Folders"
-                >
-                  <FolderOpen size={14} className="quick-folders-icon" />
-                  <span>QUICK FOLDERS</span>
-                  <ChevronDown size={10} className="quick-folders-arrow-icon" style={{ marginLeft: '4px', opacity: 0.7 }} />
-                </button>
-                {showQuickFoldersDropdown && (
-                  <div className="quick-folders-dropdown">
-                    <div className="quick-folders-header">
-                      <span className="quick-folders-title">Pinned Folders</span>
-                      <button 
-                        className="quick-folders-add-btn" 
-                        onClick={handlePinNewFolder}
-                        title="Pin New Folder"
-                      >
-                        <Plus size={11} />
-                        <span>Pin Folder</span>
-                      </button>
-                    </div>
-                    <div className="quick-folders-list">
-                      {quickFolders.length === 0 ? (
-                        <div className="quick-folders-empty">No folders pinned. Click Pin Folder to start.</div>
-                      ) : (
-                        quickFolders.map(folder => {
-                          const isAutoSync = autoSyncFolders.some(p => p.replace(/[\\/]+$/, '') === folder.path.replace(/[\\/]+$/, ''));
-                          return (
-                            <div key={folder.id} className="quick-folder-item">
-                              <button 
-                                className="quick-folder-link"
-                                onClick={() => handleOpenInAppBrowser(folder.path)}
-                                title={folder.path}
-                              >
-                                <FolderOpen size={12} className="folder-item-icon" />
-                                <span className="folder-item-name">{folder.name}</span>
-                              </button>
-                              <div className="quick-folder-actions">
-                                <button 
-                                  className={`quick-folder-action-btn sync ${isAutoSync ? 'active' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleAutoSyncFolder(folder.path);
-                                    addLog(`Auto-Sync ${isAutoSync ? 'disabled' : 'enabled'} for "${folder.name}"`);
-                                  }}
-                                  title={isAutoSync ? "Auto-Add New Files: ACTIVE (Click to Disable)" : "Auto-Add New Files: OFF (Click to Enable)"}
-                                  style={{
-                                    color: isAutoSync ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.4)',
-                                    background: isAutoSync ? 'rgba(0, 255, 136, 0.15)' : 'transparent',
-                                    border: isAutoSync ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid transparent',
-                                    borderRadius: '4px',
-                                    padding: '2px 4px',
-                                    display: 'flex',
-                                    alignItems: 'center'
-                                  }}
-                                >
-                                  <Zap size={11} fill={isAutoSync ? "currentColor" : "none"} />
-                                </button>
-                                <button 
-                                  className="quick-folder-action-btn edit" 
-                                  onClick={() => handleRenamePinnedFolder(folder.id)}
-                                  title="Rename Pin"
-                                >
-                                  <Type size={11} />
-                                </button>
-                                <button 
-                                  className="quick-folder-action-btn delete" 
-                                  onClick={() => handleUnpinFolder(folder.id)}
-                                  title="Unpin Folder"
-                                >
-                                  <X size={11} />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <QuickFoldersMenu
+                quickFolders={quickFolders}
+                autoSyncFolders={autoSyncFolders}
+                showQuickFoldersDropdown={showQuickFoldersDropdown}
+                setShowQuickFoldersDropdown={setShowQuickFoldersDropdown}
+                quickFoldersRef={quickFoldersRef}
+                handlePinNewFolder={handlePinNewFolder}
+                handleOpenInAppBrowser={handleOpenInAppBrowser}
+                toggleAutoSyncFolder={toggleAutoSyncFolder}
+                handleRenamePinnedFolder={handleRenamePinnedFolder}
+                handleUnpinFolder={handleUnpinFolder}
+                addLog={addLog}
+              />
 
               <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
 
@@ -769,90 +702,16 @@ export function ControlBar({
             </div>
 
             {/* SORTING CONTROLS */}
-            <div className="ctrl-group sort-group">
-              <button
-                ref={sortButtonRef}
-                onClick={() => {
-                  if (!showSortDropdown && sortButtonRef.current) {
-                    const rect = sortButtonRef.current.getBoundingClientRect();
-                    setSortDropdownPos({ top: rect.bottom + 8, left: rect.left });
-                  }
-                  setShowSortDropdown(v => !v);
-                }}
-                className={`hdr-btn ${sortOrder !== 'custom' ? 'active-accent' : ''}`}
-                data-tooltip="Sort Cards"
-              >
-                <ArrowUpDown size={14} />
-              </button>
-            </div>
-            {showSortDropdown && (
-              <div 
-                ref={sortDropdownRef}
-                className="sort-dropdown"
-                style={{
-                  position: 'fixed',
-                  top: sortDropdownPos.top,
-                  left: sortDropdownPos.left,
-                  background: 'var(--bg-glass, rgba(13, 8, 27, 0.92))',
-                  backdropFilter: 'blur(16px)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '8px',
-                  padding: '6px 0',
-                  width: '200px',
-                  zIndex: 999999,
-                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.1)',
-                }}
-              >
-                {[
-                  { label: 'Custom Order', value: 'custom' },
-                  { label: 'Sort: Videos First', value: 'videos-first' },
-                  { label: 'Sort: Stills First', value: 'pictures-first' },
-                  { label: 'Name (A -> Z)', value: 'name-asc' },
-                  { label: 'Name (Z -> A)', value: 'name-desc' },
-                  { label: 'Size (Small -> Large)', value: 'size-asc' },
-                  { label: 'Size (Large -> Small)', value: 'size-desc' },
-                  { label: 'Date Modified (Newest)', value: 'modified-newest' },
-                  { label: 'Date Modified (Oldest)', value: 'modified-oldest' },
-                  { label: 'Date Created (Newest)', value: 'created-newest' },
-                  { label: 'Date Created (Oldest)', value: 'created-oldest' },
-                ].map(opt => (
-                  <div
-                    key={opt.value}
-                    className={`sort-dropdown-item ${sortOrder === opt.value ? 'active' : ''}`}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '6px 12px',
-                      fontSize: '11px',
-                      color: sortOrder === opt.value ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.7)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      background: sortOrder === opt.value ? 'rgba(0, 255, 136, 0.05)' : 'transparent',
-                    }}
-                    onMouseDown={() => {
-                      setSortOrder(opt.value as SortOption);
-                      setShowSortDropdown(false);
-                    }}
-                    onMouseEnter={(e) => {
-                      if (sortOrder !== opt.value) {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
-                        e.currentTarget.style.color = '#fff';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (sortOrder !== opt.value) {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
-                      }
-                    }}
-                  >
-                    {sortOrder === opt.value ? <Check size={11} className="menu-check" /> : <div style={{ width: 11 }} />}
-                    <span>{opt.label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <SortDropdown
+              sortOrder={sortOrder}
+              setSortOrder={setSortOrder}
+              showSortDropdown={showSortDropdown}
+              setShowSortDropdown={setShowSortDropdown}
+              sortDropdownPos={sortDropdownPos}
+              setSortDropdownPos={setSortDropdownPos}
+              sortButtonRef={sortButtonRef}
+              sortDropdownRef={sortDropdownRef}
+            />
 
             {/* PLAYBACK ENGINE */}
             {mediaMode === 'video' && (
@@ -1008,264 +867,22 @@ export function ControlBar({
                 </div>
               </div>
 
-              <div 
-                onClick={onForceSetup}
-                className={`ai-status-badge ${
-                  aiHardwareStatus.includes('GPU') 
-                    ? 'status-gpu' 
-                    : aiHardwareStatus === 'Detecting...' 
-                    ? 'status-detecting' 
-                    : 'status-cpu'
-                }`}
-                style={{ cursor: 'pointer' }}
-                data-tooltip={
-                  aiHardwareStatus.includes('GPU')
-                    ? "Nvidia RTX CUDA GPU Upscaler and GFPGAN Face Restore are active & ready. Click to re-run setup."
-                    : aiHardwareStatus === 'Detecting...'
-                    ? "Detecting AI processing hardware status..."
-                    : "Running with Bilateral Filter CPU fallback. Click here to download GPU Acceleration Pack."
-                }
-              >
-                {aiHardwareStatus.includes('GPU') ? (
-                  <Sparkles size={11} className="ai-status-icon pulse-gold" />
-                ) : (
-                  <Cpu size={11} className={`ai-status-icon ${aiHardwareStatus === 'Detecting...' ? 'spin-slow' : ''}`} />
-                )}
-                <span className="ai-status-lbl">
-                  {aiHardwareStatus.includes('GPU') 
-                    ? 'AI: GPU' 
-                    : aiHardwareStatus === 'Detecting...' 
-                    ? 'AI: Checking...' 
-                    : 'AI: CPU'}
-                </span>
-              </div>
 
-              {/* VERSION & DEV BADGES */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', pointerEvents: 'auto' }}>
-                <a
-                  href="https://cosmowhisper.com"
-                  data-no-drag
-                  onClick={async (e) => {
-                    e.preventDefault();
-                    try {
-                      await invoke('open_external_url', { url: 'https://cosmowhisper.com' });
-                    } catch (err) {
-                      try {
-                         window.open('https://cosmowhisper.com', '_blank', 'noopener,noreferrer');
-                      } catch (e2) {}
-                    }
-                  }}
-                  style={{
-                    color: 'var(--accent, #00ff88)',
-                    fontSize: '10px',
-                    textDecoration: 'underline',
-                    marginRight: '8px',
-                    fontWeight: 600,
-                    letterSpacing: '0.5px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  title="Discover Cosmo Whisper"
-                >
-                  🚀 Cosmo Whisper
-                </a>
-                <div style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '6px',
-                  height: '28px',
-                  padding: '0 8px',
-                  color: 'rgba(255, 255, 255, 0.6)',
-                  fontSize: '10px',
-                  fontFamily: 'monospace',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 'bold',
-                  letterSpacing: '0.5px',
-                  userSelect: 'none',
-                  marginLeft: '4px'
-                }}>
-                  v1.4.4
-                </div>
-                <div style={{
-                  height: '18px',
-                  padding: '0 6px',
-                  background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)',
-                  boxShadow: '0 0 8px rgba(168, 85, 247, 0.4)',
-                  borderRadius: '4px',
-                  color: '#fff',
-                  fontSize: '8px',
-                  fontWeight: 900,
-                  letterSpacing: '1px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  userSelect: 'none',
-                  textTransform: 'uppercase'
-                }} title="Cosmo Symphony Developer Build">
-                  DEV
-                </div>
-              </div>
- 
-              {/* SLIDESHOW TIMER WIDGET */}
-              {(() => {
-                const currentInterval = (typeof slideshowInterval === 'number' && !isNaN(slideshowInterval))
-                  ? slideshowInterval
-                  : (typeof storeSlideshowInterval === 'number' && !isNaN(storeSlideshowInterval))
-                    ? storeSlideshowInterval
-                    : 5;
-
-                const updateInterval = (updater: number | ((prev: number) => number)) => {
-                  if (typeof setSlideshowInterval === 'function') {
-                    setSlideshowInterval(updater as any);
-                  }
-                  if (typeof setStoreSlideshowInterval === 'function') {
-                    setStoreSlideshowInterval(updater);
-                  }
-                };
-
-                return (
-                  <div 
-                    className="slideshow-interval-badge"
-                    data-tooltip={`${isSlideshowActive ? "Pause Slideshow" : "Play All Fullscreen (Slideshow)"} - Interval: ${currentInterval}s (Scroll wheel up/down to adjust)`}
-                    onClick={() => setIsSlideshowActive && setIsSlideshowActive(!isSlideshowActive)}
-                    onWheel={(e) => {
-                      e.stopPropagation();
-                      const direction = e.deltaY < 0 ? 1 : -1;
-                      updateInterval((prev) => {
-                        const current = typeof prev === 'number' && !isNaN(prev) ? prev : currentInterval;
-                        return Math.max(1, Math.min(120, current + direction));
-                      });
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      background: isSlideshowActive ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))' : 'rgba(255, 255, 255, 0.05)',
-                      border: isSlideshowActive ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '6px',
-                      height: '28px',
-                      padding: '0 8px',
-                      color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'var(--text, #fff)',
-                      fontSize: '11px',
-                      fontFamily: 'monospace',
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                      transition: 'all 0.2s',
-                      marginLeft: '4px',
-                      marginRight: '4px',
-                      pointerEvents: 'auto',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = isSlideshowActive 
-                        ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.25), rgba(0, 150, 255, 0.25))'
-                        : 'rgba(255, 255, 255, 0.1)';
-                      e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
-                      e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.2)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = isSlideshowActive
-                        ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))'
-                        : 'rgba(255, 255, 255, 0.05)';
-                      e.currentTarget.style.borderColor = isSlideshowActive ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.1)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
-                  >
-                    {isSlideshowActive ? <Pause size={11} /> : <Play size={11} />}
-                    <RefreshCw size={11} className={isSlideshowActive ? "spin-slow" : ""} style={{ color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.7)' }} />
-                    <span>{currentInterval}s</span>
-                  </div>
-                );
-              })()}
-
-              {/* FOLDER FILE DELAY WIDGET */}
-              <div 
-                className="folder-delay-badge"
-                data-tooltip={`Folder File Delay: ${(folderSwitchDelay && !isNaN(folderSwitchDelay)) ? folderSwitchDelay : 10}s (Scroll wheel to adjust exact seconds)`}
-                onClick={() => setShowSettings(true)}
-                onWheel={(e) => {
-                  e.stopPropagation();
-                  const direction = e.deltaY < 0 ? 1 : -1;
-                  setFolderSwitchDelay((prev) => {
-                    const current = typeof prev === 'number' && !isNaN(prev) ? prev : 10;
-                    return Math.max(1, Math.min(120, current + direction));
-                  });
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  background: 'rgba(0, 255, 136, 0.08)',
-                  border: '1px solid rgba(0, 255, 136, 0.3)',
-                  borderRadius: '6px',
-                  height: '28px',
-                  padding: '0 8px',
-                  color: 'var(--accent, #00ff88)',
-                  fontSize: '11px',
-                  fontFamily: 'monospace',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  transition: 'all 0.2s',
-                  marginRight: '4px',
-                  pointerEvents: 'auto',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.18)';
-                  e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.3)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(0, 255, 136, 0.08)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
-              >
-                <FolderOpen size={11} />
-                <span>{(folderSwitchDelay && !isNaN(folderSwitchDelay)) ? folderSwitchDelay : 10}s</span>
-              </div>
-
-              {/* SLIDESHOW PAN & ZOOM TOGGLE */}
-              <div
-                className="slideshow-panzoom-badge"
-                data-tooltip={enableSlideshowPanZoom ? "Slideshow Pan & Zoom: ON" : "Slideshow Pan & Zoom: OFF"}
-                onClick={() => setEnableSlideshowPanZoom(!enableSlideshowPanZoom)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  background: enableSlideshowPanZoom ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))' : 'rgba(255, 255, 255, 0.05)',
-                  border: enableSlideshowPanZoom ? '1px solid rgba(0, 255, 136, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '6px',
-                  height: '28px',
-                  padding: '0 8px',
-                  color: enableSlideshowPanZoom ? 'var(--accent, #00ff88)' : 'var(--text, #fff)',
-                  fontSize: '11px',
-                  fontFamily: 'monospace',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  transition: 'all 0.2s',
-                  marginRight: '4px',
-                  pointerEvents: 'auto',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = enableSlideshowPanZoom 
-                    ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.25), rgba(0, 150, 255, 0.25))'
-                    : 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
-                  e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.2)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = enableSlideshowPanZoom
-                    ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 150, 255, 0.15))'
-                    : 'rgba(255, 255, 255, 0.05)';
-                  e.currentTarget.style.borderColor = enableSlideshowPanZoom ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
-              >
-                <Maximize size={11} />
-                <span>Zoom</span>
-              </div>
+              <SystemBadges
+                onForceSetup={onForceSetup}
+                aiHardwareStatus={aiHardwareStatus}
+                slideshowInterval={slideshowInterval}
+                storeSlideshowInterval={storeSlideshowInterval}
+                setSlideshowInterval={setSlideshowInterval}
+                setStoreSlideshowInterval={setStoreSlideshowInterval}
+                isSlideshowActive={isSlideshowActive}
+                setIsSlideshowActive={setIsSlideshowActive}
+                folderSwitchDelay={folderSwitchDelay}
+                setFolderSwitchDelay={setFolderSwitchDelay}
+                setShowSettings={setShowSettings}
+                enableSlideshowPanZoom={enableSlideshowPanZoom}
+                setEnableSlideshowPanZoom={setEnableSlideshowPanZoom}
+              />
             </div>
             
             </div>
