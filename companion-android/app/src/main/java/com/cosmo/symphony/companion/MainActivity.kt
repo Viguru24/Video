@@ -25,6 +25,10 @@ import android.webkit.*
 import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.File
 import java.io.FileOutputStream
@@ -503,6 +507,71 @@ class MainActivity : ComponentActivity() {
         prefs.edit().putString("last_url", targetUrl).apply()
         openWebView(targetUrl)
         handleIncomingShareIntent(intent)
+
+        // Check for OTA Updates in background
+        checkOtaUpdates(silent = true)
+    }
+
+    private val updateManager by lazy { AppUpdateManager(this, "cosmo-companion") }
+
+    private fun checkOtaUpdates(silent: Boolean = false) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                if (!silent) {
+                    runOnUiThread { Toast.makeText(this@MainActivity, "Checking for updates...", Toast.LENGTH_SHORT).show() }
+                }
+                val update = updateManager.checkForUpdates()
+                if (update != null) {
+                    withContext(Dispatchers.Main) {
+                        showUpdateDialog(update)
+                    }
+                } else if (!silent) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "You have the latest version (v${updateManager.currentVersionName})", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                if (!silent) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Could not reach update server.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showUpdateDialog(update: UpdateInfo) {
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("🚀 Update Available (v${update.versionName})")
+            .setMessage("${update.releaseNotes}\n\nWould you like to download and install this update now?")
+            .setPositiveButton("Update Now", null)
+            .setNegativeButton("Later") { d, _ -> d.dismiss() }
+            .create()
+
+        dialog.setOnShowListener {
+            val btn = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            btn.setOnClickListener {
+                btn.isEnabled = false
+                dialog.setMessage("Downloading update...\nPlease wait.")
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val success = updateManager.downloadAndInstallUpdate(update.apkUrl) { progress ->
+                        val pct = (progress * 100).toInt()
+                        runOnUiThread {
+                            dialog.setMessage("Downloading update: $pct%\nPlease wait.")
+                        }
+                    }
+                    if (!success) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Update download failed. Please check network.", Toast.LENGTH_LONG).show()
+                            dialog.dismiss()
+                        }
+                    } else {
+                        runOnUiThread { dialog.dismiss() }
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -935,10 +1004,11 @@ class MainActivity : ComponentActivity() {
                 "📄 Documents",
                 "📂 Select Storage Folder (System Picker)...",
                 "➕ Create New Custom Folder...",
-                "🔄 Reset to Default Downloads"
+                "🔄 Reset to Default Downloads",
+                "🚀 Check for Updates (v${updateManager.currentVersionName})"
             )
             AlertDialog.Builder(this@MainActivity)
-                .setTitle("📁 Select Save Folder for Symphony Files")
+                .setTitle("📁 Companion Settings & Storage")
                 .setItems(options) { _, which ->
                     when (which) {
                         0 -> {
@@ -1007,6 +1077,9 @@ class MainActivity : ComponentActivity() {
                             prefs.edit().putString("custom_subfolder_name", "").apply()
                             updateFolderLabel()
                             Toast.makeText(this@MainActivity, "Reset to Default Downloads", Toast.LENGTH_SHORT).show()
+                        }
+                        7 -> {
+                            checkOtaUpdates(silent = false)
                         }
                     }
                 }
