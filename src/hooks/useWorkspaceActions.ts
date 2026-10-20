@@ -48,7 +48,9 @@ export function useWorkspaceActions({
   metadataCache,
   addLog,
   setToast,
-  fileManageMode
+  fileManageMode,
+  setWifiShareOpen,
+  setWifiShareItems
 }: UseWorkspaceActionsProps) {
 
   const handleDecommission = useCallback(async (id: string) => {
