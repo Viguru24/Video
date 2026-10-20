@@ -20,7 +20,9 @@ import {
   RotateCw, 
   Zap, 
   Pin,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { toCosmoUrl, isValidMediaExtension, isTauri } from '../utils/videoUtils';
 import { normalizeTimestamp } from '../utils/sortUtils';
@@ -32,310 +34,7 @@ interface InAppBrowserProps {
   addLog: (msg: string) => void;
 }
 
-interface BrowserItem {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  is_media: boolean;
-}
-
-function VideoPreview({ path, src, isHovered }: { path: string; src?: string; isHovered: boolean }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [videoSrc, setVideoSrc] = useState(() => {
-    if (isTauri()) {
-      try {
-        return convertFileSrc(path);
-      } catch {}
-    }
-    return src || toCosmoUrl(path);
-  });
-  const [triedFallback, setTriedFallback] = useState(false);
-
-  useEffect(() => {
-    if (isTauri()) {
-      try {
-        setVideoSrc(convertFileSrc(path));
-      } catch {
-        setVideoSrc(toCosmoUrl(path));
-      }
-    } else {
-      setVideoSrc(src || toCosmoUrl(path));
-    }
-    setTriedFallback(false);
-  }, [path, src]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    if (isHovered) {
-      video.play().catch(() => {});
-    } else {
-      video.pause();
-    }
-  }, [isHovered]);
-
-  const handleLoadedData = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = e.currentTarget;
-    try {
-      if (video.currentTime < 0.5) {
-        // Seek to 1 second into the video to avoid black intro frames
-        const targetTime = Math.min(1.0, (video.duration || 2) / 2);
-        video.currentTime = targetTime;
-      }
-    } catch {}
-  };
-
-  const [retryCount, setRetryCount] = useState(0);
-
-  useEffect(() => {
-    setRetryCount(0);
-  }, [path, src]);
-
-  const handleError = () => {
-    if (retryCount < 2) {
-      const nextRetry = retryCount + 1;
-      setRetryCount(nextRetry);
-      setTimeout(() => {
-        const base = toCosmoUrl(path);
-        const sep = base.includes('?') ? '&' : '?';
-        setVideoSrc(`${base}${sep}_retry=${Date.now()}`);
-      }, nextRetry * 500);
-      return;
-    }
-
-    if (!triedFallback) {
-      setTriedFallback(true);
-      if (videoSrc.includes('asset.localhost')) {
-        setVideoSrc(`http://cosmo.localhost/${encodeURIComponent(path)}`);
-      } else if (isTauri()) {
-        try {
-          setVideoSrc(convertFileSrc(path));
-        } catch {
-          setVideoSrc(`cosmo://localhost/${encodeURIComponent(path)}`);
-        }
-      }
-    }
-  };
-
-  const finalSrc = videoSrc.includes('#') ? videoSrc : `${videoSrc}#t=1.0`;
-
-  return (
-    <video 
-      ref={videoRef}
-      src={finalSrc} 
-      className="file-thumb" 
-      muted
-      playsInline
-      loop
-      preload="metadata"
-      onLoadedData={handleLoadedData}
-      onError={handleError}
-      style={{ objectFit: 'cover', width: '100%', height: '100%', display: 'block' }}
-    />
-  );
-}
-
-function ImageThumbnail({ path, name }: { path: string; name: string }) {
-  const [imgSrc, setImgSrc] = useState(() => {
-    if (isTauri()) {
-      try {
-        return convertFileSrc(path);
-      } catch {}
-    }
-    return toCosmoUrl(path);
-  });
-  const [hasError, setHasError] = useState(false);
-  const [fallbackStage, setFallbackStage] = useState(0);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-
-  const ext = path.split('.').pop()?.toUpperCase() || 'IMG';
-
-  // Reset when path changes
-  useEffect(() => {
-    const initial = isTauri() ? (convertFileSrc(path) || toCosmoUrl(path)) : toCosmoUrl(path);
-    setImgSrc(initial);
-    setHasError(false);
-    setFallbackStage(0);
-    setIsLoaded(false);
-    setRetryCount(0);
-  }, [path]);
-
-  const handleError = () => {
-    if (fallbackStage === 0) {
-      // Stage 1: Fallback from asset.localhost to the custom cosmo.localhost streaming engine
-      setFallbackStage(1);
-      setImgSrc(`http://cosmo.localhost/${encodeURIComponent(path)}`);
-      return;
-    }
-
-    if (fallbackStage === 1) {
-      // Stage 2: Fallback to custom cosmo:// URI scheme
-      setFallbackStage(2);
-      setImgSrc(`cosmo://localhost/${encodeURIComponent(path)}`);
-      return;
-    }
-
-    if (retryCount < 2) {
-      // Stage 3: Auto-retry with cache-busting timestamp
-      const nextRetry = retryCount + 1;
-      setRetryCount(nextRetry);
-      setTimeout(() => {
-        const base = imgSrc.split('?')[0];
-        setImgSrc(`${base}?_r=${Date.now()}`);
-      }, nextRetry * 300);
-      return;
-    }
-
-    setHasError(true);
-  };
-
-  if (hasError) {
-    return (
-      <div style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '4px',
-        background: 'radial-gradient(circle at center, rgba(30, 30, 48, 0.95), rgba(12, 12, 18, 0.98))',
-        color: 'rgba(255, 255, 255, 0.8)'
-      }}>
-        <div style={{
-          width: '28px',
-          height: '28px',
-          borderRadius: '50%',
-          background: 'rgba(0, 255, 136, 0.12)',
-          border: '1px solid rgba(0, 255, 136, 0.25)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--accent, #00ff88)'
-        }}>
-          <ImageIcon size={13} />
-        </div>
-        <span style={{
-          fontSize: '8px',
-          fontWeight: 800,
-          letterSpacing: '0.6px',
-          color: 'var(--accent, #00ff88)',
-          background: 'rgba(0, 255, 136, 0.08)',
-          padding: '1px 5px',
-          borderRadius: '3px',
-          textTransform: 'uppercase'
-        }}>
-          {ext}
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <img 
-      src={imgSrc} 
-      className="file-thumb" 
-      alt={name}
-      onLoad={() => setIsLoaded(true)}
-      onError={handleError}
-      style={{
-        objectFit: 'cover',
-        width: '100%',
-        height: '100%',
-        display: 'block',
-        opacity: isLoaded ? 1 : 0.8,
-        transition: 'opacity 0.2s ease'
-      }}
-    />
-  );
-}
-
-// Subcomponent to optimize rendering and prevent loading off-screen videos or flooding WebViews
-function BrowserItemCard({ 
-  item, 
-  index,
-  layoutMode, 
-  onAddFile, 
-  onDragStart, 
-  onDoubleClick 
-}: { 
-  item: BrowserItem; 
-  index: number;
-  layoutMode: 'grid' | 'list';
-  onAddFile: (path: string) => void;
-  onDragStart: (e: React.DragEvent, path: string) => void;
-  onDoubleClick: () => void;
-}) {
-  const [isHovered, setIsHovered] = useState(false);
-
-  if (item.is_dir) {
-    return (
-      <div 
-        className={`browser-item-card is-dir layout-${layoutMode}`}
-        onDoubleClick={onDoubleClick}
-      >
-        <div className="dir-item-content">
-          <Folder size={14} className="dir-icon" />
-          <span className="dir-name" title={item.name}>{item.name}</span>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div 
-      className={`browser-item-card is-file layout-${layoutMode}`}
-      draggable
-      onDragStart={(e) => onDragStart(e, item.path)}
-      onDoubleClick={onDoubleClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      {layoutMode === 'list' ? (
-        <div className="file-item-content-list">
-          <File size={13} className="file-icon" />
-          <span className="file-name" title={item.name}>{item.name}</span>
-          <button 
-            className="add-item-badge-btn-list" 
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddFile(item.path);
-            }}
-            title="Add to grid workspace"
-          >
-            <Plus size={10} />
-          </button>
-        </div>
-      ) : (
-        <div className="file-item-content">
-          <div className="file-thumbnail-container">
-            {isValidMediaExtension(item.path, 'video') ? (
-              <VideoPreview path={item.path} src={toCosmoUrl(item.path)} isHovered={isHovered} />
-            ) : (
-              <ImageThumbnail path={item.path} name={item.name} />
-            )}
-            
-            <div className="thumb-hover-overlay">
-              <button 
-                className="add-item-badge-btn" 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddFile(item.path);
-                }}
-                title="Add to grid workspace"
-              >
-                <Plus size={12} />
-              </button>
-            </div>
-          </div>
-          <span className="file-name" title={item.name}>{item.name}</span>
-        </div>
-      )}
-    </div>
-  );
-}
+import { BrowserItemCard, type BrowserItem } from './browser/BrowserItemCard';
 
 export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBrowserProps) {
   const {
@@ -367,6 +66,98 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     return localStorage.getItem('cosmo-inapp-browser-pinned') === 'true';
   });
   const hoverLeaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  type ResizeDirection = 'left' | 'bottom' | 'bottom-left' | 'top' | 'top-left';
+
+  const [browserWidth, setBrowserWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('cosmo-inapp-browser-width');
+    return saved ? Math.max(280, parseInt(saved, 10)) : 380;
+  });
+
+  const [browserHeight, setBrowserHeight] = useState<number>(() => {
+    const saved = localStorage.getItem('cosmo-inapp-browser-height');
+    return saved ? Math.max(220, parseInt(saved, 10)) : 620;
+  });
+
+  const [browserTop, setBrowserTop] = useState<number>(() => {
+    const saved = localStorage.getItem('cosmo-inapp-browser-top');
+    return saved ? Math.max(40, parseInt(saved, 10)) : 110;
+  });
+
+  const [isMaximized, setIsMaximized] = useState(() => {
+    return localStorage.getItem('cosmo-inapp-browser-maximized') === 'true';
+  });
+
+  const isResizingRef = useRef<ResizeDirection | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const toggleMaximize = () => {
+    setIsMaximized(prev => {
+      const next = !prev;
+      localStorage.setItem('cosmo-inapp-browser-maximized', next ? 'true' : 'false');
+      return next;
+    });
+  };
+
+  const startResize = (e: React.PointerEvent, direction: ResizeDirection) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizingRef.current = direction;
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startW = browserWidth;
+    const startH = browserHeight;
+    const startT = browserTop;
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (!isResizingRef.current) return;
+      
+      const deltaX = startX - moveEvent.clientX;
+      const deltaY = moveEvent.clientY - startY;
+      const deltaYTop = moveEvent.clientY - startY;
+
+      if (direction === 'left' || direction === 'bottom-left' || direction === 'top-left') {
+        const minW = 280;
+        const maxW = Math.max(minW, window.innerWidth - 32);
+        const newW = Math.min(maxW, Math.max(minW, startW + deltaX));
+        setBrowserWidth(newW);
+        localStorage.setItem('cosmo-inapp-browser-width', String(Math.round(newW)));
+      }
+
+      if (direction === 'bottom' || direction === 'bottom-left') {
+        const minH = 200;
+        const maxH = Math.max(minH, window.innerHeight - startT - 20);
+        const newH = Math.min(maxH, Math.max(minH, startH + deltaY));
+        setBrowserHeight(newH);
+        localStorage.setItem('cosmo-inapp-browser-height', String(Math.round(newH)));
+      }
+
+      if (direction === 'top' || direction === 'top-left') {
+        const minT = 40;
+        const maxT = Math.min(window.innerHeight - 250, 200);
+        const newT = Math.min(maxT, Math.max(minT, startT + deltaYTop));
+        const newH = Math.max(200, startH - (newT - startT));
+        setBrowserTop(newT);
+        setBrowserHeight(newH);
+        localStorage.setItem('cosmo-inapp-browser-top', String(Math.round(newT)));
+        localStorage.setItem('cosmo-inapp-browser-height', String(Math.round(newH)));
+      }
+    };
+
+    const onPointerUp = () => {
+      isResizingRef.current = null;
+      setIsResizing(false);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+  };
 
   const togglePinned = () => {
     setIsPinned(prev => {
@@ -415,10 +206,12 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
 
   // Moving mouse away from panel auto-minimizes instantly (70ms) unless pinned
   const handlePanelMouseLeave = () => {
-    if (!isPinned) {
+    if (!isPinned && !isResizingRef.current) {
       if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
       hoverLeaveTimerRef.current = setTimeout(() => {
-        setInAppBrowserCollapsed(true);
+        if (!isResizingRef.current) {
+          setInAppBrowserCollapsed(true);
+        }
       }, 70);
     }
   };
@@ -591,11 +384,27 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
         style={{ 
           height: '42px', 
           bottom: 'auto', 
+          top: `${browserTop}px`,
+          right: '16px',
+          width: isMaximized ? 'calc(100% - 32px)' : `${browserWidth}px`,
+          maxWidth: 'calc(100% - 32px)',
           padding: 0,
           cursor: 'pointer',
-          transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+          transition: isResizing ? 'none' : 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
       >
+        {!isMaximized && (
+          <div 
+            className={`browser-resize-handle-left ${isResizing ? 'resizing' : ''}`}
+            onPointerDown={(e) => startResize(e, 'left')}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setBrowserWidth(380);
+              localStorage.setItem('cosmo-inapp-browser-width', '380');
+            }}
+            title="Drag to adjust width (Double-click to reset)"
+          />
+        )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', height: '100%', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
             <FolderOpen size={13} style={{ color: isCurrentFolderAutoSync ? 'var(--accent, #00ff88)' : '#fff', flexShrink: 0 }} />
@@ -638,7 +447,69 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
       className="in-app-browser-panel"
       onMouseEnter={handlePanelMouseEnter}
       onMouseLeave={handlePanelMouseLeave}
+      style={{
+        width: isMaximized ? 'calc(100% - 32px)' : `${browserWidth}px`,
+        height: isMaximized ? 'calc(100% - 130px)' : `${browserHeight}px`,
+        top: isMaximized ? '110px' : `${browserTop}px`,
+        bottom: 'auto',
+        right: '16px',
+        maxWidth: 'calc(100% - 32px)',
+        maxHeight: 'calc(100% - 125px)',
+        userSelect: isResizing ? 'none' : undefined,
+        transition: isResizing ? 'none' : 'width 0.2s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s cubic-bezier(0.16, 1, 0.3, 1), top 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+      }}
     >
+      {/* Interactive Resize Handles */}
+      {!isMaximized && (
+        <>
+          <div 
+            className={`browser-resize-handle-left ${isResizing ? 'resizing' : ''}`}
+            onPointerDown={(e) => startResize(e, 'left')}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setBrowserWidth(380);
+              localStorage.setItem('cosmo-inapp-browser-width', '380');
+            }}
+            title="Drag to adjust width (Double-click to reset to 380px)"
+          />
+
+          <div 
+            className={`browser-resize-handle-bottom ${isResizing ? 'resizing' : ''}`}
+            onPointerDown={(e) => startResize(e, 'bottom')}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              const defH = Math.max(300, window.innerHeight - browserTop - 25);
+              setBrowserHeight(defH);
+              localStorage.setItem('cosmo-inapp-browser-height', String(Math.round(defH)));
+            }}
+            title="Drag to adjust height (Double-click to expand to bottom)"
+          />
+
+          <div 
+            className={`browser-resize-handle-corner-bl ${isResizing ? 'resizing' : ''}`}
+            onPointerDown={(e) => startResize(e, 'bottom-left')}
+            title="Drag to adjust width and height simultaneously"
+          />
+
+          <div 
+            className={`browser-resize-handle-top ${isResizing ? 'resizing' : ''}`}
+            onPointerDown={(e) => startResize(e, 'top')}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setBrowserTop(110);
+              localStorage.setItem('cosmo-inapp-browser-top', '110');
+            }}
+            title="Drag to adjust top position (Double-click to reset to 110px)"
+          />
+
+          <div 
+            className={`browser-resize-handle-corner-tl ${isResizing ? 'resizing' : ''}`}
+            onPointerDown={(e) => startResize(e, 'top-left')}
+            title="Drag to adjust top and width simultaneously"
+          />
+        </>
+      )}
+
       {/* Header */}
       <div className="browser-header">
         {/* Top Window Title & Window Controls */}
@@ -665,6 +536,16 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
               }}
             >
               <Pin size={13} fill={isPinned ? "currentColor" : "none"} />
+            </button>
+            <button 
+              className={`layout-toggle-btn ${isMaximized ? 'active' : ''}`}
+              onClick={toggleMaximize}
+              title={isMaximized ? "Restore Window Size" : "Maximize Browser Window"}
+              style={{
+                color: isMaximized ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.7)'
+              }}
+            >
+              {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
             </button>
             <button 
               className="layout-toggle-btn"
