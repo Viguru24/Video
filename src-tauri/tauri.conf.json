@@ -70,7 +70,6 @@
     "targets": "all",
     "resources": [
       "cosmo_enhance.py",
-      "cosmo_pipeline.py",
       "convert_heic.py",
       "demos/*",
       "resources/ffmpeg.exe",
@@ -98,5 +97,4 @@
     }
   }
 }
-
 

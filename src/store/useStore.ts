@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { RepeatMode, SortOption, VideoItem } from '../types';
+import type { RepeatMode, SortOption } from '../types';
 
 interface GlobalState {
   // Application State
