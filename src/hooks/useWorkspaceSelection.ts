@@ -139,7 +139,8 @@ export function useWorkspaceSelection({
     setFocusedId(id);
   }, [setFocusedId]);
 
-  const handleDeepFocus = useCallback((id: string, time?: number) => {
+  const handleDeepFocus = useCallback((id?: string, time?: number) => {
+    if (!id || typeof id !== 'string') return;
     if (time !== undefined && typeof time === 'number') {
       setVideos(prev => prev.map(v => v.id === id ? { ...v, currentTime: time } : v));
     }

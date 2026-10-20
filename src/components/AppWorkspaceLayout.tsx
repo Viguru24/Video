@@ -1,11 +1,9 @@
+import { useStore } from '../store/useStore';
 import React, { Suspense, lazy } from 'react';
-import { DndContext } from '@dnd-kit/core';
-import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import type { VideoItem, CollageItem, CollageConfig, FitMode, SortOption } from '../types';
 import { Sidebar } from './Sidebar';
 import { ControlBar } from './ControlBar';
 import { VideoGrid } from './VideoGrid';
-import { SortableVideoCard } from './SortableVideoCard';
 
 const CollageWorkspace = lazy(() => import('./CollageWorkspace').then(m => ({ default: m.CollageWorkspace })));
 
@@ -262,68 +260,58 @@ export function AppWorkspaceLayout({
                 />
               )}
 
-              <div className="grid-outer-scroll video-scroll" ref={scrollRef}>
-                {sortOrder === 'custom' ? (
-                  <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-                    <SortableContext items={filtered.map(x => x.id)} strategy={rectSortingStrategy}>
-                      <div className="video-grid-container sortable-mode" data-testid="sortable-grid">
-                        {filtered.map((v, i) => (
-                          <SortableVideoCard
-                            key={v.id}
-                            video={v}
-                            index={i}
-                            fitMode={fitMode}
-                            onUpdateVideo={handleUpdate}
-                            onRemoveVideo={handleDecommission}
-                            onToggleFocus={onToggleFocus}
-                            onSelect={toggleSelect}
-                            onContext={handleContext}
-                            isFocused={focusedId === v.id}
-                            isSelected={selectedIds.has(v.id)}
-                            isMultiSelectMode={selectionMode}
-                            globalControl={globalControl}
-                            addLog={addLog}
-                            masterPlaying={masterPlaying}
-                            masterMuted={masterMuted}
-                            globalVolume={globalVolume}
-                            snapshotDir={snapshotDir}
-                            speed={speed}
-                            isDragOverlay={dragId === v.id}
-                            showImmersiveUI={showImmersiveUI}
-                            onAnnihilate={handleAnnihilate}
-                            onDeepFocus={onDeepFocus}
-                          />
-                        ))}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
-                ) : (
-                  <VideoGrid 
-                    videos={filtered}
-                    focusedId={focusedId}
-                    selectedIds={selectedIds}
-                    selectionMode={selectionMode}
-                    globalControl={globalControl}
-                    masterPlaying={masterPlaying}
-                    masterMuted={masterMuted}
-                    globalVolume={globalVolume}
-                    snapshotDir={snapshotDir}
-                    speed={speed}
-                    fitMode={fitMode}
-                    onUpdateVideo={handleUpdate}
-                    onRemoveVideo={handleDecommission}
-                    onToggleFocus={onToggleFocus}
-                    onSelect={toggleSelect}
-                    onContext={handleContext}
-                    onAnnihilate={handleAnnihilate}
-                    onDeepFocus={onDeepFocus}
-                    addLog={addLog}
-                    showImmersiveUI={showImmersiveUI}
-                    rowOffsets={rowOffsets}
-                    onPasteImage={handlePasteImage}
-                  />
-                )}
-              </div>
+              <VideoGrid 
+                videos={videos}
+                filtered={filtered}
+                zoom={useStore.getState().zoom}
+                immersive={immersive}
+                focusedId={focusedId}
+                dragId={dragId}
+                globalRepeat={useStore.getState().globalRepeat}
+                globalSpeed={speed}
+                fitMode={fitMode}
+                masterPlaying={masterPlaying}
+                masterMuted={masterMuted}
+                globalVolume={globalVolume}
+                showImmersiveUI={showImmersiveUI}
+                snapshotDir={snapshotDir}
+                setSnapshotDir={setSnapshotDir}
+                globalControl={globalControl}
+                rowOffsets={rowOffsets}
+                rotIdx={0}
+                rotating={rotating}
+                scrollRef={scrollRef}
+                idToRow={{}}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onUpdateVideo={handleUpdate}
+                onRemoveVideo={handleDecommission}
+                onAnnihilate={handleAnnihilate}
+                onLog={addLog}
+                onFocus={(id) => onToggleFocus(id)}
+                onCloseFocus={() => onToggleFocus(null)}
+                onEnded={() => {}}
+                toggleMasterMute={toggleMasterMute}
+                toggleMasterPlay={() => {}}
+                onContextMenu={(id, x, y) => handleContext(id, x, y)}
+                onDeepFocus={onDeepFocus}
+                onReorder={() => {}}
+                onToggleFocus={onToggleFocus}
+                jumpToUnit={() => {}}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onSelectAll={handleSelectAll}
+                selectionMode={selectionMode}
+                onNavigateSibling={() => {}}
+                onUpscale={() => {}}
+                isSlideshowActive={isSlideshowActive}
+                setIsSlideshowActive={setIsSlideshowActive}
+                onColorAdjust={() => {}}
+                onStartCrop={() => {}}
+                onAddVideo={onAddVideo as any}
+                onBgContextMenu={() => {}}
+                onLoadDemos={() => {}}
+              />
             </>
           )}
         </Suspense>
