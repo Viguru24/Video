@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { VideoItem, RepeatMode } from '../types';
+import type { VideoItem } from '../types';
 import {
   toCosmoUrl,
   isValidMediaExtension,

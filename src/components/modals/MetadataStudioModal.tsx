@@ -21,19 +21,185 @@ import {
 import type { VideoItem } from '../../types';
 import { isValidPictureExtension, toRealPath } from '../../utils/videoUtils';
 
-import type {
-  MetadataKeyValue,
-  EditableExifFields,
-  FileMetadataReport,
-  SingleFileMetadataResult,
-  BatchMetadataResult,
-  MetadataStudioModalProps,
-  ExtractedComfySummary,
-} from './metadata/MetadataTypes';
-import { extractComfyUiSummary, resolveItemRealPath, formatBytes } from './metadata/MetadataTypes';
-import { MetadataComfyTab } from './metadata/MetadataComfyTab';
-import { MetadataExifTab } from './metadata/MetadataExifTab';
-import { MetadataBatchSidebar } from './metadata/MetadataBatchSidebar';
+export interface MetadataKeyValue {
+  key: string;
+  value: string;
+  source: string;
+}
+
+export interface EditableExifFields {
+  title: string;
+  artist: string;
+  copyright: string;
+  description: string;
+  comment: string;
+  software: string;
+  date_time: string;
+}
+
+export interface FileMetadataReport {
+  path: string;
+  file_name: string;
+  format: string;
+  file_size_bytes: number;
+  has_comfyui: boolean;
+  has_exif: boolean;
+  has_gps: boolean;
+  comfyui_entries: MetadataKeyValue[];
+  exif_entries: MetadataKeyValue[];
+  editable_exif: EditableExifFields;
+  summary_badge: string;
+}
+
+interface SingleFileMetadataResult {
+  original_path: string;
+  output_path: string;
+  success: boolean;
+  error: string | null;
+  bytes_before: number;
+  bytes_after: number;
+}
+
+interface BatchMetadataResult {
+  results: SingleFileMetadataResult[];
+  success_count: number;
+  fail_count: number;
+  total_bytes_saved: number;
+}
+
+interface MetadataStudioModalProps {
+  targets: VideoItem[];
+  allVideos: VideoItem[];
+  onClose: () => void;
+  onFilesUpdated: (results: SingleFileMetadataResult[], overwrite: boolean) => void;
+  addLog: (msg: string) => void;
+}
+
+interface ExtractedComfySummary {
+  models: string[];
+  positivePrompts: string[];
+  negativePrompts: string[];
+  samplerInfo: string[];
+  nodeCount: number;
+}
+
+function extractComfyUiSummary(entries: MetadataKeyValue[]): ExtractedComfySummary | null {
+  const promptEntry = entries.find((e) => e.key.toLowerCase() === 'prompt');
+  const workflowEntry = entries.find((e) => e.key.toLowerCase() === 'workflow');
+  if (!promptEntry && !workflowEntry) return null;
+
+  const models = new Set<string>();
+  const positivePrompts = new Set<string>();
+  const negativePrompts = new Set<string>();
+  const samplerInfo: string[] = [];
+  let nodeCount = 0;
+
+  if (promptEntry) {
+    try {
+      const parsed = JSON.parse(promptEntry.value);
+      if (parsed && typeof parsed === 'object') {
+        const nodes = Object.values(parsed) as any[];
+        nodeCount = nodes.length;
+
+        // Track node IDs referenced as positive / negative in KSamplers
+        const posIds = new Set<string>();
+        const negIds = new Set<string>();
+
+        for (const node of nodes) {
+          const inputs = node?.inputs || {};
+          if (Array.isArray(inputs.positive) && inputs.positive[0] !== undefined) {
+            posIds.add(String(inputs.positive[0]));
+          }
+          if (Array.isArray(inputs.negative) && inputs.negative[0] !== undefined) {
+            negIds.add(String(inputs.negative[0]));
+          }
+
+          for (const [k, v] of Object.entries(inputs)) {
+            if (
+              typeof v === 'string' &&
+              (k.includes('ckpt_name') ||
+                k.includes('unet_name') ||
+                k.includes('lora_name') ||
+                k.includes('model_name') ||
+                k.includes('vae_name'))
+            ) {
+              models.add(v);
+            }
+          }
+
+          const classType = String(node?.class_type || '');
+          if (classType.toLowerCase().includes('sampler')) {
+            const parts: string[] = [];
+            if (inputs.seed !== undefined && typeof inputs.seed !== 'object') parts.push(`Seed: ${inputs.seed}`);
+            if (inputs.steps !== undefined && typeof inputs.steps !== 'object') parts.push(`Steps: ${inputs.steps}`);
+            if (inputs.cfg !== undefined && typeof inputs.cfg !== 'object') parts.push(`CFG: ${inputs.cfg}`);
+            if (inputs.sampler_name) parts.push(`Sampler: ${inputs.sampler_name}`);
+            if (inputs.scheduler) parts.push(`Scheduler: ${inputs.scheduler}`);
+            if (parts.length > 0) {
+              samplerInfo.push(parts.join(' • '));
+            }
+          }
+        }
+
+        for (const [id, node] of Object.entries(parsed) as [string, any][]) {
+          const inputs = node?.inputs || {};
+          const textVal =
+            typeof inputs.text === 'string'
+              ? inputs.text.trim()
+              : typeof inputs.prompt === 'string'
+              ? inputs.prompt.trim()
+              : '';
+          if (textVal && textVal.length > 1) {
+            if (negIds.has(id)) {
+              negativePrompts.add(textVal);
+            } else if (posIds.has(id) || String(node?.class_type || '').includes('TextEncode')) {
+              positivePrompts.add(textVal);
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore malformed JSON
+    }
+  }
+
+  if (nodeCount === 0 && workflowEntry) {
+    try {
+      const parsed = JSON.parse(workflowEntry.value);
+      if (Array.isArray(parsed?.nodes)) {
+        nodeCount = parsed.nodes.length;
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  if (
+    models.size === 0 &&
+    positivePrompts.size === 0 &&
+    negativePrompts.size === 0 &&
+    samplerInfo.length === 0 &&
+    nodeCount === 0
+  ) {
+    return null;
+  }
+
+  return {
+    models: Array.from(models),
+    positivePrompts: Array.from(positivePrompts),
+    negativePrompts: Array.from(negativePrompts),
+    samplerInfo,
+    nodeCount,
+  };
+}
+
+function resolveItemRealPath(v: VideoItem): string {
+  const raw =
+    v.folderFiles && v.currentIdx !== undefined
+      ? v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url
+      : v.realPath || v.url;
+  return toRealPath(raw || '') || raw || '';
+}
 
 export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
   targets,
@@ -648,19 +814,222 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
         {/* MAIN SPLIT BODY */}
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
           {/* LEFT SIDEBAR: MULTI-FILE BATCH LIST */}
-          <MetadataBatchSidebar
-            filteredItemPaths={filteredItemPaths}
-            itemPaths={itemPaths}
-            reports={reports}
-            checkedPaths={checkedPaths}
-            activePath={activePath}
-            stats={stats}
-            filterMode={filterMode}
-            setFilterMode={setFilterMode}
-            toggleCheckAllVisible={toggleCheckAllVisible}
-            toggleCheckPath={toggleCheckPath}
-            setActivePath={setActivePath}
-          />
+          <div
+            style={{
+              width: '320px',
+              borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'rgba(0, 0, 0, 0.2)',
+            }}
+          >
+            {/* Sidebar Controls */}
+            <div
+              style={{
+                padding: '10px 12px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <button
+                  onClick={toggleCheckAllVisible}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#e2e8f0',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: 0,
+                  }}
+                >
+                  {filteredItemPaths.length > 0 &&
+                  filteredItemPaths.every(({ path }) => checkedPaths.has(path)) ? (
+                    <CheckSquare size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                  ) : (
+                    <Square size={14} style={{ color: 'rgba(255,255,255,0.4)' }} />
+                  )}
+                  <span>
+                    {checkedPaths.size} of {itemPaths.length} Checked
+                  </span>
+                </button>
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>Click row to inspect</span>
+              </div>
+
+              {/* Filter Pills */}
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {(
+                  [
+                    { id: 'all', label: `All (${stats.total})` },
+                    { id: 'comfyui', label: `ComfyUI (${stats.comfyCount})` },
+                    { id: 'exif', label: `EXIF (${stats.exifCount})` },
+                  ] as const
+                ).map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setFilterMode(f.id)}
+                    style={{
+                      flex: 1,
+                      padding: '4px 6px',
+                      borderRadius: '6px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      background: filterMode === f.id ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.03)',
+                      border:
+                        filterMode === f.id
+                          ? '1px solid rgba(255,255,255,0.25)'
+                          : '1px solid rgba(255,255,255,0.06)',
+                      color: filterMode === f.id ? '#fff' : 'rgba(255,255,255,0.5)',
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Scrollable File Rows */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '6px' }}>
+              {filteredItemPaths.map(({ path, item }) => {
+                const rep = reports[path];
+                const isChecked = checkedPaths.has(path);
+                const isActive = activePath === path;
+                const fileName = rep?.file_name || item.title || path.split(/[\\/]/).pop() || 'File';
+
+                return (
+                  <div
+                    key={path}
+                    onClick={() => setActivePath(path)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 10px',
+                      marginBottom: '4px',
+                      borderRadius: '9px',
+                      cursor: 'pointer',
+                      background: isActive
+                        ? 'rgba(0, 255, 136, 0.1)'
+                        : isChecked
+                        ? 'rgba(255, 255, 255, 0.03)'
+                        : 'transparent',
+                      border: isActive
+                        ? '1px solid rgba(0, 255, 136, 0.35)'
+                        : '1px solid rgba(255, 255, 255, 0.04)',
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleCheckPath(path);
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '2px' }}
+                    >
+                      {isChecked ? (
+                        <CheckSquare size={15} style={{ color: 'var(--accent, #00ff88)' }} />
+                      ) : (
+                        <Square size={15} style={{ color: 'rgba(255,255,255,0.3)' }} />
+                      )}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: '11.5px',
+                          fontWeight: isActive ? 800 : 600,
+                          color: isActive ? '#fff' : '#e2e8f0',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        title={fileName}
+                      >
+                        {fileName}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '3px', flexWrap: 'wrap' }}>
+                        {rep ? (
+                          <>
+                            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                              {formatBytes(rep.file_size_bytes)}
+                            </span>
+                            {rep.has_comfyui && (
+                              <span
+                                style={{
+                                  fontSize: '8.5px',
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: 'rgba(168, 85, 247, 0.22)',
+                                  color: '#d8b4fe',
+                                  border: '1px solid rgba(168, 85, 247, 0.4)',
+                                }}
+                              >
+                                COMFYUI
+                              </span>
+                            )}
+                            {rep.has_exif && (
+                              <span
+                                style={{
+                                  fontSize: '8.5px',
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: 'rgba(56, 189, 248, 0.18)',
+                                  color: '#7dd3fc',
+                                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                                }}
+                              >
+                                EXIF
+                              </span>
+                            )}
+                            {rep.has_gps && (
+                              <span
+                                style={{
+                                  fontSize: '8.5px',
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: 'rgba(245, 158, 11, 0.22)',
+                                  color: '#fcd34d',
+                                  border: '1px solid rgba(245, 158, 11, 0.4)',
+                                }}
+                              >
+                                GPS
+                              </span>
+                            )}
+                            {!rep.has_comfyui && !rep.has_exif && (
+                              <span
+                                style={{
+                                  fontSize: '8.5px',
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: 'rgba(0, 255, 136, 0.12)',
+                                  color: 'var(--accent, #00ff88)',
+                                }}
+                              >
+                                CLEAN
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.35)' }}>Scanning...</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {/* RIGHT PANE: INSPECTOR & EDITOR FOR ACTIVE FILE */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -801,43 +1170,605 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
             {/* TAB CONTENT AREA */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px', userSelect: 'text' }}>
               {activeTab === 'comfyui' ? (
-                <MetadataComfyTab
-                  comfySummary={comfySummary}
-                  editableComfyEntries={editableComfyEntries}
-                  setEditableComfyEntries={setEditableComfyEntries}
-                  activePath={activePath}
-                  isProcessing={isProcessing}
-                  copiedKey={copiedKey}
-                  copyText={copyText}
-                  onSaveComfyEdits={() =>
-                    executeMetadataAction(
-                      'update_metadata',
-                      [activePath],
-                      editableExif,
-                      editableComfyEntries
-                    )
-                  }
-                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Smart ComfyUI Extracted Summary */}
+                  {comfySummary && (
+                    <div
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: '12px',
+                        background: 'rgba(168, 85, 247, 0.08)',
+                        border: '1px solid rgba(168, 85, 247, 0.25)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: '#d8b4fe', letterSpacing: '0.6px' }}>
+                          🧬 EXTRACTED COMFYUI GENERATION SUMMARY ({comfySummary.nodeCount} NODES)
+                        </span>
+                      </div>
+
+                      {comfySummary.models.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>
+                            Models / Checkpoints:
+                          </span>
+                          {comfySummary.models.map((m) => (
+                            <span
+                              key={m}
+                              style={{
+                                fontSize: '10.5px',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: 'rgba(0,0,0,0.35)',
+                                color: '#f3e8ff',
+                                border: '1px solid rgba(168, 85, 247, 0.3)',
+                              }}
+                            >
+                              {m}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {comfySummary.samplerInfo.length > 0 && (
+                        <div style={{ fontSize: '11px', color: '#cbd5e1' }}>
+                          <strong style={{ color: 'rgba(255,255,255,0.55)' }}>Sampler: </strong>
+                          {comfySummary.samplerInfo.join(' | ')}
+                        </div>
+                      )}
+
+                      {comfySummary.positivePrompts.map((p, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            background: 'rgba(0, 0, 0, 0.3)',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(0, 255, 136, 0.2)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '9.5px', fontWeight: 800, color: 'var(--accent, #00ff88)' }}>
+                              POSITIVE PROMPT
+                            </span>
+                            <button
+                              onClick={() => copyText(`pos-${idx}`, p)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#cbd5e1',
+                                fontSize: '10px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                              }}
+                            >
+                              {copiedKey === `pos-${idx}` ? <Check size={11} /> : <Copy size={11} />}
+                              {copiedKey === `pos-${idx}` ? 'Copied' : 'Copy'}
+                            </button>
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: '#f1f5f9', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                            {p}
+                          </div>
+                        </div>
+                      ))}
+
+                      {comfySummary.negativePrompts.map((p, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            background: 'rgba(0, 0, 0, 0.3)',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(248, 113, 113, 0.2)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '9.5px', fontWeight: 800, color: '#f87171' }}>
+                              NEGATIVE PROMPT
+                            </span>
+                            <button
+                              onClick={() => copyText(`neg-${idx}`, p)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#cbd5e1',
+                                fontSize: '10px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                              }}
+                            >
+                              {copiedKey === `neg-${idx}` ? <Check size={11} /> : <Copy size={11} />}
+                              {copiedKey === `neg-${idx}` ? 'Copied' : 'Copy'}
+                            </button>
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: '#fca5a5', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                            {p}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Raw ComfyUI Chunks Editor */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'rgba(255,255,255,0.6)' }}>
+                      EMBEDDED COMFYUI / AI CHUNKS ({editableComfyEntries.length})
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() =>
+                          setEditableComfyEntries((prev) => [
+                            ...prev,
+                            { key: 'prompt', value: '{}', source: 'PNG tEXt' },
+                          ])
+                        }
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: '7px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          background: 'rgba(255,255,255,0.06)',
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          color: '#fff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                        }}
+                      >
+                        <Plus size={12} />
+                        Add Chunk
+                      </button>
+                      {activePath && (
+                        <button
+                          disabled={isProcessing}
+                          onClick={() =>
+                            executeMetadataAction(
+                              'update_metadata',
+                              [activePath],
+                              editableExif,
+                              editableComfyEntries
+                            )
+                          }
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: '7px',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            background: 'rgba(0, 255, 136, 0.18)',
+                            border: '1px solid rgba(0, 255, 136, 0.45)',
+                            color: 'var(--accent, #00ff88)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                          }}
+                        >
+                          <Save size={12} />
+                          Save ComfyUI Edits to File
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {editableComfyEntries.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '36px 20px',
+                        textAlign: 'center',
+                        background: 'rgba(255,255,255,0.02)',
+                        borderRadius: '12px',
+                        border: '1px dashed rgba(255,255,255,0.1)',
+                        color: 'rgba(255,255,255,0.45)',
+                        fontSize: '12px',
+                      }}
+                    >
+                      ✨ No ComfyUI workflow or prompt JSON chunks are embedded in this file.
+                    </div>
+                  ) : (
+                    editableComfyEntries.map((entry, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          background: 'rgba(0, 0, 0, 0.35)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '10px',
+                          padding: '12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', fontWeight: 700 }}>
+                              KEY:
+                            </span>
+                            <input
+                              type="text"
+                              value={entry.key}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setEditableComfyEntries((prev) =>
+                                  prev.map((item, i) => (i === idx ? { ...item, key: val } : item))
+                                );
+                              }}
+                              style={{
+                                background: 'rgba(255,255,255,0.06)',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: '6px',
+                                padding: '4px 8px',
+                                color: '#e9d5ff',
+                                fontSize: '11.5px',
+                                fontWeight: 800,
+                                width: '160px',
+                              }}
+                            />
+                            <span
+                              style={{
+                                fontSize: '9.5px',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: 'rgba(255,255,255,0.06)',
+                                color: 'rgba(255,255,255,0.5)',
+                              }}
+                            >
+                              {entry.source} • {formatBytes(entry.value.length)}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              onClick={() => {
+                                try {
+                                  const pretty = JSON.stringify(JSON.parse(entry.value), null, 2);
+                                  setEditableComfyEntries((prev) =>
+                                    prev.map((item, i) => (i === idx ? { ...item, value: pretty } : item))
+                                  );
+                                } catch {
+                                  // Not valid JSON
+                                }
+                              }}
+                              style={{
+                                background: 'rgba(255,255,255,0.05)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '6px',
+                                padding: '4px 8px',
+                                color: '#cbd5e1',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                              }}
+                            >
+                              <Wand2 size={11} />
+                              Format JSON
+                            </button>
+                            <button
+                              onClick={() => copyText(`chunk-${idx}`, entry.value)}
+                              style={{
+                                background: 'rgba(255,255,255,0.05)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '6px',
+                                padding: '4px 8px',
+                                color: '#cbd5e1',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                              }}
+                            >
+                              {copiedKey === `chunk-${idx}` ? <Check size={11} /> : <Copy size={11} />}
+                              {copiedKey === `chunk-${idx}` ? 'Copied' : 'Copy JSON'}
+                            </button>
+                            <button
+                              onClick={() =>
+                                setEditableComfyEntries((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                              title="Remove this chunk (click Save ComfyUI Edits to write)"
+                              style={{
+                                background: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                borderRadius: '6px',
+                                padding: '4px 7px',
+                                color: '#fca5a5',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <textarea
+                          value={entry.value}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditableComfyEntries((prev) =>
+                              prev.map((item, i) => (i === idx ? { ...item, value: val } : item))
+                            );
+                          }}
+                          rows={8}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            background: 'rgba(0, 0, 0, 0.45)',
+                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            borderRadius: '8px',
+                            padding: '10px',
+                            color: '#e2e8f0',
+                            fontFamily: 'Consolas, Monaco, monospace',
+                            fontSize: '11px',
+                            lineHeight: 1.45,
+                            resize: 'vertical',
+                            outline: 'none',
+                          }}
+                        />
+                      </div>
+                    ))
+                  )}
+                </div>
               ) : (
-                <MetadataExifTab
-                  editableExif={editableExif}
-                  setEditableExif={setEditableExif}
-                  checkedList={checkedList}
-                  activePath={activePath}
-                  isProcessing={isProcessing}
-                  activeReport={activeReport}
-                  onSaveExifActive={() =>
-                    executeMetadataAction(
-                      'update_metadata',
-                      [activePath],
-                      editableExif,
-                      editableComfyEntries
-                    )
-                  }
-                  onSaveExifBatch={() =>
-                    executeMetadataAction('update_metadata', checkedList, editableExif)
-                  }
-                />
+                /* TAB 2: EXIF & STANDARD METADATA EDITOR */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                  {/* Editable EXIF Form */}
+                  <div
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.025)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '11.5px', fontWeight: 800, color: '#38bdf8' }}>
+                          EDITABLE EXIF / FILE METADATA TAGS
+                        </div>
+                        <div style={{ fontSize: '10.5px', color: 'rgba(255,255,255,0.45)' }}>
+                          Edit fields below and save to this file or apply across all {checkedList.length} checked files.
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() =>
+                            setEditableExif({
+                              title: '',
+                              artist: '',
+                              copyright: '',
+                              description: '',
+                              comment: '',
+                              software: '',
+                              date_time: '',
+                            })
+                          }
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '7px',
+                            fontSize: '10.5px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: '#cbd5e1',
+                          }}
+                        >
+                          Clear Fields
+                        </button>
+
+                        {activePath && (
+                          <button
+                            disabled={isProcessing}
+                            onClick={() =>
+                              executeMetadataAction(
+                                'update_metadata',
+                                [activePath],
+                                editableExif,
+                                editableComfyEntries
+                              )
+                            }
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '7px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              background: 'rgba(56, 189, 248, 0.18)',
+                              border: '1px solid rgba(56, 189, 248, 0.45)',
+                              color: '#bae6fd',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                            }}
+                          >
+                            <Save size={12} />
+                            Save EXIF to Active File
+                          </button>
+                        )}
+
+                        {checkedList.length > 1 && (
+                          <button
+                            disabled={isProcessing}
+                            onClick={() =>
+                              executeMetadataAction('update_metadata', checkedList, editableExif)
+                            }
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '7px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              background: 'rgba(0, 255, 136, 0.18)',
+                              border: '1px solid rgba(0, 255, 136, 0.45)',
+                              color: 'var(--accent, #00ff88)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                            }}
+                          >
+                            <Save size={12} />
+                            Batch Apply EXIF to All Checked ({checkedList.length})
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                        gap: '10px',
+                      }}
+                    >
+                      {(
+                        [
+                          { key: 'title', label: 'Title', placeholder: 'Image / File Title...' },
+                          { key: 'artist', label: 'Artist / Author', placeholder: 'Creator or Author name...' },
+                          { key: 'copyright', label: 'Copyright', placeholder: '© 2026 ...' },
+                          { key: 'software', label: 'Software', placeholder: 'Application / Encoder...' },
+                          { key: 'date_time', label: 'Date / Time', placeholder: 'YYYY:MM:DD HH:MM:SS' },
+                          { key: 'description', label: 'Description', placeholder: 'Subject or scene description...' },
+                        ] as const
+                      ).map((field) => (
+                        <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
+                            {field.label}
+                          </label>
+                          <input
+                            type="text"
+                            value={editableExif[field.key]}
+                            placeholder={field.placeholder}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditableExif((prev) => ({ ...prev, [field.key]: val }));
+                            }}
+                            style={{
+                              background: 'rgba(0, 0, 0, 0.4)',
+                              border: '1px solid rgba(255, 255, 255, 0.12)',
+                              borderRadius: '7px',
+                              padding: '7px 10px',
+                              color: '#fff',
+                              fontSize: '11.5px',
+                              outline: 'none',
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
+                        User Comment / Notes
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={editableExif.comment}
+                        placeholder="Optional comment embedded in EXIF UserComment / PNG Comment..."
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditableExif((prev) => ({ ...prev, comment: val }));
+                        }}
+                        style={{
+                          background: 'rgba(0, 0, 0, 0.4)',
+                          border: '1px solid rgba(255, 255, 255, 0.12)',
+                          borderRadius: '7px',
+                          padding: '7px 10px',
+                          color: '#fff',
+                          fontSize: '11.5px',
+                          resize: 'vertical',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Raw Detected EXIF Entries List */}
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 800,
+                        color: 'rgba(255,255,255,0.6)',
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>DETECTED RAW EXIF / CONTAINER TAGS ({activeReport?.exif_entries.length || 0})</span>
+                      {activeReport?.has_gps && (
+                        <span style={{ color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <MapPin size={12} /> GPS Coordinates Present (Use Delete EXIF Info to scrub)
+                        </span>
+                      )}
+                    </div>
+
+                    {!activeReport || activeReport.exif_entries.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '28px 20px',
+                          textAlign: 'center',
+                          background: 'rgba(255,255,255,0.02)',
+                          borderRadius: '10px',
+                          border: '1px dashed rgba(255,255,255,0.1)',
+                          color: 'rgba(255,255,255,0.45)',
+                          fontSize: '12px',
+                        }}
+                      >
+                        ✨ No EXIF, GPS, or camera tags detected in this file.
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '10px',
+                          overflow: 'hidden',
+                          background: 'rgba(0,0,0,0.25)',
+                        }}
+                      >
+                        {activeReport.exif_entries.map((entry, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '170px 110px 1fr',
+                              gap: '10px',
+                              padding: '8px 12px',
+                              borderBottom:
+                                idx < activeReport.exif_entries.length - 1
+                                  ? '1px solid rgba(255,255,255,0.05)'
+                                  : 'none',
+                              fontSize: '11.5px',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <strong style={{ color: '#bae6fd', wordBreak: 'break-word' }}>{entry.key}</strong>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>{entry.source}</span>
+                            <span style={{ color: '#e2e8f0', wordBreak: 'break-all' }}>{entry.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>
