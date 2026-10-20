@@ -671,7 +671,21 @@ export default function App() {
     setToast,
     setMenu,
     setMenuMetadata,
-    metadataCache
+    metadataCache,
+    handleSelectAll,
+    handleBatchRemove,
+    confirmDeletion,
+    setImmersive,
+    setIsFS,
+    filtered,
+    setCollections,
+    setCollageItems,
+    onToggleFocus,
+    handleUpscale: videoOps.handleUpscale,
+    setFileManageMode: modalState.setFileManageMode,
+    setFileManageItems: modalState.setFileManageItems,
+    setFileManageOpen: modalState.setFileManageOpen,
+    handlePasteImage
   });
 
   const { handleAppDrop } = useWorkspaceDrop({

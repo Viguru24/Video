@@ -473,6 +473,41 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     showHudNotification('ZOOM', `${Math.round(nextZoom * 100)}%`);
   }, [showHudNotification]);
 
+  const lastScrollTime = useRef(0);
+  const handleWheel = (e: React.WheelEvent) => {
+    if (isCropping || colorAdjustId || showSaveCropOptions || showSaveUpscaleOptions) return;
+
+    if (e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastScrollTime.current > 400) {
+        navigate(e.deltaY > 0 ? 1 : -1);
+        lastScrollTime.current = now;
+      }
+      return;
+    }
+
+    const activeClean = toCosmoUrl(activeVideo?.url || '');
+    const activeIsImage = isValidPictureExtension((activeClean || '').split('?')[0]);
+
+    if (e.ctrlKey && !activeIsImage) {
+      e.preventDefault();
+      e.stopPropagation();
+      const change = e.deltaY < 0 ? 0.05 : -0.05;
+      setSpeed(prev => {
+        const next = Math.max(0.05, Math.min(16.0, parseFloat((prev + change).toFixed(2))));
+        showHudNotification('SPEED', `${next.toFixed(2)}x`);
+        return next;
+      });
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    performZoom(e.deltaY, e.clientX, e.clientY);
+  };
+
   const {
     handleViewportMouseDown,
     handleDoubleClickViewport,

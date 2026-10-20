@@ -1,12 +1,15 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useStore } from '../store/useStore';
 import type { VideoItem } from '../types';
 import { 
   triggerPopOut, 
   isValidPictureExtension, 
   toCosmoUrl, 
-  toRealPath 
+  toRealPath,
+  showConfirm,
+  normalizeMediaKey
 } from '../utils/videoUtils';
 
 interface UseContextMenuActionsProps {
@@ -35,6 +38,20 @@ interface UseContextMenuActionsProps {
   setMenu: (menu: { x: number; y: number; id: string } | null) => void;
   setMenuMetadata: (meta: any) => void;
   metadataCache: React.MutableRefObject<Record<string, any>>;
+  handleSelectAll: () => void;
+  handleBatchRemove: () => Promise<void>;
+  confirmDeletion: boolean;
+  setImmersive: (val: boolean) => void;
+  setIsFS: (val: boolean) => void;
+  filtered: VideoItem[];
+  setCollections: React.Dispatch<React.SetStateAction<Record<string, VideoItem[]>>>;
+  setCollageItems: React.Dispatch<React.SetStateAction<any[]>>;
+  onToggleFocus: (id: string) => void;
+  handleUpscale: (v: VideoItem) => void;
+  setFileManageMode: (mode: 'move' | 'copy') => void;
+  setFileManageItems: (items: any[]) => void;
+  setFileManageOpen: (open: boolean) => void;
+  handlePasteImage: (targetTileId?: string | null, customDataUrl?: string) => void;
 }
 
 export function useContextMenuActions({
@@ -62,7 +79,21 @@ export function useContextMenuActions({
   setToast,
   setMenu,
   setMenuMetadata,
-  metadataCache
+  metadataCache,
+  handleSelectAll,
+  handleBatchRemove,
+  confirmDeletion,
+  setImmersive,
+  setIsFS,
+  filtered,
+  setCollections,
+  setCollageItems,
+  onToggleFocus,
+  handleUpscale,
+  setFileManageMode,
+  setFileManageItems,
+  setFileManageOpen,
+  handlePasteImage
 }: UseContextMenuActionsProps) {
 
   const onContextMenuAction = useCallback(async (action: string, menuId: string) => {
