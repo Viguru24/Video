@@ -71,6 +71,10 @@ interface GlobalState {
   whatsAppShareTarget: VideoItem | null;
   setWhatsAppShareTarget: (target: VideoItem | null) => void;
 
+  // Metadata & ComfyUI Studio State
+  metadataStudioTargets: any[] | null;
+  setMetadataStudioTargets: (targets: any[] | null) => void;
+
   aiHardwareStatus: string;
   setAiHardwareStatus: (status: string) => void;
 
@@ -202,6 +206,9 @@ export const useStore = create<GlobalState>((set) => ({
 
   whatsAppShareTarget: null,
   setWhatsAppShareTarget: (target) => set({ whatsAppShareTarget: target }),
+
+  metadataStudioTargets: null,
+  setMetadataStudioTargets: (targets) => set({ metadataStudioTargets: targets }),
 
   aiHardwareStatus: 'Detecting...',
   setAiHardwareStatus: (status: string) => set({ aiHardwareStatus: status }),

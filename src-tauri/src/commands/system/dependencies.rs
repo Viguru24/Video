@@ -1,10 +1,9 @@
-use std::sync::OnceLock;
 use std::path::PathBuf;
-use std::fs;
-use tauri::{AppHandle, Manager, State, Window, Emitter, WebviewWindowBuilder, WebviewUrl};
-use crate::{AppState, LaunchArgs};
+use std::sync::{OnceLock, RwLock};
+use tauri::{AppHandle, Emitter, Manager};
 
-use std::sync::RwLock;
+use super::addons::resolve_install_dir;
+use super::telemetry::new_hidden_command;
 
 pub static AI_HARDWARE_MODE: OnceLock<RwLock<String>> = OnceLock::new();
 
@@ -20,18 +19,6 @@ pub fn set_ai_hardware_status(status: String) {
 
 fn clean_path(path: &std::path::Path) -> String {
     path.to_string_lossy().replace("\\\\?\\", "")
-}
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-fn new_hidden_command<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {
-    let mut cmd = std::process::Command::new(program);
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    cmd
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -51,244 +38,6 @@ pub struct SetupProgressEvent {
     pub percent: u32,
     pub done: bool,
     pub error: Option<String>,
-}
-
-struct GpuTelemetryCache {
-    vram: String,
-    temp: f32,
-    last_query: std::time::Instant,
-}
-
-static GPU_CACHE: OnceLock<std::sync::Mutex<GpuTelemetryCache>> = OnceLock::new();
-
-#[tauri::command]
-pub fn get_telemetry(state: State<AppState>) -> serde_json::Value {
-    let mut sys = match state.sys.lock() {
-        Ok(s) => s,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let mut last_refresh = match state.last_refresh.lock() {
-        Ok(s) => s,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    // Prevent race conditions by enforcing a minimum 1-second refresh interval
-    if last_refresh.elapsed() >= std::time::Duration::from_millis(1000) {
-        sys.refresh_cpu_usage();
-        sys.refresh_memory();
-        *last_refresh = std::time::Instant::now();
-    }
-
-    let cpu_usage = sys.global_cpu_usage();
-    let total_mem = sys.total_memory() / 1024 / 1024 / 1024; // GB
-    let used_mem = sys.used_memory() / 1024 / 1024 / 1024; // GB
-
-    let cache_mutex = GPU_CACHE.get_or_init(|| {
-        std::sync::Mutex::new(GpuTelemetryCache {
-            vram: format!("{}/{}GB", used_mem, total_mem),
-            temp: 0.0,
-            last_query: std::time::Instant::now() - std::time::Duration::from_secs(60),
-        })
-    });
-
-    let mut cache = cache_mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-
-    if cache.last_query.elapsed() >= std::time::Duration::from_secs(10) {
-        // Helper to spawn hidden process on Windows
-        let run_hidden_cmd = |cmd_name: &str, args: &[&str]| -> Option<String> {
-            let mut cmd = std::process::Command::new(cmd_name);
-            cmd.args(args);
-            #[cfg(target_os = "windows")]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            }
-            cmd.output().ok().and_then(|out| String::from_utf8(out.stdout).ok())
-        };
-
-        let temp_data = run_hidden_cmd("nvidia-smi", &["--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"])
-            .and_then(|s| s.trim().parse::<f32>().ok())
-            .unwrap_or(0.0);
-
-        let vram_data = run_hidden_cmd("nvidia-smi", &["--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"])
-            .and_then(|s| {
-                let parts: Vec<&str> = s.split(',').collect();
-                if parts.len() >= 2 {
-                    let used = parts[0].trim().parse::<f32>().ok()? / 1024.0;
-                    let total = parts[1].trim().parse::<f32>().ok()? / 1024.0;
-                    Some(format!("{:.1}/{:.1}GB", used, total))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| format!("{}/{}GB", used_mem, total_mem));
-
-        cache.temp = temp_data;
-        cache.vram = vram_data;
-        cache.last_query = std::time::Instant::now();
-    }
-
-    serde_json::json!({
-        "cpu": format!("{:.1}%", cpu_usage),
-        "mem": cache.vram,
-        "gpu": "RTX 5080",
-        "temp": cache.temp,
-        "fps": "STABLE"
-    })
-}
-
-#[tauri::command]
-pub fn get_launch_args(state: State<LaunchArgs>) -> Option<String> {
-    if let Ok(mut guard) = state.0.lock() {
-        guard.take()
-    } else {
-        None
-    }
-}
-
-#[tauri::command]
-pub fn cosmo_log(app: AppHandle, msg: String) {
-    let _ = (&app, &msg);
-    if false { if let Ok(mut log_path) = app.path().app_data_dir() {
-        log_path.push("cosmo_activity.log");
-
-        if let Some(parent) = log_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-
-        // Auto-rotate if log exceeds 5MB to prevent memory & disk I/O lockups
-        if let Ok(meta) = fs::metadata(&log_path) {
-            if meta.len() > 5 * 1024 * 1024 {
-                let mut old_log = log_path.clone();
-                old_log.set_extension("log.old");
-                let _ = fs::rename(&log_path, old_log);
-            }
-        }
-
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-        let line = format!("[{}] {}\n", timestamp, msg);
-        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(log_path) {
-            use std::io::Write;
-            let _ = file.write_all(line.as_bytes()); }
-        }
-    }
-}
-
-#[tauri::command]
-pub fn exit_app(app: AppHandle) {
-    println!("Cosmo Symphony: exit_app command called. Cleaning up processes and exiting...");
-    let _ = crate::commands::server::secure_cleanup_on_exit(&app);
-    
-    // Kill child Python server instances bound to ports 8005 or 12000
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("powershell.exe")
-            .args(&[
-                "-NoProfile", "-Command",
-                "Get-NetTCPConnection -LocalPort 8005, 12000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-            ])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output();
-    }
-    
-    app.exit(0);
-    std::process::exit(0);
-}
-
-#[tauri::command]
-pub async fn set_always_on_top(app: AppHandle, flag: bool) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_always_on_top(flag);
-    }
-}
-
-static POPOUT_URLS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
-
-fn get_popout_urls_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
-    POPOUT_URLS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
-#[tauri::command]
-pub async fn pop_out(app: AppHandle, url: String, title: String) -> Result<(), String> {
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let label = format!("pop-{}", timestamp);
-
-    // Save URL to the thread-safe map for this specific window label
-    if let Ok(mut map) = get_popout_urls_map().lock() {
-        map.insert(label.clone(), url.clone());
-    }
-
-    println!("Creating dynamic pop-out window with label: {} for URL: {}", label, url);
-    let query = format!("index.html?popout=true&url={}&title={}", 
-        urlencoding::encode(&url),
-        urlencoding::encode(&title)
-    );
-    let mut parsed_url = WebviewUrl::App(query.clone().into());
-    
-    if let Some(main_win) = app.get_webview_window("main") {
-        if let Ok(main_url) = main_win.url() {
-            let scheme = main_url.scheme();
-            let host = main_url.host_str().unwrap_or("");
-            let port = main_url.port();
-            
-            if (scheme == "http" || scheme == "https") 
-               && (host == "localhost" || host == "127.0.0.1") 
-               && port.is_some() 
-            {
-                if let Ok(popout_url) = main_url.join(&query) {
-                    println!("Development server detected, loading popout from: {}", popout_url);
-                    parsed_url = WebviewUrl::External(popout_url);
-                }
-            }
-        }
-    }
-    
-    let win_builder = WebviewWindowBuilder::new(&app, &label, parsed_url)
-        .title(&title)
-        .inner_size(1280.0, 720.0)
-        .resizable(true)
-        .decorations(false)
-        .maximized(false)
-        .fullscreen(false);
-
-    match win_builder.build() {
-        Ok(window) => {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
-            println!("Successfully created same-process pop-out window: {}", label);
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("Failed to create popout window: {}", e);
-            Err(e.to_string())
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn close_popout(window: tauri::Window) {
-    let label = window.label().to_string();
-    if let Ok(mut map) = get_popout_urls_map().lock() {
-        map.remove(&label);
-    }
-    let _ = window.destroy();
-}
-
-#[tauri::command]
-pub fn get_popout_url(window: tauri::Window) -> Option<String> {
-    let label = window.label();
-    if let Ok(map) = get_popout_urls_map().lock() {
-        if let Some(url) = map.get(label) {
-            return Some(url.clone());
-        }
-    }
-    crate::POPOUT_MEDIA_URL.get().cloned()
 }
 
 #[tauri::command]
@@ -353,281 +102,6 @@ pub async fn detect_ai_hardware(app: AppHandle) -> Result<String, String> {
     Ok(mode_str)
 }
 
-#[tauri::command]
-pub async fn span_all_monitors(window: Window) -> Result<(), String> {
-    println!("--- span_all_monitors triggered ---");
-    let monitors = window.available_monitors().map_err(|e| {
-        println!("Error getting available monitors: {}", e);
-        e.to_string()
-    })?;
-    println!("Found {} monitors", monitors.len());
-    for (i, m) in monitors.iter().enumerate() {
-        println!("  Monitor [{}]: Name={:?}, Position={:?}, Size={:?}, ScaleFactor={}", i, m.name(), m.position(), m.size(), m.scale_factor());
-    }
-
-    if monitors.is_empty() {
-        return Err("No monitors found".into());
-    }
-
-    let mut min_x = i32::MAX;
-    let mut min_y = i32::MAX;
-    let mut max_x = i32::MIN;
-    let mut max_y = i32::MIN;
-
-    for m in &monitors {
-        let pos = m.position();
-        let size = m.size();
-        let x1 = pos.x;
-        let y1 = pos.y;
-        let x2 = pos.x + size.width as i32;
-        let y2 = pos.y + size.height as i32;
-
-        if x1 < min_x { min_x = x1; }
-        if y1 < min_y { min_y = y1; }
-        if x2 > max_x { max_x = x2; }
-        if y2 > max_y { max_y = y2; }
-    }
-
-    let width = (max_x - min_x) as u32;
-    let height = (max_y - min_y) as u32;
-    println!("Calculated Spanning Area: x={}, y={}, width={}, height={}", min_x, min_y, width, height);
-
-    let _ = window.unmaximize();
-    std::thread::sleep(std::time::Duration::from_millis(150));
-
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_FRAMECHANGED};
-        use windows::Win32::Foundation::HWND;
-
-        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
-        let hwnd = HWND(hwnd.0 as *mut std::ffi::c_void);
-        unsafe {
-            SetWindowPos(
-                hwnd,
-                None,
-                min_x,
-                min_y,
-                width as i32,
-                height as i32,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-            ).map_err(|e| e.to_string())?;
-        }
-        println!("--- span_all_monitors complete (Win32 SetWindowPos) ---");
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = window.set_decorations(false);
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: min_x, y: min_y }));
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width, height }));
-        println!("--- span_all_monitors complete (fallback) ---");
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn unspan_monitors(window: Window) -> Result<(), String> {
-    println!("--- unspan_monitors triggered ---");
-    if let Err(e) = window.set_decorations(false) {
-        println!("  set_decorations error: {}", e);
-    }
-    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 1280, height: 720 })) {
-        println!("  set_size error: {}", e);
-    }
-    if let Err(e) = window.center() {
-        println!("  center error: {}", e);
-    }
-    println!("--- unspan_monitors complete ---");
-    Ok(())
-}
-
-#[tauri::command]
-pub fn open_external_url(url: String) -> Result<(), String> {
-    open_url(&url)
-}
-
-fn open_url(url: &str) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("cmd");
-        cmd.args(["/C", "start", "", url]);
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        cmd.output().map(|_| ()).map_err(|e| e.to_string())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::process::Command::new("open")
-            .arg(url)
-            .output()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-}
-
-pub fn resolve_install_dir(app: &AppHandle) -> PathBuf {
-    let default_dir = app.path().app_data_dir().unwrap_or_else(|_| {
-        let app_data = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join("AppData").join("Local"));
-        app_data.join("MicroMeadow.CosmoSymphony")
-    });
-
-    let config_file = default_dir.join("cosmo_config.json");
-    if config_file.exists() {
-        if let Ok(content) = std::fs::read_to_string(&config_file) {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(custom_path) = parsed.get("custom_install_path").and_then(|v| v.as_str()) {
-                    let path = PathBuf::from(custom_path);
-                    if path.exists() {
-                        return path;
-                    }
-                }
-            }
-        }
-    }
-    default_dir
-}
-
-#[tauri::command]
-pub fn get_custom_install_path(app: AppHandle) -> Option<String> {
-    let default_dir = app.path().app_data_dir().ok()?;
-    let config_file = default_dir.join("cosmo_config.json");
-    if config_file.exists() {
-        if let Ok(content) = std::fs::read_to_string(&config_file) {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(custom_path) = parsed.get("custom_install_path").and_then(|v| v.as_str()) {
-                    return Some(custom_path.to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-#[tauri::command]
-pub async fn set_custom_install_path(app: AppHandle, path: Option<String>) -> Result<(), String> {
-    let default_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let _ = std::fs::create_dir_all(&default_dir);
-    let config_file = default_dir.join("cosmo_config.json");
-
-    let mut config_val = if config_file.exists() {
-        std::fs::read_to_string(&config_file)
-            .ok()
-            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-            .unwrap_or_else(|| serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
-
-    if let Some(p) = path {
-        let pb = PathBuf::from(&p);
-        if !pb.exists() {
-            std::fs::create_dir_all(&pb).map_err(|e| format!("Failed to create folder: {}", e))?;
-        }
-        config_val["custom_install_path"] = serde_json::json!(p);
-    } else {
-        if let Some(obj) = config_val.as_object_mut() {
-            obj.remove("custom_install_path");
-        }
-    }
-
-    let config_str = serde_json::to_string_pretty(&config_val).map_err(|e| e.to_string())?;
-    std::fs::write(&config_file, config_str).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn uninstall_addons(app: AppHandle) -> Result<String, String> {
-    let install_dir = resolve_install_dir(&app);
-    let cpu_bundle = install_dir.join("cosmo_enhance");
-    let gpu_bundle = install_dir.join("cosmo_enhance_gpu");
-    let models_dir = install_dir.join(".cosmo_models");
-    let cpu_zip    = install_dir.join("cosmo_enhance_win64.zip");
-    let gpu_zip    = install_dir.join("cosmo_enhance_gpu_win64.zip");
-
-    let mut total_freed: u64 = 0;
-    let mut deleted_items = Vec::new();
-
-    let get_size = |path: &std::path::Path| -> u64 {
-        if !path.exists() { return 0; }
-        if path.is_file() {
-            return path.metadata().map(|m| m.len()).unwrap_or(0);
-        }
-        // Directory
-        let mut size = 0;
-        if let Ok(entries) = std::fs::read_dir(path) {
-            for entry in entries.flatten() {
-                size += entry.metadata().map(|m| m.len()).unwrap_or(0);
-                if entry.path().is_dir() {
-                    // Simple nested traversal
-                    if let Ok(sub) = std::fs::read_dir(entry.path()) {
-                        for sub_entry in sub.flatten() {
-                            size += sub_entry.metadata().map(|m| m.len()).unwrap_or(0);
-                        }
-                    }
-                }
-            }
-        }
-        size
-    };
-
-    let items_to_clean = [
-        (&cpu_bundle, "CPU Enhancement Server"),
-        (&gpu_bundle, "GPU NVIDIA/AMD Pack"),
-        (&models_dir, "AI Model Weights"),
-        (&cpu_zip, "CPU Install Package"),
-        (&gpu_zip, "GPU Install Package")
-    ];
-
-    // Kill any active running cosmo_enhance background processes before deleting files
-    #[cfg(target_os = "windows")]
-    {
-        let _ = new_hidden_command("taskkill")
-            .args(["/F", "/IM", "cosmo_enhance.exe", "/T"])
-            .output();
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
-
-    for (path, name) in &items_to_clean {
-        if path.exists() {
-            let sz = get_size(path);
-            total_freed += sz;
-            
-            if path.is_dir() {
-                let _ = std::fs::remove_dir_all(path);
-            } else {
-                let _ = std::fs::remove_file(path);
-            }
-            deleted_items.push(format!("Removed {} ({:.1} MB)", name, sz as f64 / 1_048_576.0));
-        }
-    }
-
-    let report = if deleted_items.is_empty() {
-        "No AI Add-ons or model weights found to uninstall.".to_string()
-    } else {
-        format!(
-            "AI Add-ons successfully uninstalled!\n\nCleared Location: {}\nFreed Space: {:.1} MB\n\nDetails:\n- {}",
-            install_dir.to_string_lossy(),
-            total_freed as f64 / 1_048_576.0,
-            deleted_items.join("\n- ")
-        )
-    };
-
-    // Update frontend state
-    let _ = app.emit("setup-progress", SetupProgressEvent {
-        step: "uninstalled".to_string(),
-        message: "AI Add-ons removed".to_string(),
-        percent: 0,
-        done: false,
-        error: None,
-    });
-
-    Ok(report)
-}
-
 pub fn cosmo_venv_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     let install_dir = resolve_install_dir(app);
     Some(install_dir.join("cosmo_venv"))
@@ -639,9 +113,6 @@ pub fn cosmo_models_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
 }
 
 pub fn resolve_studio_venv_python() -> Option<PathBuf> {
-    // Only scan local developer sibling directories in debug builds.
-    // In release/Store (MSIX) builds this would leak the developer's local paths
-    // to end-user machines and cause silent fallback to wrong Python environments.
     #[cfg(debug_assertions)]
     {
         if let Ok(exe) = std::env::current_exe() {
@@ -750,14 +221,12 @@ pub fn resolve_enhancer_command(app: Option<&AppHandle>) -> Result<(PathBuf, Vec
 
     let studio_venv_python = resolve_studio_venv_python();
 
-    let app_data =
-        std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join("AppData").join("Local"));
-    let program_files =
-        std::env::var_os("ProgramFiles")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+    let app_data = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join("AppData").join("Local"));
+    let program_files = std::env::var_os("ProgramFiles")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
 
     let common_python_paths: Vec<PathBuf> = vec![
         app_data.join("Programs").join("Python").join("Python312").join("python.exe"),
@@ -770,38 +239,10 @@ pub fn resolve_enhancer_command(app: Option<&AppHandle>) -> Result<(PathBuf, Vec
         PathBuf::from(r"C:\Python310\python.exe"),
     ];
 
-    let mut system_python = None;
-
-    if let Some(ref p) = cosmo_venv_python {
-        if check_python_gpu_and_packages(p) {
-            system_python = Some(p.clone());
-        }
-    }
-
-    if system_python.is_none() {
-        for path in &common_python_paths {
-            if path.exists() && check_python_gpu_and_packages(path) {
-                system_python = Some(path.clone());
-                break;
-            }
-        }
-    }
-
-    if system_python.is_none() {
-        if let Some(ref p) = studio_venv_python {
-            if check_python_gpu_and_packages(p) {
-                system_python = Some(p.clone());
-            }
-        }
-    }
-
-    let system_python = system_python
-        .or(cosmo_venv_python)
+    let system_python = cosmo_venv_python
         .or_else(|| common_python_paths.iter().find(|p| p.exists()).cloned())
         .or(studio_venv_python);
 
-    // In dev / repo environment: if cosmo_enhance.py is present and system Python has packages/GPU,
-    // run the live script directly so all new enhancements take effect immediately!
     let dev_py = std::env::current_dir()
         .ok()
         .map(|d| d.join("cosmo_enhance.py"))
@@ -819,8 +260,6 @@ pub fn resolve_enhancer_command(app: Option<&AppHandle>) -> Result<(PathBuf, Vec
         }
     }
 
-    // Priority 0: Pre-built bundles (downloaded by install_dependencies / install_gpu_pack).
-    // GPU pack (CUDA) wins over CPU pack when both are present.
     let gpu_bundle_exe = app.map(|a| {
         resolve_install_dir(a).join("cosmo_enhance_gpu").join("cosmo_enhance.exe")
     }).filter(|p| p.exists());
@@ -945,13 +384,9 @@ pub async fn check_dependencies(app: AppHandle) -> Result<DepsStatus, String> {
         }
     }
 
-    // Check for pre-built base bundle (CPU, auto-installed)
     let base_bundle_ok = app_data.join("cosmo_enhance").join("cosmo_enhance.exe").exists();
-
-    // Check for GPU acceleration pack (CUDA, user-triggered)
     let gpu_pack_ok = app_data.join("cosmo_enhance_gpu").join("cosmo_enhance.exe").exists();
 
-    // python_ok / packages_ok: report based on whichever bundle is present
     let python_ok   = base_bundle_ok || gpu_pack_ok || venv_python.exists();
     let packages_ok = base_bundle_ok || gpu_pack_ok || (python_ok && {
         let result = new_hidden_command(&venv_python)
@@ -981,7 +416,6 @@ pub async fn check_dependencies(app: AppHandle) -> Result<DepsStatus, String> {
         models_path: resolved_models_path.to_string_lossy().to_string(),
     })
 }
-
 
 #[tauri::command]
 pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result<(), String> {
@@ -1018,9 +452,6 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
         });
     };
 
-    // ── Already installed? ───────────────────────────────────────────────────
-    // The pre-built bundle unpacks to AppData/.../cosmo_enhance/cosmo_enhance.exe
-    // This matches the exe-first lookup path already in resolve_enhancer_command().
     let bundle_dir = app_data.join("cosmo_enhance");
     let bundle_exe = bundle_dir.join("cosmo_enhance.exe");
     let zip_path   = app_data.join("cosmo_enhance_win64.zip");
@@ -1037,9 +468,6 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
         let _ = std::fs::remove_file(&zip_path);
     }
 
-    // CPU-only bundle (~286 MB) - works on all hardware.
-    // Hosted on VPS nginx port 8099 alongside GPU pack (repo is private, GitHub releases need auth).
-    // Build with: .\scripts\build_cosmo_enhance_cpu.ps1
     const BUNDLE_URL: &str =
         "http://49.12.79.244:8099/cosmo_enhance_cpu_win64.zip";
 
@@ -1048,12 +476,6 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
     let zip_path_str = zip_path.to_string_lossy().replace('/', "\\\\");
     let app_data_str = app_data.to_string_lossy().replace('/', "\\\\");
 
-    // Use WebClient.DownloadFile — streams to disk without loading into RAM.
-    // Invoke-WebRequest buffers the whole response which OOMs on large files.
-    // Segmented Fast Multi-stream Downloader Script
-    // Downloads 8 chunks in parallel streams to bypass single-connection speed limits and maximize bandwidth.
-    // Use Windows BITS Transfer for fast, multi-threaded background download that automatically manages bandwidth.
-    // Clean any existing incomplete ZIP file to avoid BITS write/overwrite collisions
     if zip_path.exists() {
         let _ = std::fs::remove_file(&zip_path);
     }
@@ -1077,7 +499,6 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
             .output()
     });
 
-    // Poll file growth directly from disk (5 % -> 70 %)
     const EXPECTED_BYTES: u64 = 286 * 1024 * 1024;
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -1119,11 +540,8 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
         return Err(msg);
     }
 
-    // ── Extract the bundle ───────────────────────────────────────────────────
     emit("extract", "Extracting AI backend...", 72);
 
-    // To prevent collision with any active processes or locked files,
-    // we extract to a unique temporary directory, then move/rename to cosmo_enhance.
     let ps_extract = format!(
         "$temp = Join-Path '{app_data}' 'cpu_extract_temp'; \
          if (Test-Path $temp) {{ Remove-Item -Path $temp -Recurse -Force | Out-Null }}; \
@@ -1150,7 +568,6 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
         return Err(msg);
     }
 
-    // ── Verify extraction ────────────────────────────────────────────────────
     if !bundle_exe.exists() {
         let msg = format!(
             "Extraction succeeded but cosmo_enhance.exe not found at: {}",
@@ -1160,7 +577,6 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
         return Err(msg);
     }
 
-    // ── Clean up zip to save disk space ─────────────────────────────────────
     let _ = std::fs::remove_file(&zip_path);
 
     emit("done", "AI backend ready \u{2713}", 98);
@@ -1168,9 +584,6 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
     Ok(())
 }
 
-// ── GPU Acceleration Pack (CUDA, NVIDIA only, user-triggered) ───────────────
-// Downloads the full CUDA torch bundle into a separate cosmo_enhance_gpu/ folder.
-// The resolver in resolve_enhancer_command prefers this over the CPU bundle.
 #[tauri::command]
 pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(), String> {
     let app_data = resolve_install_dir(&app);
@@ -1220,8 +633,6 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
         let _ = std::fs::remove_file(&zip_path);
     }
 
-    // Full CUDA bundle (~2.8 GB). Hosted on VPS nginx port 8099 (plain HTTP, no redirect).
-    // Build with: .\scripts\build_cosmo_enhance_exe.ps1
     const GPU_BUNDLE_URL: &str =
         "http://49.12.79.244:8099/cosmo_enhance_gpu_win64.zip";
 
@@ -1230,7 +641,6 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
     let zip_str      = zip_path.to_string_lossy().replace('/', "\\\\");
     let app_data_str = app_data.to_string_lossy().replace('/', "\\\\");
 
-    // Clean any existing incomplete ZIP file to avoid BITS write/overwrite collisions
     if zip_path.exists() {
         let _ = std::fs::remove_file(&zip_path);
     }
@@ -1254,7 +664,6 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
             .output()
     });
 
-    // Poll file growth directly from disk (3 % -> 70 %)
     const EXPECTED_BYTES: u64 = 2_815 * 1024 * 1024;
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -1293,8 +702,6 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
 
     emit("extract", "Extracting GPU pack...", 72);
 
-    // To prevent collision with active CPU cosmo_enhance folder files,
-    // we extract to a unique temporary directory, then move/rename to cosmo_enhance_gpu.
     let ps_extract_and_rename = format!(
         "$temp = Join-Path '{app_data}' 'gpu_extract_temp'; \
          if (Test-Path $temp) {{ Remove-Item -Path $temp -Recurse -Force | Out-Null }}; \
@@ -1332,7 +739,6 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
     Ok(())
 }
 
-
 #[tauri::command]
 pub async fn download_models(app: AppHandle) -> Result<(), String> {
     let app_data = resolve_install_dir(&app);
@@ -1369,21 +775,21 @@ pub async fn download_models(app: AppHandle) -> Result<(), String> {
             upscaler_filename,
             upscaler_url,
             0, 30,
-            67_000_000 // ~67 MB
+            67_000_000
         ),
         (
             "gfpgan",
             "GFPGANv1.4.pth",
             "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth",
             30, 75,
-            348_000_000 // ~348 MB
+            348_000_000
         ),
         (
             "u2net",
             ".u2net/u2net.onnx",
             "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",
             75, 100,
-            176_000_000 // ~176 MB
+            176_000_000
         ),
     ];
 
@@ -1396,7 +802,6 @@ pub async fn download_models(app: AppHandle) -> Result<(), String> {
 
         emit(step, &format!("Downloading {} (expected ~{} MB)...", filename, expected_size / 1_000_000), *start_pct + 2);
 
-        // Pre-create models directory and any subdirectories so the child PowerShell process can write into it.
         if let Some(parent) = dest.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -1481,7 +886,6 @@ pub fn copy_demo_files_to_app_data(app: &AppHandle) -> Result<(), String> {
 
     let resource_dir = app.path().resource_dir().unwrap_or_else(|_| PathBuf::from("."));
 
-    // Check multiple potential source paths for demos directory
     let src_candidates = [
         resource_dir.join("public").join("demos"),
         resource_dir.join("resources").join("public").join("demos"),
@@ -1501,16 +905,14 @@ pub fn copy_demo_files_to_app_data(app: &AppHandle) -> Result<(), String> {
     if let Some(src_dir) = src_demos_dir {
         println!("Copying demo files from {:?} to {:?}", src_dir, dest_demos_dir);
         if let Ok(entries) = std::fs::read_dir(src_dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Some(file_name) = path.file_name() {
-                            let dest_file = dest_demos_dir.join(file_name);
-                            if !dest_file.exists() {
-                                if let Err(e) = std::fs::copy(&path, &dest_file) {
-                                    eprintln!("Failed to copy demo file {:?}: {:?}", file_name, e);
-                                }
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(file_name) = path.file_name() {
+                        let dest_file = dest_demos_dir.join(file_name);
+                        if !dest_file.exists() {
+                            if let Err(e) = std::fs::copy(&path, &dest_file) {
+                                eprintln!("Failed to copy demo file {:?}: {:?}", file_name, e);
                             }
                         }
                     }
@@ -1523,120 +925,3 @@ pub fn copy_demo_files_to_app_data(app: &AppHandle) -> Result<(), String> {
 
     Ok(())
 }
-
-#[tauri::command]
-pub async fn share_media_file(path: String, platform: String, mode: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let clean_path = crate::commands::filesystem::clean_local_path(&path);
-        let file_path = std::path::PathBuf::from(&clean_path);
-        if !file_path.exists() {
-            return Err(format!("File does not exist: {}", clean_path));
-        }
-
-        let is_image = match file_path.extension().and_then(|ext| ext.to_str()).map(|e| e.to_lowercase()).as_deref() {
-            Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "avif" | "tiff" | "ico") => true,
-            _ => false,
-        };
-
-        let media_type_label = if is_image { "Image" } else { "Video" };
-
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-
-            // Strategy: Copy file to Windows Clipboard using PowerShell Set-Clipboard
-            // This copies the actual CF_HDROP file item onto the clipboard for instant Ctrl+V pasting!
-            let ps_script = format!(
-                "Set-Clipboard -Path '{}'",
-                clean_path.replace("'", "''")
-            );
-
-            let mut ps_cmd = std::process::Command::new("powershell.exe");
-            ps_cmd.arg("-NoProfile")
-                  .arg("-NonInteractive")
-                  .arg("-Command")
-                  .arg(&ps_script);
-            ps_cmd.creation_flags(0x08000000);
-
-            let _ = ps_cmd.output();
-
-            match platform.to_lowercase().as_str() {
-                "whatsapp" => {
-                    if mode == "web" {
-                        let mut open_cmd = std::process::Command::new("cmd.exe");
-                        open_cmd.arg("/c").arg("start").arg("https://web.whatsapp.com");
-                        open_cmd.creation_flags(0x08000000);
-                        let _ = open_cmd.spawn();
-                        Ok(format!("{} copied to clipboard & WhatsApp Web opened! Press Ctrl+V in your chat.", media_type_label))
-                    } else {
-                        let mut open_cmd = std::process::Command::new("cmd.exe");
-                        open_cmd.arg("/c").arg("start").arg("whatsapp://");
-                        open_cmd.creation_flags(0x08000000);
-                        let _ = open_cmd.spawn();
-                        Ok(format!("{} copied to clipboard & WhatsApp opened! Press Ctrl+V in your chat.", media_type_label))
-                    }
-                },
-                "telegram" => {
-                    if mode == "web" {
-                        let mut open_cmd = std::process::Command::new("cmd.exe");
-                        open_cmd.arg("/c").arg("start").arg("https://web.telegram.org");
-                        open_cmd.creation_flags(0x08000000);
-                        let _ = open_cmd.spawn();
-                        Ok(format!("{} copied to clipboard & Telegram Web opened! Press Ctrl+V in your chat.", media_type_label))
-                    } else {
-                        let mut open_cmd = std::process::Command::new("cmd.exe");
-                        open_cmd.arg("/c").arg("start").arg("tg://");
-                        open_cmd.creation_flags(0x08000000);
-                        let _ = open_cmd.spawn();
-                        Ok(format!("{} copied to clipboard & Telegram opened! Press Ctrl+V in your chat.", media_type_label))
-                    }
-                },
-                "discord" => {
-                    if mode == "web" {
-                        let mut open_cmd = std::process::Command::new("cmd.exe");
-                        open_cmd.arg("/c").arg("start").arg("https://discord.com/app");
-                        open_cmd.creation_flags(0x08000000);
-                        let _ = open_cmd.spawn();
-                        Ok(format!("{} copied to clipboard & Discord Web opened! Press Ctrl+V in your channel.", media_type_label))
-                    } else {
-                        let mut open_cmd = std::process::Command::new("cmd.exe");
-                        open_cmd.arg("/c").arg("start").arg("discord://");
-                        open_cmd.creation_flags(0x08000000);
-                        let _ = open_cmd.spawn();
-                        Ok(format!("{} copied to clipboard & Discord opened! Press Ctrl+V in your channel.", media_type_label))
-                    }
-                },
-                "email" => {
-                    let mut open_cmd = std::process::Command::new("cmd.exe");
-                    open_cmd.arg("/c").arg("start").arg("mailto:");
-                    open_cmd.creation_flags(0x08000000);
-                    let _ = open_cmd.spawn();
-                    Ok(format!("{} copied to clipboard & Email client opened! Press Ctrl+V to attach.", media_type_label))
-                },
-                "clipboard" => {
-                    Ok(format!("{} copied to clipboard! Switch to any app and press Ctrl+V to paste.", media_type_label))
-                },
-                "explorer" => {
-                    let mut exp_cmd = std::process::Command::new("explorer.exe");
-                    exp_cmd.arg("/select,").arg(&clean_path);
-                    let _ = exp_cmd.spawn();
-                    Ok(format!("{} located in File Explorer. Drag & drop anywhere!", media_type_label))
-                },
-                _ => {
-                    Ok(format!("{} ready for sharing.", media_type_label))
-                }
-            }
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            Ok(format!("{} ready for sharing.", media_type_label))
-        }
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn share_to_whatsapp(path: String, mode: String) -> Result<String, String> {
-    share_media_file(path, "whatsapp".to_string(), mode).await
-}
-
-

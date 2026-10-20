@@ -21,6 +21,7 @@ const ResizeModal = lazy(() => import('./ResizeModal').then(m => ({ default: m.R
 const RenameProtocolModal = lazy(() => import('./RenameProtocolModal').then(m => ({ default: m.RenameProtocolModal })));
 const VolumeRepeatModal = lazy(() => import('../VolumeRepeatModal').then(m => ({ default: m.VolumeRepeatModal })));
 const BatchRenameModal = lazy(() => import('./BatchRenameModal').then(m => ({ default: m.BatchRenameModal })));
+const MetadataStudioModal = lazy(() => import('./MetadataStudioModal').then(m => ({ default: m.MetadataStudioModal })));
 
 interface ModalOrchestratorProps {
   // Help Modal
@@ -175,6 +176,8 @@ export function ModalOrchestrator({
   const setWhatsAppShareTarget = useStore((s) => s.setWhatsAppShareTarget);
   const showBatchRename = useStore((s) => s.showBatchRename);
   const setShowBatchRename = useStore((s) => s.setShowBatchRename);
+  const metadataStudioTargets = useStore((s) => s.metadataStudioTargets);
+  const setMetadataStudioTargets = useStore((s) => s.setMetadataStudioTargets);
 
   return (
     <>
@@ -355,6 +358,40 @@ export function ModalOrchestrator({
             setVideos={setVideos}
             addLog={addLog}
             onClose={() => setShowBatchRename(false)}
+          />
+        )}
+
+        {metadataStudioTargets && metadataStudioTargets.length > 0 && (
+          <MetadataStudioModal
+            targets={metadataStudioTargets}
+            allVideos={videos}
+            onClose={() => setMetadataStudioTargets(null)}
+            addLog={addLog}
+            onFilesUpdated={(results, isOverwrite) => {
+              const okResults = results.filter((r) => r.success);
+              if (okResults.length === 0) return;
+              if (isOverwrite) {
+                const updatedOriginals = new Set(
+                  okResults.map((r) => r.original_path.toLowerCase().replace(/\//g, '\\'))
+                );
+                const cacheBust = `t=${Date.now()}`;
+                setVideos((prev) =>
+                  prev.map((v) => {
+                    const rp = (v.realPath || '').toLowerCase().replace(/\//g, '\\');
+                    if (updatedOriginals.has(rp)) {
+                      const cleanUrl = toCosmoUrl(v.realPath || v.url).split('?')[0];
+                      return { ...v, url: `${cleanUrl}?${cacheBust}` };
+                    }
+                    return v;
+                  })
+                );
+              } else {
+                const newPaths = okResults.map((r) => r.output_path);
+                if (newPaths.length > 0) {
+                  handleIngestPaths(newPaths);
+                }
+              }
+            }}
           />
         )}
       </Suspense>

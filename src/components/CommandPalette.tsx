@@ -26,6 +26,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   const commands: CommandItem[] = [
     {
+      id: 'metadata_studio',
+      title: 'Metadata, EXIF & ComfyUI Studio (Inspect, Edit or Strip)',
+      category: 'Privacy & Metadata',
+      icon: '🧬',
+      shortcut: 'Ctrl+Shift+M',
+      action: () => onSelectAction('metadata_studio'),
+    },
+    {
       id: 'whatsapp_share',
       title: 'Share... (Quick Share & Phone Transfer)',
       category: 'Sharing',

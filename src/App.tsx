@@ -3342,7 +3342,16 @@ export default function App() {
                     }
                   }
 
-                  // 1. INSTANT UI UPDATE (0ms) — tiles vanish immediately
+                  // 1. INSTANT UI UPDATE (0ms) — tiles vanish immediately + scrub from collections & collage
+                  const deletedPathSet = new Set(pathsToDelete.map(p => normalizeMediaKey(p)));
+                  setCollections(prev => {
+                    const next: Record<string, VideoItem[]> = {};
+                    for (const [k, list] of Object.entries(prev)) {
+                      next[k] = list.filter(item => !targetIdSet.has(item.id) && !deletedPathSet.has(normalizeMediaKey(item.realPath || item.url || '')));
+                    }
+                    return next;
+                  });
+                  setCollageItems(prev => prev.filter(item => !targetIdSet.has(item.id) && !deletedPathSet.has(normalizeMediaKey(item.url || ''))));
                   setVideos(nextVideos);
                   setSelectedIds(new Set());
                   setSelectionMode(false);
@@ -3387,7 +3396,16 @@ export default function App() {
                   const targetTitle = v.title;
                   const targetId = v.id;
 
-                  // 1. INSTANT UI UPDATE (0ms) — tile vanishes immediately
+                  // 1. INSTANT UI UPDATE (0ms) — tile vanishes immediately + scrub from collections & collage
+                  const deletedNormKey = normalizeMediaKey(targetPath);
+                  setCollections(prev => {
+                    const next: Record<string, VideoItem[]> = {};
+                    for (const [k, list] of Object.entries(prev)) {
+                      next[k] = list.filter(item => item.id !== targetId && normalizeMediaKey(item.realPath || item.url || '') !== deletedNormKey);
+                    }
+                    return next;
+                  });
+                  setCollageItems(prev => prev.filter(item => item.id !== targetId && normalizeMediaKey(item.url || '') !== deletedNormKey));
                   if (v.folderFiles && v.folderFiles.length > 1) {
                     const newFiles = v.folderFiles.filter((_, i) => i !== (v.currentIdx || 0));
                     const newIdx = Math.min(v.currentIdx || 0, newFiles.length - 1);
@@ -3617,6 +3635,103 @@ export default function App() {
                 handlePasteImage(v.id);
                 break;
               }
+              case 'metadata_studio': {
+                const currentFile = (v.folderFiles && v.currentIdx !== undefined && v.folderFiles[v.currentIdx])
+                  ? v.folderFiles[v.currentIdx]
+                  : null;
+                const targetItem: VideoItem = currentFile ? {
+                  ...v,
+                  realPath: currentFile.path || currentFile.url,
+                  url: currentFile.url || currentFile.path,
+                  title: currentFile.name || v.title
+                } : v;
+                metadataCache.current = {};
+                useStore.getState().setMetadataStudioTargets([targetItem]);
+                break;
+              }
+              case 'metadata_studio_selected': {
+                const selectedItems = videos.filter(item => selectedIds.has(item.id)).map(item => {
+                  const currentFile = (item.folderFiles && item.currentIdx !== undefined && item.folderFiles[item.currentIdx])
+                    ? item.folderFiles[item.currentIdx]
+                    : null;
+                  return currentFile ? {
+                    ...item,
+                    realPath: currentFile.path || currentFile.url,
+                    url: currentFile.url || currentFile.path,
+                    title: currentFile.name || item.title
+                  } : item;
+                });
+                metadataCache.current = {};
+                useStore.getState().setMetadataStudioTargets(selectedItems.length > 0 ? selectedItems : [v]);
+                break;
+              }
+              case 'quick_strip_comfyui':
+              case 'quick_strip_exif':
+              case 'quick_strip_all':
+              case 'quick_strip_comfyui_selected':
+              case 'quick_strip_exif_selected':
+              case 'quick_strip_all_selected': {
+                const isBatch = action.endsWith('_selected') && selectedIds.size > 0;
+                const targetItems = isBatch
+                  ? videos.filter(item => selectedIds.has(item.id))
+                  : [v];
+                const paths = targetItems
+                  .map(item => {
+                    const raw = (item.folderFiles && item.currentIdx !== undefined && item.folderFiles[item.currentIdx])
+                      ? (item.folderFiles[item.currentIdx]?.path || item.folderFiles[item.currentIdx]?.url)
+                      : (item.realPath || item.url);
+                    return toRealPath(raw || '') || raw || '';
+                  })
+                  .filter(p => p && !p.startsWith('/demos/'));
+
+                if (paths.length === 0) {
+                  addLog('Metadata Strip Error: No valid disk paths found.');
+                  break;
+                }
+
+                const backendAction = action.includes('comfyui')
+                  ? 'strip_comfyui'
+                  : action.includes('exif')
+                  ? 'strip_exif'
+                  : 'strip_all';
+
+                const label = backendAction === 'strip_comfyui'
+                  ? 'ComfyUI workflow/prompt data'
+                  : backendAction === 'strip_exif'
+                  ? 'EXIF metadata'
+                  : 'all ComfyUI & EXIF metadata';
+
+                (async () => {
+                  try {
+                    const res = await invoke<{
+                      results: { original_path: string; output_path: string; success: boolean }[];
+                      success_count: number;
+                      fail_count: number;
+                      total_bytes_saved: number;
+                    }>('strip_or_update_metadata_batch', {
+                      request: {
+                        paths,
+                        action: backendAction,
+                        overwrite: true,
+                        editable_exif: null,
+                        comfyui_entries: null,
+                      },
+                    });
+                    metadataCache.current = {};
+                    const kb = Math.max(0, res.total_bytes_saved / 1024).toFixed(1);
+                    const msg = `✓ Stripped ${label} from ${res.success_count} file(s)${res.total_bytes_saved > 0 ? ` (${kb} KB freed)` : ''}`;
+                    addLog(msg);
+                    setToast(msg);
+                    setTimeout(() => setToast(null), 3500);
+                  } catch (err) {
+                    console.error('Quick metadata strip failed:', err);
+                    addLog(`Metadata Strip Failed: ${err}`);
+                    setToast(`Metadata strip failed: ${err}`);
+                    setTimeout(() => setToast(null), 4000);
+                  }
+                })();
+                break;
+              }
               case 'whatsapp_share': {
                 const currentFile = (v.folderFiles && v.currentIdx !== undefined && v.folderFiles[v.currentIdx]) 
                   ? v.folderFiles[v.currentIdx] 
@@ -3693,6 +3808,18 @@ export default function App() {
         onClose={() => setIsCommandPaletteOpen(false)}
         onSelectAction={(actionId) => {
           switch (actionId) {
+            case 'metadata_studio': {
+              const selectedItems = videos.filter(item => selectedIds.has(item.id));
+              if (selectedItems.length > 0) {
+                useStore.getState().setMetadataStudioTargets(selectedItems);
+              } else if (focusedId) {
+                const target = videos.find(v => v.id === focusedId);
+                if (target) useStore.getState().setMetadataStudioTargets([target]);
+              } else if (videos.length > 0) {
+                useStore.getState().setMetadataStudioTargets(videos);
+              }
+              break;
+            }
             case 'whatsapp_share': {
               const target = (focusedId ? videos.find(v => v.id === focusedId) : null) || videos[0];
               if (target) useStore.getState().setWhatsAppShareTarget(target);
