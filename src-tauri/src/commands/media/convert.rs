@@ -505,7 +505,11 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<Value, S
         "created": created_time,
         "width": w,
         "height": h,
-        "duration": duration_sec
+        "duration": duration_sec,
+        "has_comfyui": super::metadata::inspect_single_file_sync(Some(&app), &clean_path).as_ref().map(|r| r.has_comfyui).unwrap_or(false),
+        "has_exif": super::metadata::inspect_single_file_sync(Some(&app), &clean_path).as_ref().map(|r| r.has_exif).unwrap_or(false),
+        "has_gps": super::metadata::inspect_single_file_sync(Some(&app), &clean_path).as_ref().map(|r| r.has_gps).unwrap_or(false),
+        "metadata_badge": super::metadata::inspect_single_file_sync(Some(&app), &clean_path).map(|r| r.summary_badge).unwrap_or_else(|_| "Clean".to_string())
     }))
 }
 

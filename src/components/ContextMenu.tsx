@@ -3,7 +3,7 @@ import {
   Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, CheckSquare, Volume2, VolumeX, 
   ExternalLink, Info, Edit2, ChevronLeft, ChevronRight, 
   Minimize2, Repeat, Repeat1, Crop, Sparkles, Save, Sliders, Copy, ShieldAlert,
-  ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, MessageSquare, Wifi
+  ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, MessageSquare, Wifi, FileCode2
 } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { isValidPictureExtension, isTauri } from '../utils/videoUtils';
@@ -128,6 +128,30 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
               <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Size</span>
               <strong style={{ fontSize: '9.5px', color: '#fff' }}>{metadata.size}</strong>
+            </div>
+            {(metadata.has_comfyui !== undefined || metadata.has_exif !== undefined) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: '1px' }}>
+                <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Metadata</span>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  {metadata.has_comfyui && (
+                    <span style={{ fontSize: '8.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(168, 85, 247, 0.22)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.4)' }}>
+                      COMFYUI
+                    </span>
+                  )}
+                  {metadata.has_exif && (
+                    <span style={{ fontSize: '8.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(56, 189, 248, 0.18)', color: '#7dd3fc', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
+                      EXIF{metadata.has_gps ? '+GPS' : ''}
+                    </span>
+                  )}
+                  {!metadata.has_comfyui && !metadata.has_exif && (
+                    <span style={{ fontSize: '8.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(0, 255, 136, 0.12)', color: 'var(--accent, #00ff88)' }}>
+                      CLEAN
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'none' }}>
             </div>
             {metadata.width && metadata.height && metadata.width > 0 && metadata.height > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
@@ -287,6 +311,26 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
 
       {selectedCount > 1 && !isFocused && (
         <>
+          {isTauri() && (
+            <>
+              <div className="context-menu-item accent-text" onClick={() => onAction('metadata_studio_selected')} style={{ fontWeight: 'bold' }}>
+                <FileCode2 size={14} style={{ color: '#c084fc' }} />
+                <span style={{ color: '#e9d5ff' }}>Edit / Strip EXIF & ComfyUI ({selectedCount})...</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('quick_strip_comfyui_selected')}>
+                <Sparkles size={14} style={{ color: '#c084fc' }} />
+                <span>Remove ComfyUI Info ({selectedCount})</span>
+              </div>
+              <div className="context-menu-item" onClick={() => onAction('quick_strip_exif_selected')}>
+                <Camera size={14} style={{ color: '#38bdf8' }} />
+                <span>Delete EXIF Info ({selectedCount})</span>
+              </div>
+              <div className="context-menu-item danger" onClick={() => onAction('quick_strip_all_selected')}>
+                <ShieldAlert size={14} />
+                <span>Strip ALL Metadata & EXIF ({selectedCount})</span>
+              </div>
+            </>
+          )}
           <div className="context-menu-item accent-text" onClick={() => onAction('rename_selected')}>
             <Edit2 size={14} />
             <span>Rename Selected {isImage ? 'Images' : 'Videos'} ({selectedCount})</span>
@@ -323,6 +367,16 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Sparkles size={14} />
                     <span>AI Upscale</span>
                   </div>
+                  {isTauri() && (
+                    <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
+                      <FileCode2 size={14} style={{ color: '#c084fc' }} />
+                      <span style={{ color: '#e9d5ff' }}>
+                        {selectedCount > 1 && isSelected
+                          ? `Edit / Strip Metadata (${selectedCount})...`
+                          : 'Edit / Strip Metadata & EXIF...'}
+                      </span>
+                    </div>
+                  )}
                   <div className="context-menu-item" onClick={() => onAction('snapshot')}>
                     <Camera size={14} />
                     <span>Save Snapshot</span>
@@ -373,6 +427,30 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Crop size={14} />
                     <span>Crop Image</span>
                   </div>
+                  {isTauri() && (
+                    <>
+                      <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
+                        <FileCode2 size={14} style={{ color: '#c084fc' }} />
+                        <span style={{ color: '#e9d5ff' }}>
+                          {selectedCount > 1 && isSelected
+                            ? `Edit / Strip EXIF & ComfyUI (${selectedCount})...`
+                            : 'Edit / Strip EXIF & ComfyUI...'}
+                        </span>
+                      </div>
+                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_comfyui_selected' : 'quick_strip_comfyui')}>
+                        <Sparkles size={14} style={{ color: '#c084fc' }} />
+                        <span>{selectedCount > 1 && isSelected ? `Remove ComfyUI Info (${selectedCount})` : 'Remove ComfyUI Info'}</span>
+                      </div>
+                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_exif_selected' : 'quick_strip_exif')}>
+                        <Camera size={14} style={{ color: '#38bdf8' }} />
+                        <span>{selectedCount > 1 && isSelected ? `Delete EXIF Info (${selectedCount})` : 'Delete EXIF Info'}</span>
+                      </div>
+                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_all_selected' : 'quick_strip_all')}>
+                        <ShieldAlert size={14} style={{ color: '#f87171' }} />
+                        <span style={{ color: '#fca5a5' }}>{selectedCount > 1 && isSelected ? `Strip ALL (EXIF + ComfyUI) (${selectedCount})` : 'Strip ALL (EXIF + ComfyUI)'}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="context-menu-item" onClick={() => onAction('resize')}>
                     <Minimize2 size={14} />
                     <span>Rescale / Resize</span>
@@ -491,6 +569,16 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Sparkles size={14} />
                     <span>AI Upscale</span>
                   </div>
+                  {isTauri() && (
+                    <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
+                      <FileCode2 size={14} style={{ color: '#c084fc' }} />
+                      <span style={{ color: '#e9d5ff' }}>
+                        {selectedCount > 1 && isSelected
+                          ? `Edit / Strip Metadata (${selectedCount})...`
+                          : 'Edit / Strip Metadata & EXIF...'}
+                      </span>
+                    </div>
+                  )}
                   <div className="context-menu-item" onClick={() => onAction('snapshot')}>
                     <Camera size={14} />
                     <span>Save Snapshot</span>
@@ -537,6 +625,30 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Crop size={14} />
                     <span>Crop Image</span>
                   </div>
+                  {isTauri() && (
+                    <>
+                      <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
+                        <FileCode2 size={14} style={{ color: '#c084fc' }} />
+                        <span style={{ color: '#e9d5ff' }}>
+                          {selectedCount > 1 && isSelected
+                            ? `Edit / Strip EXIF & ComfyUI (${selectedCount})...`
+                            : 'Edit / Strip EXIF & ComfyUI...'}
+                        </span>
+                      </div>
+                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_comfyui_selected' : 'quick_strip_comfyui')}>
+                        <Sparkles size={14} style={{ color: '#c084fc' }} />
+                        <span>{selectedCount > 1 && isSelected ? `Remove ComfyUI Info (${selectedCount})` : 'Remove ComfyUI Info'}</span>
+                      </div>
+                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_exif_selected' : 'quick_strip_exif')}>
+                        <Camera size={14} style={{ color: '#38bdf8' }} />
+                        <span>{selectedCount > 1 && isSelected ? `Delete EXIF Info (${selectedCount})` : 'Delete EXIF Info'}</span>
+                      </div>
+                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_all_selected' : 'quick_strip_all')}>
+                        <ShieldAlert size={14} style={{ color: '#f87171' }} />
+                        <span style={{ color: '#fca5a5' }}>{selectedCount > 1 && isSelected ? `Strip ALL (EXIF + ComfyUI) (${selectedCount})` : 'Strip ALL (EXIF + ComfyUI)'}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="context-menu-item" onClick={() => onAction('resize')}>
                     <Minimize2 size={14} />
                     <span>Rescale / Resize</span>

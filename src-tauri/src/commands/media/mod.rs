@@ -2,6 +2,7 @@ pub mod utils;
 pub mod convert;
 pub mod transform;
 pub mod upscale;
+pub mod metadata;
 
 use tauri::AppHandle;
 use serde_json::Value;
@@ -194,4 +195,22 @@ pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String,
 #[tauri::command]
 pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<upscale::AutoCropBox, String> {
     upscale::detect_person_crop(app, path).await
+}
+
+// --- METADATA & COMFYUI COMMANDS ---
+
+#[tauri::command]
+pub async fn inspect_file_metadata(app: AppHandle, path: String) -> Result<metadata::FileMetadataReport, String> {
+    metadata::inspect_file_metadata(app, path).await
+}
+
+#[tauri::command]
+pub async fn inspect_files_metadata_batch(app: AppHandle, paths: Vec<String>) -> Result<Vec<metadata::FileMetadataReport>, String> {
+    metadata::inspect_files_metadata_batch(app, paths).await
+}
+
+#[tauri::command]
+pub async fn strip_or_update_metadata_batch(app: AppHandle, request: metadata::MetadataActionRequest) -> Result<metadata::BatchMetadataResult, String> {
+    metadata::strip_or_update_metadata_batch(app, request).await
+
 }

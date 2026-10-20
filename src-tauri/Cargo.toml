@@ -51,6 +51,8 @@ rcgen = "0.13"
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 
 rayon = "1.10"
+flate2 = "1"
+crc32fast = "1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
