@@ -507,7 +507,7 @@ export function useWorkspacePersistence(
         invoke('save_persistence', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
         emit('workspace-changed', { key: 'cosmo-v2', data: dataStr }).catch(console.error);
       }
-      safeSetLocalStorage('cosmo-v2', dataStr);
+      if (isTauri()) { localStorage.removeItem('cosmo-v2'); localStorage.removeItem('cosmo-video-v2'); localStorage.removeItem('cosmo-video'); } else { safeSetLocalStorage('cosmo-v2', dataStr); }
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [videos, isInitialized, isPopout]);
@@ -518,7 +518,7 @@ export function useWorkspacePersistence(
     const timer = setTimeout(() => {
       const dataStr = JSON.stringify(cleanCollectionsForPersistence(collections));
       if (isTauri()) invoke('save_persistence', { key: 'cosmo-collections', data: dataStr }).catch(console.error);
-      safeSetLocalStorage('cosmo-collections', dataStr);
+      if (isTauri()) { localStorage.removeItem('cosmo-collections'); localStorage.removeItem('cosmo-video-collections'); } else { safeSetLocalStorage('cosmo-collections', dataStr); }
     }, 300); // short debounce — fast enough for manual saves, long enough to skip boot noise
     return () => clearTimeout(timer);
   }, [collections, isInitialized, isPopout]);
@@ -610,8 +610,8 @@ export function useWorkspacePersistence(
               const collectionsStr = JSON.stringify(cleanCollectionsForPersistence(curCollections));
 
               // Safe localStorage writes
-              safeSetLocalStorage('cosmo-v2',          videosStr);
-              safeSetLocalStorage('cosmo-collections', collectionsStr);
+              if (!isTauri()) safeSetLocalStorage('cosmo-v2',          videosStr);
+              if (!isTauri()) safeSetLocalStorage('cosmo-collections', collectionsStr);
               localStorage.setItem('cosmo-rot-int',     curRot.toString());
               if (curSnap) localStorage.setItem('cosmo-snap-dir', curSnap);
               localStorage.setItem('cosmo-theme',       curTheme);

@@ -434,7 +434,8 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<Value, S
         if let Ok(s) = fs::read_to_string(&history_file) {
             if let Ok(history) = serde_json::from_str::<serde_json::Map<String, Value>>(&s) {
                 let norm_clean = clean_path.replace("/", "\\");
-                if let Some(desc) = history.get(&clean_path).or_else(|| history.get(&norm_clean)) {
+                let hashed_key = super::upscale::hash_media_path(&clean_path);
+                if let Some(desc) = history.get(&hashed_key).or_else(|| history.get(&clean_path)).or_else(|| history.get(&norm_clean)) {
                     upscaled_by = desc.as_str().map(|s| s.to_string());
                 } else if let Ok(abs_path) = fs::canonicalize(&p) {
                     let abs_str = abs_path.to_string_lossy().to_string();

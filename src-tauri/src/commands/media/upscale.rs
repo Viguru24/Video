@@ -56,6 +56,16 @@ pub fn spawn_enhancement_server(app: Option<&AppHandle>) -> Result<(), String> {
     Ok(())
 }
 
+pub fn hash_media_path(p: &str) -> String {
+    let norm = p.replace('/', "\\").to_lowercase();
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in norm.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("h_{:016x}", h)
+}
+
 fn register_upscale_history(app: &AppHandle, file_path: &str, used_ai: bool) {
     if let Ok(app_data) = app.path().app_data_dir() {
         let history_file = app_data.join("upscale_history.json");
@@ -70,7 +80,7 @@ fn register_upscale_history(app: &AppHandle, file_path: &str, used_ai: bool) {
             "Bilateral Filter + INTER_CUBIC (CPU Fallback)"
         };
 
-        history.insert(file_path.to_string(), Value::String(model_desc.to_string()));
+        history.insert(hash_media_path(file_path), Value::String(model_desc.to_string()));
 
         if let Ok(s) = serde_json::to_string_pretty(&history) {
             let _ = fs::create_dir_all(&app_data);
@@ -121,6 +131,44 @@ fn convert_png_to_webp(png_path: &str) -> Result<String, String> {
     Ok(webp_path.to_string_lossy().to_string())
 }
 
+fn seal_persistence_payload(plain: &str) -> String {
+    use base64::Engine as _;
+    let mut state: u64 = 0x8a5cd789635d2dff;
+    let mut out = Vec::with_capacity(plain.len());
+    for (idx, b) in plain.as_bytes().iter().enumerate() {
+        state ^= (idx as u64).wrapping_mul(0x9e3779b97f4a7c15);
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        let k = (state.wrapping_mul(0x2545f4914f6cdd1d) >> 56) as u8;
+        out.push(b ^ k);
+    }
+    format!("ENC1:{}", base64::engine::general_purpose::STANDARD.encode(out))
+}
+
+fn unseal_persistence_payload(raw: &str) -> String {
+    use base64::Engine as _;
+    let trimmed = raw.trim();
+    if let Some(b64) = trimmed.strip_prefix("ENC1:") {
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
+            let mut state: u64 = 0x8a5cd789635d2dff;
+            let mut out = Vec::with_capacity(bytes.len());
+            for (idx, b) in bytes.iter().enumerate() {
+                state ^= (idx as u64).wrapping_mul(0x9e3779b97f4a7c15);
+                state ^= state >> 12;
+                state ^= state << 25;
+                state ^= state >> 27;
+                let k = (state.wrapping_mul(0x2545f4914f6cdd1d) >> 56) as u8;
+                out.push(b ^ k);
+            }
+            if let Ok(s) = String::from_utf8(out) {
+                return s;
+            }
+        }
+    }
+    raw.to_string()
+}
+
 pub async fn save_persistence(app: AppHandle, key: String, data: String) {
     let _ = tauri::async_runtime::spawn_blocking(move || {
         if let Ok(mut dir_path) = app.path().app_data_dir() {
@@ -148,7 +196,7 @@ pub async fn save_persistence(app: AppHandle, key: String, data: String) {
             if file_path.exists() {
                 if let Ok(existing_content) = fs::read_to_string(&file_path) {
                     let existing_valid = if is_json_key {
-                        serde_json::from_str::<Value>(&existing_content).is_ok()
+                        serde_json::from_str::<Value>(&unseal_persistence_payload(&existing_content)).is_ok()
                     } else {
                         !existing_content.trim().is_empty()
                     };
@@ -158,11 +206,12 @@ pub async fn save_persistence(app: AppHandle, key: String, data: String) {
                 }
             }
 
-            if fs::write(&tmp_path, &data).is_ok() {
+            let sealed_data = seal_persistence_payload(&data);
+            if fs::write(&tmp_path, &sealed_data).is_ok() {
                 let _ = fs::rename(&tmp_path, &file_path);
             }
 
-            if key == "cosmo-collections" || key == "cosmo-v2" {
+            if false && (key == "cosmo-collections" || key == "cosmo-v2") {
                 if let Ok(mut doc_path) = app.path().document_dir() {
                     doc_path.push("CosmoSymphony");
                     let _ = fs::create_dir_all(&doc_path);
@@ -201,7 +250,8 @@ pub async fn load_persistence(app: AppHandle, key: String) -> Option<String> {
             let bak_path = dir_path.join(format!("{}.json.bak", key));
 
             if file_path.exists() {
-                if let Ok(content) = fs::read_to_string(&file_path) {
+                if let Ok(raw_content) = fs::read_to_string(&file_path) {
+                    let content = unseal_persistence_payload(&raw_content);
                     if is_valid(&content) {
                         return Some(content);
                     } else {
@@ -211,7 +261,8 @@ pub async fn load_persistence(app: AppHandle, key: String) -> Option<String> {
             }
 
             if bak_path.exists() {
-                if let Ok(content) = fs::read_to_string(&bak_path) {
+                if let Ok(raw_content) = fs::read_to_string(&bak_path) {
+                    let content = unseal_persistence_payload(&raw_content);
                     if is_valid(&content) {
                         eprintln!("[Persistence] Recovered {} from AppData backup.", key);
                         return Some(content);
@@ -220,7 +271,7 @@ pub async fn load_persistence(app: AppHandle, key: String) -> Option<String> {
             }
         }
 
-        if key == "cosmo-collections" || key == "cosmo-v2" {
+        if false && (key == "cosmo-collections" || key == "cosmo-v2") {
             if let Ok(mut doc_path) = app.path().document_dir() {
                 doc_path.push("CosmoSymphony");
                 let doc_file_path = doc_path.join(format!("{}.json", key));
@@ -252,6 +303,7 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
     let mut stream_connected = TcpStream::connect("127.0.0.1:12000").is_ok();
     
     if !stream_connected {
+
         println!("AI enhancer server offline. Spawning background server...");
         if spawn_enhancement_server(Some(&app)).is_ok() {
             for _ in 0..100 {
@@ -266,6 +318,7 @@ pub async fn extract_subject_on_disk(app: AppHandle, path: String) -> Result<Str
     }
 
     if !stream_connected {
+
         return Err("AI Enhancement Server is offline and could not be started automatically. Please verify local Python dependencies.".into());
     }
 
@@ -366,9 +419,9 @@ pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<AutoCrop
     let is_video = ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov" || ext == "webm";
 
     let target_img_path = if is_video {
-        let temp_dir = std::env::temp_dir().join("cosmo_crop_frames");
+        let temp_dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_else(|| std::env::temp_dir().join("cosmo_crop_frames"));
         let _ = std::fs::create_dir_all(&temp_dir);
-        let frame_path = temp_dir.join(format!("frame_{}.jpg", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()));
+        let frame_path = temp_dir.join(format!(".cosmo_tmp_frame_{}.jpg", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()));
         
         let mut cmd = new_hidden_ffmpeg_command(Some(&app));
         cmd.args(["-y", "-ss", "0.5", "-i", &clean_path, "-vframes", "1", "-q:v", "2", frame_path.to_str().unwrap()]);
@@ -390,6 +443,7 @@ pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<AutoCrop
 
     let mut stream_connected = TcpStream::connect("127.0.0.1:12000").is_ok();
     if !stream_connected {
+
         println!("AI enhancer server offline. Spawning background server for person detection...");
         if spawn_enhancement_server(Some(&app)).is_ok() {
             for _ in 0..60 {
@@ -403,13 +457,14 @@ pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<AutoCrop
     }
 
     if !stream_connected {
+
         return Ok(AutoCropBox {
             x: 15.0,
             y: 15.0,
             w: 70.0,
             h: 70.0,
             detected: false,
-            label: "Center Default (AI Offline)".to_string(),
+            label: { if is_video && target_img_path != clean_path { let _ = secure_delete_file(&target_img_path); } "Center Default (AI Offline)".to_string() },
         });
     }
 
@@ -447,6 +502,8 @@ pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<AutoCrop
                             let detected = parsed.get("detected").and_then(|v| v.as_bool()).unwrap_or(false);
                             let label = parsed.get("label").and_then(|v| v.as_str()).unwrap_or("Person Detected").to_string();
 
+                    
+                            if is_video && target_img_path != clean_path { let _ = secure_delete_file(&target_img_path); }
                             return Ok(AutoCropBox { x, y, w, h, detected, label });
                         }
                     }
@@ -455,13 +512,18 @@ pub async fn detect_person_crop(app: AppHandle, path: String) -> Result<AutoCrop
         }
     }
 
-    Ok(AutoCropBox {
+    return Ok(AutoCropBox {
         x: 15.0,
         y: 15.0,
         w: 70.0,
         h: 70.0,
         detected: false,
-        label: "Center Default".to_string(),
+        label: { if is_video && target_img_path != clean_path { let _ = secure_delete_file(&target_img_path); } "Center Default".to_string() },
+    });
+}
+// dummy unused
+fn _unused_dummy() -> Result<AutoCropBox, String> {
+    Ok(AutoCropBox { x: 0.0, y: 0.0, w: 0.0, h: 0.0, detected: false, label: String::new()
     })
 }
 
@@ -523,6 +585,7 @@ pub async fn upscale_image(
         let mut stream_connected = std::net::TcpStream::connect("127.0.0.1:12000").is_ok();
         
         if !stream_connected {
+
             println!("AI enhancer server offline. Spawning background server...");
             if spawn_enhancement_server(Some(&app)).is_ok() {
                 for _ in 0..100 {
@@ -636,7 +699,7 @@ pub async fn upscale_image(
                 .map(|mut d| { d.push("upscale.log"); d });
 
             if let Ok(output) = cmd.output() {
-                if let Some(ref log_path) = log_file {
+                if false { if let Some(ref log_path) = log_file {
                     if let Some(parent) = log_path.parent() {
                         let _ = fs::create_dir_all(parent);
                     }
@@ -653,7 +716,7 @@ pub async fn upscale_image(
                                 String::from_utf8_lossy(&output.stdout),
                                 String::from_utf8_lossy(&output.stderr)
                             )
-                        });
+                        }); }
                 }
 
                 if output.status.success() {
@@ -673,8 +736,9 @@ pub async fn upscale_image(
         if run_native_fallback {
             println!("Performing high-performance hardware-accelerated FFmpeg image upscale (Lanczos)...");
             
-            let temp_dir = std::env::temp_dir();
-            let temp_render_path = temp_dir.join(format!("upscale_render_{}_{}.{}", stem, timestamp, ext));
+            let _unused_td = ();
+            let temp_dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_else(std::env::temp_dir);
+            let temp_render_path = temp_dir.join(format!(".cosmo_tmp_render_{}_{}.{}", stem, timestamp, ext));
             
             // Use FFmpeg for ultra-fast, zero-memory-crash, SIMD Lanczos image scaling
             let mut ffmpeg_cmd = new_hidden_ffmpeg_command(Some(&app));
@@ -801,7 +865,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
         };
         
         let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let temp_frames_dir = app_data.join(format!("video_upscale_{}", timestamp));
+        let temp_frames_dir = parent.join(format!(".cosmo_tmp_vupscale_{}", timestamp));
         fs::create_dir_all(&temp_frames_dir).map_err(|e| format!("Failed to create temp frames dir: {}", e))?;
         
         let _ = app.emit("upscale-progress", UpscaleProgress { frame: 0, total: 100, stage: "extracting".into() });
@@ -870,6 +934,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
         
         let mut stream_connected = std::net::TcpStream::connect("127.0.0.1:12000").is_ok();
         if !stream_connected {
+
             if spawn_enhancement_server(Some(&app)).is_ok() {
                 for _ in 0..100 {
                     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -882,6 +947,7 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
         }
         
         if !stream_connected {
+
             let _ = secure_delete_dir_all(&temp_frames_dir);
             return Err("AI Enhancement server is offline or failed to boot".into());
         }
@@ -1036,6 +1102,7 @@ pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String,
     let mut stream_connected = TcpStream::connect("127.0.0.1:12000").is_ok();
     
     if !stream_connected {
+
         println!("AI crop enhancement requested but server is offline. Spawning background server...");
         if spawn_enhancement_server(Some(&app)).is_ok() {
             for _ in 0..100 {
@@ -1050,6 +1117,7 @@ pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String,
     }
     
     if !stream_connected {
+
         return Err("Connection to local AI enhancer failed. Make sure Python is installed and the models are available.".into());
     }
 

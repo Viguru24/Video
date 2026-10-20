@@ -101,6 +101,7 @@ pub async fn get_folder_videos(path: String, mode: String) -> Result<Vec<serde_j
 
         fn is_ignored_dir(name: &str) -> bool {
             let name_lower = name.to_lowercase();
+            if name_lower.starts_with(".cosmo_tmp_") { return true; }
             matches!(
                 name_lower.as_str(),
                 ".git" | "node_modules" | ".next" | "target" | "dist" | "build" |
@@ -128,7 +129,13 @@ pub async fn get_folder_videos(path: String, mode: String) -> Result<Vec<serde_j
                         }
                     } else if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
                         if target_exts.contains(&ext.to_lowercase().as_str()) {
-                            out.push(p);
+                            let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                            if !fname.starts_with(".cosmo_tmp_") && !fname.contains("_upscale_temp_") {
+                                out.push(p);
+                            }
+                        }
+                        if false {
+                            let _ = ();
                         }
                     }
                 }
@@ -528,7 +535,7 @@ pub async fn rename_video(old_path: String, new_name: String) -> Result<String, 
                     copy_err
                 )
             })?;
-            if let Err(_) = trash::delete(&old_p) {
+            if let Err(_) = crate::commands::server::secure_delete_file(&old_p) {
                 let _ = fs::remove_file(&old_p);
             }
         }
@@ -617,6 +624,7 @@ pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json:
                     .unwrap_or("")
                     .to_string();
                 let is_dir = p.is_dir();
+                if is_dir && name.starts_with(".cosmo_tmp_") { continue; }
                 let mut is_media = false;
                 if !is_dir {
                     let name_lower = name.to_lowercase();
@@ -625,7 +633,9 @@ pub async fn list_directory_contents(dir_path: String) -> Result<Vec<serde_json:
                         || name_lower.ends_with(".crdownload") 
                         || name_lower.ends_with(".tmp") 
                         || name_lower.ends_with(".ytdl") 
-                        || name_lower.ends_with(".download") {
+                        || name_lower.ends_with(".download")
+                        || name_lower.starts_with(".cosmo_tmp_")
+                        || name_lower.contains("_upscale_temp_") {
                         continue;
                     }
                     if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
@@ -850,7 +860,7 @@ pub async fn move_file_on_disk(
         
         if dest_path.exists() {
             if overwrite {
-                let _ = trash::delete(&dest_path);
+                let _ = crate::commands::server::secure_delete_file(&dest_path);
             } else if rename_sibling {
                 let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
                 let ext = src.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -876,7 +886,7 @@ pub async fn move_file_on_disk(
         let rename_result = fs::rename(src, &dest_path);
         if rename_result.is_err() {
             fs::copy(src, &dest_path).map_err(|e| format!("Copy fallback failed: {}", e))?;
-            if let Err(recycle_err) = trash::delete(src) {
+            if let Err(recycle_err) = crate::commands::server::secure_delete_file(src) {
                 println!("Recycle bin delete failed for source during move: {:?}. Attempting hard delete.", recycle_err);
                 if let Err(remove_err) = fs::remove_file(src) {
                     // Both recycle and hard delete failed. Rollback the copy!

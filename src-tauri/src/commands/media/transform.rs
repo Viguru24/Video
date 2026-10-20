@@ -37,8 +37,9 @@ pub async fn rotate_media_on_disk(app: AppHandle, path: String, rotation: i32, i
         .unwrap_or_default()
         .as_millis();
     
-    let temp_dir = std::env::temp_dir();
-    let temp_file_name = format!("{}_rot_{}.{}", stem, timestamp, ext);
+    let _unused_td = ();
+    let temp_dir = path_obj.parent().map(|p| p.to_path_buf()).unwrap_or_else(std::env::temp_dir);
+    let temp_file_name = format!(".cosmo_tmp_rot_{}.{}", timestamp, ext);
     let temp_path = temp_dir.join(&temp_file_name);
     debug_log(&format!("temp_path={:?}", temp_path));
 
@@ -145,8 +146,9 @@ pub async fn mirror_media_on_disk(app: AppHandle, path: String, is_image: bool) 
             .unwrap_or_default()
             .as_millis();
         
-        let temp_dir = std::env::temp_dir();
-        let temp_file_name = format!("{}_mir_{}.{}", stem, timestamp, ext);
+        let _unused_td = ();
+        let temp_dir = path_obj.parent().map(|p| p.to_path_buf()).unwrap_or_else(std::env::temp_dir);
+        let temp_file_name = format!(".cosmo_tmp_mir_{}.{}", timestamp, ext);
         let temp_path = temp_dir.join(&temp_file_name);
 
         let mut cmd = new_hidden_ffmpeg_command(Some(&app));
@@ -253,8 +255,9 @@ pub async fn apply_color_adjustments_on_disk(
         .unwrap_or_default()
         .as_millis();
     
-    let temp_dir = std::env::temp_dir();
-    let temp_file_name = format!("{}_adj_{}.{}", stem, timestamp, ext);
+    let _unused_td = ();
+    let temp_dir = parent.to_path_buf();
+    let temp_file_name = format!(".cosmo_tmp_adj_{}.{}", timestamp, ext);
     let temp_path = temp_dir.join(&temp_file_name);
     debug_log(&format!("temp_path={:?}", temp_path));
 
@@ -468,8 +471,9 @@ pub async fn crop_image_on_disk(
             .unwrap_or_default()
             .as_millis();
 
-        let temp_dir = std::env::temp_dir();
-        let temp_file_name = format!("{}_crop_{}.{}", stem, timestamp, ext);
+        let _unused_td = ();
+        let temp_dir = parent.to_path_buf();
+        let temp_file_name = format!(".cosmo_tmp_crop_{}.{}", timestamp, ext);
         let temp_path = temp_dir.join(&temp_file_name);
 
         let fx = (crop_x / 100.0).clamp(0.0, 0.999);
@@ -587,8 +591,9 @@ pub async fn resize_image_on_disk(
             .unwrap_or_default()
             .as_millis();
 
-        let temp_dir = std::env::temp_dir();
-        let temp_file_name = format!("{}_resize_{}.{}", stem, timestamp, ext);
+        let _unused_td = ();
+        let temp_dir = parent.to_path_buf();
+        let temp_file_name = format!(".cosmo_tmp_resize_{}.{}", timestamp, ext);
         let temp_path = temp_dir.join(&temp_file_name);
 
         let scale_filter = format!("scale={}:{}", width, height);
@@ -755,8 +760,9 @@ pub async fn trim_crop_video(
             .unwrap_or_default()
             .as_millis();
 
-        let temp_dir = std::env::temp_dir();
-        let temp_file_name = format!("{}_trimcrop_{}.{}", stem, timestamp, out_ext);
+        let _unused_td = ();
+        let temp_dir = parent.to_path_buf();
+        let temp_file_name = format!(".cosmo_tmp_trimcrop_{}.{}", timestamp, out_ext);
         let temp_path = temp_dir.join(&temp_file_name);
 
         let has_crop = if let (Some(w), Some(h)) = (crop_w, crop_h) {

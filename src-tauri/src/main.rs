@@ -63,7 +63,7 @@ fn extract_exif_jpeg_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
 
 fn main() {
     // Set WebView2 environment variables to prevent sleep, background freezing, and white-screen issues:
-    let base_args = "--disable-features=msSleepingTabs,msEfficiencyMode,CalculateNativeWinOcclusion,ProcessPerSiteUpToLimit --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling";
+    let base_args = "--disable-features=msSleepingTabs,msEfficiencyMode,CalculateNativeWinOcclusion,ProcessPerSiteUpToLimit --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --disk-cache-size=1 --media-cache-size=1 --aggressive-cache-discard";
     let browser_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
         Ok(existing) => format!("{} {}", existing, base_args),
         Err(_) => base_args.to_string(),
@@ -124,6 +124,7 @@ fn main() {
                         use tauri::Manager;
                         use tauri_plugin_window_state::AppHandleExt;
                         let _ = window.app_handle().save_window_state(tauri_plugin_window_state::StateFlags::all());
+                        let _ = crate::commands::server::secure_cleanup_on_exit(window.app_handle());
 
                         std::process::exit(0);
                     } else {
@@ -295,7 +296,7 @@ fn main() {
                                     .status(200)
                                     .header("Content-Type", "image/jpeg")
                                     .header("Content-Length", thumb_len)
-                                    .header("Cache-Control", "public, max-age=86400, immutable")
+                                    .header("Cache-Control", "no-store, no-cache, must-revalidate")
                                     .header("Access-Control-Allow-Origin", "*")
                                     .header("Access-Control-Allow-Private-Network", "true")
                                     .body(thumb_bytes)
@@ -438,7 +439,7 @@ fn main() {
                 .header("Content-Type", mime)
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Length", bytes_read)
-                .header("Cache-Control", "public, max-age=3600")
+                .header("Cache-Control", "no-store, no-cache, must-revalidate")
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Methods", "GET, OPTIONS, RANGE")
                 .header("Access-Control-Allow-Headers", "Range, Content-Type")
@@ -658,7 +659,10 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_app_handle, event| {
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            let _ = crate::commands::server::secure_cleanup_on_exit(app_handle);
+        }
         if let tauri::RunEvent::Exit = event {
             // Hard exit process immediately to release WebView2 graphics context
             std::process::exit(0);
