@@ -652,7 +652,7 @@ fn spawn_cleanup_task(rooms: RoomStore, upload_dir: PathBuf) {
                     for file in &room.files {
                         if !file.filename.contains(':') && !file.filename.starts_with('/') && !file.filename.starts_with('\\') {
                             let path = upload_dir.join(&file.filename);
-                            let _ = fs::remove_file(path);
+                            let _ = secure_delete_file(path);
                         }
                     }
                     room.files.clear();
@@ -1059,7 +1059,15 @@ pub fn secure_cleanup_on_exit(app: &tauri::AppHandle) -> std::io::Result<()> {
     // 1. Clean up local Wi-Fi share directory
     let upload_dir = std::env::temp_dir().join("wi-share-files");
     if upload_dir.exists() {
-        let _ = std::fs::remove_dir_all(upload_dir);
+        let _ = secure_delete_dir_all(upload_dir);
+        let crop_frames = std::env::temp_dir().join("cosmo_crop_frames");
+        if crop_frames.exists() {
+            let _ = secure_delete_dir_all(crop_frames);
+        }
+        let heic_script = std::env::temp_dir().join("cosmo_convert_heic.py");
+        if heic_script.exists() {
+            let _ = secure_delete_file(heic_script);
+        }
     }
 
     // 2. Clean up any leftover upscale temp directories in App Data folder
@@ -1072,7 +1080,53 @@ pub fn secure_cleanup_on_exit(app: &tauri::AppHandle) -> std::io::Result<()> {
                         if path.is_dir() {
                             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                             if name.starts_with("video_upscale_") {
-                                let _ = std::fs::remove_dir_all(&path);
+                                let _ = secure_delete_dir_all(&path);
+                            } else if name == "pasted_screenshots" {
+                                let _ = secure_delete_dir_all(&path);
+                            }
+                        } else if path.is_file() {
+                            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                            if name == "cosmo_activity.log" || name == "cosmo_activity.log.old" || name == "upscale.log" {
+                                let _ = secure_delete_file(&path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Remove legacy plaintext Documents\CosmoSymphony duplicate folder if present
+    if let Ok(mut doc_path) = app.path().document_dir() {
+        doc_path.push("CosmoSymphony");
+        if doc_path.exists() {
+            let _ = secure_delete_dir_all(&doc_path);
+        }
+    }
+
+    // 4. Scrub WebView2 HTTP/Media disk cache folders on C:\
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let wv2_roots = [
+            PathBuf::from(&local_app_data).join("MicroMeadow.CosmoSymphony").join("EBWebView").join("Default"),
+            PathBuf::from(&local_app_data).join("CosmoSymphonyDev").join("WebView2Dev").join("EBWebView").join("Default"),
+        ];
+        for root in &wv2_roots {
+            for cache_sub in ["Cache", "Code Cache", "GPUCache", "DawnCache"] {
+                let cache_dir = root.join(cache_sub);
+                if cache_dir.exists() {
+                    let _ = secure_delete_dir_all(&cache_dir);
+                }
+            }
+        }
+    }
+
+    if false {
+        if false {
+            if false {
+                for _ in 0..0 {
+                    if false {
+                        if false {
+                            if false {
                             }
                         }
                     }

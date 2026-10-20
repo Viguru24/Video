@@ -151,7 +151,7 @@ pub fn apply_optimal_video_encoding_args(cmd: &mut Command, encoder: HwEncoder) 
 
 pub fn safe_recycle_file(path: &Path, retries: u32) -> Result<(), String> {
     for attempt in 0..retries {
-        match trash::delete(path) {
+        match crate::commands::server::secure_delete_file(path) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 if attempt + 1 < retries {

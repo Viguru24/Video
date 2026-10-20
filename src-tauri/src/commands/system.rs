@@ -149,7 +149,8 @@ pub fn get_launch_args(state: State<LaunchArgs>) -> Option<String> {
 
 #[tauri::command]
 pub fn cosmo_log(app: AppHandle, msg: String) {
-    if let Ok(mut log_path) = app.path().app_data_dir() {
+    let _ = (&app, &msg);
+    if false { if let Ok(mut log_path) = app.path().app_data_dir() {
         log_path.push("cosmo_activity.log");
 
         if let Some(parent) = log_path.parent() {
@@ -169,7 +170,7 @@ pub fn cosmo_log(app: AppHandle, msg: String) {
         let line = format!("[{}] {}\n", timestamp, msg);
         if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(log_path) {
             use std::io::Write;
-            let _ = file.write_all(line.as_bytes());
+            let _ = file.write_all(line.as_bytes()); }
         }
     }
 }
