@@ -631,7 +631,7 @@ export function useVideoCard({
   useEffect(() => {
     if (isImage) return;
     const v = videoRef.current;
-    if (v) v.playbackRate = globalSpeed;
+    if (v && typeof globalSpeed === 'number' && Number.isFinite(globalSpeed) && globalSpeed > 0) v.playbackRate = globalSpeed;
   }, [globalSpeed, isImage]);
 
   // RECOVERY MONITOR

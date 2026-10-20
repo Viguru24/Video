@@ -182,28 +182,36 @@ export default function App() {
   const soloOverlayRef = useRef<HTMLDivElement>(null);
   const soloVolumeContainerRef = useRef<HTMLDivElement>(null);
 
+  const [logs, setLogs] = useState<{ t: string, m: string }[]>([]);
+  const addLog = useCallback((m: string) => {
+    setLogs(p => [{ t: new Date().toLocaleTimeString(), m }, ...p].slice(0, 50));
+    const lower = m.toLowerCase();
+    if (lower.includes("snapshot") || lower.includes("decommission") || lower.includes("annihilate") || lower.includes("deleted")) {
+      let toastMsg = m;
+      if (m.includes("Snapshot saved to: ")) {
+        const path = m.split("Snapshot saved to: ")[1];
+        setToastPath(path);
+        toastMsg = "Snapshot Saved";
+      }
+      setToast(toastMsg);
+      setTimeout(() => { setToast(null); setToastPath(null); }, 3000);
+    }
+  }, []);
+
   const {
     videos,
     setVideos,
     collections,
     setCollections,
-    logs,
-    addLog,
+    rotationInterval,
+    setRotationInterval,
     snapshotDir,
     setSnapshotDir,
     confirmDeletion,
     setConfirmDeletion,
     isInitialized,
     setIsInitialized
-  } = useWorkspacePersistence({
-    isPopout,
-    theme,
-    masterPlayingRef,
-    masterMutedRef,
-    mediaMode,
-    setMediaMode,
-    setFatalError
-  });
+  } = useWorkspacePersistence(addLog, isPopout, masterMuted, masterPlaying);
 
   const {
     search,
@@ -214,16 +222,11 @@ export default function App() {
     setRotIdx,
     rotating,
     setRotating,
-    rotationInterval,
-    setRotationInterval,
     jumpToUnit,
     onToggleFocus,
     setIdToRow: setWorkspaceIdToRow,
     setRowOffsets: setWorkspaceRowOffsets
-  } = useWorkspaceControls({
-    videos,
-    isPopout
-  });
+  } = useWorkspaceControls(addLog);
 
   const {
     menu,
