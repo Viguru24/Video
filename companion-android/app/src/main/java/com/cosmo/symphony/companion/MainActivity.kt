@@ -4,7 +4,10 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
+import android.provider.MediaStore
+import androidx.documentfile.provider.DocumentFile
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -103,10 +106,13 @@ class MainActivity : ComponentActivity() {
             val rawSegment = Uri.decode(uri.lastPathSegment ?: "")
             val folderName = sanitizeFileName(
                 if (rawSegment.contains(":")) rawSegment.substringAfterLast(":") else rawSegment
-            ).ifBlank { "Secure Storage" }
+            ).ifBlank { "Selected Folder" }
 
-            prefs.edit().putString("custom_folder_name", folderName).apply()
-            prefs.edit().putString("custom_subfolder_name", "").apply()
+            prefs.edit()
+                .putString("custom_tree_uri", uri.toString())
+                .putString("custom_folder_name", folderName)
+                .putString("custom_subfolder_name", "")
+                .apply()
             updateFolderLabel()
 
             Toast.makeText(this, "Save Folder set to: $folderName", Toast.LENGTH_SHORT).show()
@@ -376,6 +382,133 @@ class MainActivity : ComponentActivity() {
         return File(targetDir, "$baseName ($targetIndex)$extension")
     }
 
+    private fun getMimeTypeForName(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        if (ext.isNotBlank()) {
+            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+            if (!mime.isNullOrBlank()) return mime
+        }
+        return when (ext) {
+            "mp4", "m4v" -> "video/mp4"
+            "mov" -> "video/quicktime"
+            "webm" -> "video/webm"
+            "mkv" -> "video/x-matroska"
+            "avi" -> "video/x-msvideo"
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "mp3" -> "audio/mpeg"
+            "wav" -> "audio/wav"
+            "aac" -> "audio/aac"
+            "m4a" -> "audio/mp4"
+            "pdf" -> "application/pdf"
+            else -> "application/octet-stream"
+        }
+    }
+
+    private fun saveStreamToSelectedDestination(inputStream: java.io.InputStream, cleanName: String): Boolean {
+        // Tier 1: User selected custom folder via System Storage Access Framework (SAF tree Uri)
+        val treeUriStr = prefs.getString("custom_tree_uri", null)
+        if (!treeUriStr.isNullOrBlank()) {
+            try {
+                val treeUri = Uri.parse(treeUriStr)
+                val rootDoc = DocumentFile.fromTreeUri(applicationContext, treeUri)
+                if (rootDoc != null && rootDoc.canWrite()) {
+                    val subFolder = prefs.getString("custom_subfolder_name", "")?.trim() ?: ""
+                    val targetDoc = if (subFolder.isNotBlank()) {
+                        rootDoc.findFile(subFolder) ?: rootDoc.createDirectory(subFolder) ?: rootDoc
+                    } else {
+                        rootDoc
+                    }
+                    val mimeType = getMimeTypeForName(cleanName)
+                    val fileDoc = targetDoc.createFile(mimeType, cleanName)
+                    if (fileDoc != null) {
+                        contentResolver.openOutputStream(fileDoc.uri)?.use { output ->
+                            inputStream.copyTo(output)
+                        }
+                        return true
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("CosmoSave", "Tree URI save failed, falling back to standard storage", e)
+            }
+        }
+
+        // Tier 2: Standard folder selection (Downloads, Pictures, DCIM, Documents) via MediaStore on Android 10+
+        val baseDirName = prefs.getString("phone_download_dir", Environment.DIRECTORY_DOWNLOADS) ?: Environment.DIRECTORY_DOWNLOADS
+        val subFolder = prefs.getString("custom_subfolder_name", "")?.trim() ?: ""
+        val relativePath = if (subFolder.isNotBlank()) "$baseDirName/$subFolder" else baseDirName
+        val mimeType = getMimeTypeForName(cleanName)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val contentUri = when (baseDirName) {
+                    Environment.DIRECTORY_PICTURES, Environment.DIRECTORY_DCIM -> {
+                        if (mimeType.startsWith("video/")) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                        else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    }
+                    else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                }
+
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, cleanName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+
+                val uri = contentResolver.insert(contentUri, contentValues)
+                if (uri != null) {
+                    contentResolver.openOutputStream(uri)?.use { output ->
+                        inputStream.copyTo(output)
+                    }
+                    contentValues.clear()
+                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    contentResolver.update(uri, contentValues, null, null)
+                    return true
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("CosmoSave", "MediaStore save failed, falling back to File API", e)
+            }
+        }
+
+        // Tier 3: Direct File API (Android 9 or legacy)
+        try {
+            val publicBase = Environment.getExternalStoragePublicDirectory(baseDirName)
+            val targetDir = if (subFolder.isNotBlank()) File(publicBase, subFolder) else publicBase
+            if (!targetDir.exists()) targetDir.mkdirs()
+
+            val destFile = getUniqueDestinationFile(targetDir, cleanName)
+            FileOutputStream(destFile).use { output ->
+                inputStream.copyTo(output)
+            }
+            MediaScannerConnection.scanFile(
+                applicationContext,
+                arrayOf(destFile.absolutePath),
+                arrayOf(mimeType),
+                null
+            )
+            return true
+        } catch (e: Exception) {
+            android.util.Log.w("CosmoSave", "Public File save failed, falling back to app external files dir", e)
+            val fallbackBase = getExternalFilesDir(baseDirName) ?: filesDir
+            val fallbackDir = if (subFolder.isNotBlank()) File(fallbackBase, subFolder) else fallbackBase
+            if (!fallbackDir.exists()) fallbackDir.mkdirs()
+            val fallbackFile = getUniqueDestinationFile(fallbackDir, cleanName)
+            FileOutputStream(fallbackFile).use { output ->
+                inputStream.copyTo(output)
+            }
+            MediaScannerConnection.scanFile(
+                applicationContext,
+                arrayOf(fallbackFile.absolutePath),
+                arrayOf(mimeType),
+                null
+            )
+            return true
+        }
+    }
+
     private fun downloadFilesDirectly(files: List<Pair<String, String>>) {
         if (files.isEmpty()) return
 
@@ -389,11 +522,6 @@ class MainActivity : ComponentActivity() {
             val cleanName = sanitizeFileName(fileName)
             transferExecutor.execute {
                 try {
-                    var targetDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                    if (!targetDir.exists()) targetDir.mkdirs()
-
-                    var destFile = getUniqueDestinationFile(targetDir, cleanName)
-
                     val url = URL(downloadUrl)
                     val conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "GET"
@@ -401,31 +529,12 @@ class MainActivity : ComponentActivity() {
                     conn.readTimeout = 60000
 
                     if (conn.responseCode in 200..299) {
-                        try {
-                            conn.inputStream.use { input ->
-                                FileOutputStream(destFile).use { output ->
-                                    input.copyTo(output)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            val fallbackDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
-                            destFile = getUniqueDestinationFile(fallbackDir, cleanName)
-                            val conn2 = URL(downloadUrl).openConnection() as HttpURLConnection
-                            conn2.inputStream.use { input ->
-                                FileOutputStream(destFile).use { output ->
-                                    input.copyTo(output)
-                                }
-                            }
-                            conn2.disconnect()
+                        val saved = conn.inputStream.use { input ->
+                            saveStreamToSelectedDestination(input, cleanName)
                         }
-
-                        successCount.incrementAndGet()
-                        MediaScannerConnection.scanFile(
-                            applicationContext,
-                            arrayOf(destFile.absolutePath),
-                            null,
-                            null
-                        )
+                        if (saved) {
+                            successCount.incrementAndGet()
+                        }
                     }
                     conn.disconnect()
                 } catch (e: Exception) {
@@ -434,9 +543,18 @@ class MainActivity : ComponentActivity() {
                     val currentCompleted = completedCount.incrementAndGet()
                     updateProgressHUD(currentCompleted, total, cleanName)
                     if (currentCompleted == total) {
-                        hideProgressHUD("🎉 Complete! ${successCount.get()} of $total files saved.")
-                        runOnUiThread {
-                            Toast.makeText(this@MainActivity, "✅ Saved to Downloads!", Toast.LENGTH_LONG).show()
+                        val successes = successCount.get()
+                        val destName = getSaveDestinationPath()
+                        if (successes > 0) {
+                            hideProgressHUD("🎉 Complete! $successes of $total files saved.")
+                            runOnUiThread {
+                                Toast.makeText(this@MainActivity, "✅ Saved $successes file(s) to $destName!", Toast.LENGTH_LONG).show()
+                            }
+                        } else {
+                            hideProgressHUD("⚠️ Failed to save files to $destName", false)
+                            runOnUiThread {
+                                Toast.makeText(this@MainActivity, "⚠️ Download failed. Please check network/storage.", Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 }
@@ -446,14 +564,19 @@ class MainActivity : ComponentActivity() {
 
     private fun getSaveDestinationPath(): String {
         val customName = prefs.getString("custom_folder_name", "") ?: ""
+        val subFolder = prefs.getString("custom_subfolder_name", "") ?: ""
         if (customName.isNotBlank()) {
-            val subFolder = prefs.getString("custom_subfolder_name", "") ?: ""
             return if (subFolder.isNotBlank()) "$customName/$subFolder" else customName
         }
 
         val baseDir = prefs.getString("phone_download_dir", Environment.DIRECTORY_DOWNLOADS) ?: Environment.DIRECTORY_DOWNLOADS
-        val subFolder = prefs.getString("custom_subfolder_name", "") ?: ""
-        return if (subFolder.isNotBlank()) "$baseDir/$subFolder" else baseDir
+        val baseLabel = when(baseDir) {
+            Environment.DIRECTORY_PICTURES -> "Pictures"
+            Environment.DIRECTORY_DCIM -> "DCIM"
+            Environment.DIRECTORY_DOCUMENTS -> "Documents"
+            else -> "Downloads"
+        }
+        return if (subFolder.isNotBlank()) "$baseLabel/$subFolder" else baseLabel
     }
 
     private fun updateFolderLabel() {
@@ -1038,33 +1161,45 @@ class MainActivity : ComponentActivity() {
                     when (which) {
                         0 -> {
                             selectedSubDir = Environment.DIRECTORY_DOWNLOADS
-                            prefs.edit().putString("phone_download_dir", selectedSubDir).apply()
-                            prefs.edit().putString("custom_folder_name", "").apply()
-                            prefs.edit().putString("custom_subfolder_name", "").apply()
+                            prefs.edit()
+                                .putString("phone_download_dir", selectedSubDir)
+                                .putString("custom_tree_uri", "")
+                                .putString("custom_folder_name", "")
+                                .putString("custom_subfolder_name", "")
+                                .apply()
                             updateFolderLabel()
                             Toast.makeText(this@MainActivity, "Folder set to: Downloads", Toast.LENGTH_SHORT).show()
                         }
                         1 -> {
                             selectedSubDir = Environment.DIRECTORY_PICTURES
-                            prefs.edit().putString("phone_download_dir", selectedSubDir).apply()
-                            prefs.edit().putString("custom_folder_name", "").apply()
-                            prefs.edit().putString("custom_subfolder_name", "").apply()
+                            prefs.edit()
+                                .putString("phone_download_dir", selectedSubDir)
+                                .putString("custom_tree_uri", "")
+                                .putString("custom_folder_name", "")
+                                .putString("custom_subfolder_name", "")
+                                .apply()
                             updateFolderLabel()
                             Toast.makeText(this@MainActivity, "Folder set to: Pictures", Toast.LENGTH_SHORT).show()
                         }
                         2 -> {
                             selectedSubDir = Environment.DIRECTORY_DCIM
-                            prefs.edit().putString("phone_download_dir", selectedSubDir).apply()
-                            prefs.edit().putString("custom_folder_name", "").apply()
-                            prefs.edit().putString("custom_subfolder_name", "").apply()
+                            prefs.edit()
+                                .putString("phone_download_dir", selectedSubDir)
+                                .putString("custom_tree_uri", "")
+                                .putString("custom_folder_name", "")
+                                .putString("custom_subfolder_name", "")
+                                .apply()
                             updateFolderLabel()
                             Toast.makeText(this@MainActivity, "Folder set to: DCIM", Toast.LENGTH_SHORT).show()
                         }
                         3 -> {
                             selectedSubDir = Environment.DIRECTORY_DOCUMENTS
-                            prefs.edit().putString("phone_download_dir", selectedSubDir).apply()
-                            prefs.edit().putString("custom_folder_name", "").apply()
-                            prefs.edit().putString("custom_subfolder_name", "").apply()
+                            prefs.edit()
+                                .putString("phone_download_dir", selectedSubDir)
+                                .putString("custom_tree_uri", "")
+                                .putString("custom_folder_name", "")
+                                .putString("custom_subfolder_name", "")
+                                .apply()
                             updateFolderLabel()
                             Toast.makeText(this@MainActivity, "Folder set to: Documents", Toast.LENGTH_SHORT).show()
                         }
@@ -1097,9 +1232,12 @@ class MainActivity : ComponentActivity() {
                         }
                         6 -> {
                             selectedSubDir = Environment.DIRECTORY_DOWNLOADS
-                            prefs.edit().putString("phone_download_dir", selectedSubDir).apply()
-                            prefs.edit().putString("custom_folder_name", "").apply()
-                            prefs.edit().putString("custom_subfolder_name", "").apply()
+                            prefs.edit()
+                                .putString("phone_download_dir", selectedSubDir)
+                                .putString("custom_tree_uri", "")
+                                .putString("custom_folder_name", "")
+                                .putString("custom_subfolder_name", "")
+                                .apply()
                             updateFolderLabel()
                             Toast.makeText(this@MainActivity, "Reset to Default Downloads", Toast.LENGTH_SHORT).show()
                         }

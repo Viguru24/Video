@@ -271,6 +271,7 @@ export function WifiShareModal({
       const downloadedPath = await invoke<string>('download_shared_file_to_downloads', { 
         code: 'local', 
         fileId,
+        fileName: name,
         customDir: customDownloadDir || null
       });
       if (downloadedPath) {
@@ -320,6 +321,7 @@ export function WifiShareModal({
         const path = await invoke<string>('download_shared_file_to_downloads', {
           code: 'local',
           fileId: file.id,
+          fileName: file.name,
           customDir: customDownloadDir || null
         });
         if (path) {

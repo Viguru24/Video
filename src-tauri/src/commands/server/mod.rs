@@ -127,44 +127,29 @@ pub async fn set_wifi_shared_files(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub async fn download_shared_file_to_downloads(
-    app: tauri::AppHandle,
-    code: String,
-    file_id: String,
-    custom_dir: Option<String>,
-) -> Result<String, String> {
-    let (file_path, raw_name, mime_type) = get_file_info(&code, &file_id)
-        .ok_or_else(|| "File not found or room expired".to_string())?;
-
-    if !file_path.exists() {
-        return Err(format!("Source file does not exist on disk: {:?}", file_path));
-    }
-
-    // Resolve sanitized filename for Windows
-    let safe_file_name = sanitize_filename_for_windows(&raw_name, &mime_type);
-
-    // Multi-tier download directory resolution
-    let download_dir = if let Some(ref dir) = custom_dir {
+fn resolve_target_dir(app: &tauri::AppHandle, custom_dir: Option<&str>) -> Result<PathBuf, String> {
+    let download_dir = if let Some(dir) = custom_dir {
         let trimmed = dir.trim();
         if !trimmed.is_empty() {
             let p = PathBuf::from(trimmed);
             if fs::create_dir_all(&p).is_ok() && p.is_dir() {
                 p
             } else {
-                resolve_fallback_download_dir(&app)?
+                resolve_fallback_download_dir(app)?
             }
         } else {
-            resolve_fallback_download_dir(&app)?
+            resolve_fallback_download_dir(app)?
         }
     } else {
-        resolve_fallback_download_dir(&app)?
+        resolve_fallback_download_dir(app)?
     };
 
     let _ = fs::create_dir_all(&download_dir);
+    Ok(download_dir)
+}
 
-    // Make sure we have a unique filename
-    let mut target_path = download_dir.join(&safe_file_name);
+fn get_unique_target_path(download_dir: &std::path::Path, safe_file_name: &str) -> PathBuf {
+    let mut target_path = download_dir.join(safe_file_name);
     if target_path.exists() {
         let stem = target_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
         let extension = target_path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -184,10 +169,98 @@ pub async fn download_shared_file_to_downloads(
             counter += 1;
         }
     }
+    target_path
+}
 
-    fs::copy(&file_path, &target_path)
-        .map_err(|e| format!("Failed to copy file from {:?} to {:?}: {}", file_path, target_path, e))?;
+#[tauri::command]
+pub async fn download_shared_file_to_downloads(
+    app: tauri::AppHandle,
+    code: String,
+    file_id: String,
+    file_name: Option<String>,
+    custom_dir: Option<String>,
+) -> Result<String, String> {
+    let download_dir = resolve_target_dir(&app, custom_dir.as_deref())?;
 
-    println!("[Wi-Fi Share] Successfully saved shared file to: {:?}", target_path);
-    Ok(target_path.to_string_lossy().to_string())
+    // 1. Try resolving via in-memory room store
+    let resolved_info = get_file_info(&code, &file_id);
+
+    // 2. If found in room store and file exists on disk, copy directly
+    if let Some((ref file_path, ref raw_name, ref mime_type)) = resolved_info {
+        if file_path.exists() {
+            let name_to_use = file_name.as_deref().unwrap_or(raw_name);
+            let safe_file_name = sanitize_filename_for_windows(name_to_use, mime_type);
+            let target_path = get_unique_target_path(&download_dir, &safe_file_name);
+            fs::copy(file_path, &target_path)
+                .map_err(|e| format!("Failed to copy file from {:?} to {:?}: {}", file_path, target_path, e))?;
+            println!("[Wi-Fi Share] Successfully saved shared file to: {:?}", target_path);
+            return Ok(target_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 3. Fallback: Search the upload buffer directory on disk
+    let upload_dir = std::env::temp_dir().join("wi-share-files");
+    if let Ok(entries) = fs::read_dir(&upload_dir) {
+        let target_name = file_name.as_deref().unwrap_or("").trim();
+        let target_id = file_id.trim();
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                let matches_name = !target_name.is_empty() && (
+                    fname.ends_with(target_name) ||
+                    fname.replace('_', " ").ends_with(&target_name.replace('_', " "))
+                );
+                let matches_id = !target_id.is_empty() && fname.contains(target_id);
+
+                if matches_name || matches_id {
+                    let name_to_use = if !target_name.is_empty() { target_name } else { fname };
+                    let safe_file_name = sanitize_filename_for_windows(name_to_use, "application/octet-stream");
+                    let target_path = get_unique_target_path(&download_dir, &safe_file_name);
+                    fs::copy(&p, &target_path)
+                        .map_err(|e| format!("Failed to copy buffered upload from {:?} to {:?}: {}", p, target_path, e))?;
+                    println!("[Wi-Fi Share] Saved buffered upload from disk to: {:?}", target_path);
+                    return Ok(target_path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    // 4. Fallback: Fetch directly over local HTTP from the Wi-Fi Share server
+    let local_port = 48273;
+    let url = format!("http://127.0.0.1:{}/api/rooms/{}/files/{}", local_port, code, file_id);
+    println!("[Wi-Fi Share] In-memory file missing, attempting HTTP fetch from: {}", url);
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], local_port));
+    if let Ok(mut stream) = tokio::net::TcpStream::connect(addr).await {
+        let request = format!(
+            "GET /api/rooms/{}/files/{} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+            code, file_id, local_port
+        );
+        if stream.write_all(request.as_bytes()).await.is_ok() {
+            let mut response_bytes = Vec::new();
+            if stream.read_to_end(&mut response_bytes).await.is_ok() && !response_bytes.is_empty() {
+                // Find end of headers (\r\n\r\n)
+                if let Some(pos) = response_bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let header_part = String::from_utf8_lossy(&response_bytes[..pos]);
+                    if header_part.starts_with("HTTP/1.1 200") || header_part.starts_with("HTTP/1.0 200") {
+                        let body_bytes = &response_bytes[pos + 4..];
+                        let name_to_use = file_name.as_deref().unwrap_or("received_file");
+                        let safe_file_name = sanitize_filename_for_windows(name_to_use, "application/octet-stream");
+                        let target_path = get_unique_target_path(&download_dir, &safe_file_name);
+                        fs::write(&target_path, body_bytes)
+                            .map_err(|e| format!("Failed to write HTTP downloaded file: {}", e))?;
+                        println!("[Wi-Fi Share] Saved HTTP-streamed file to: {:?}", target_path);
+                        return Ok(target_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "File '{}' not found in active room or on disk. Please resend the file from your phone.",
+        file_name.as_deref().unwrap_or(&file_id)
+    ))
 }

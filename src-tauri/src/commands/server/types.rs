@@ -78,15 +78,33 @@ pub static ROOMS: std::sync::OnceLock<RoomStore> = std::sync::OnceLock::new();
 pub fn get_file_info(code: &str, file_id: &str) -> Option<(PathBuf, String, String)> {
     let rooms = ROOMS.get_or_init(|| Arc::new(Mutex::new(HashMap::new()))).clone();
     let store = rooms.lock().unwrap();
-    let room = store.get(code)?;
-    let file = room.files.iter().find(|f| f.id == file_id)?;
     let upload_dir = std::env::temp_dir().join("wi-share-files");
-    let path = if file.filename.contains(':') || file.filename.starts_with('/') || file.filename.starts_with('\\') {
-        PathBuf::from(&file.filename)
-    } else {
-        upload_dir.join(&file.filename)
-    };
-    Some((path, file.name.clone(), file.mime_type.clone()))
+
+    // 1. Try exact match in the requested room code
+    if let Some(room) = store.get(code) {
+        if let Some(file) = room.files.iter().find(|f| f.id == file_id) {
+            let path = if file.filename.contains(':') || file.filename.starts_with('/') || file.filename.starts_with('\\') {
+                PathBuf::from(&file.filename)
+            } else {
+                upload_dir.join(&file.filename)
+            };
+            return Some((path, file.name.clone(), file.mime_type.clone()));
+        }
+    }
+
+    // 2. Fallback: Search across all active rooms for the file_id
+    for (_, room) in store.iter() {
+        if let Some(file) = room.files.iter().find(|f| f.id == file_id) {
+            let path = if file.filename.contains(':') || file.filename.starts_with('/') || file.filename.starts_with('\\') {
+                PathBuf::from(&file.filename)
+            } else {
+                upload_dir.join(&file.filename)
+            };
+            return Some((path, file.name.clone(), file.mime_type.clone()));
+        }
+    }
+
+    None
 }
 
 #[derive(Clone)]
