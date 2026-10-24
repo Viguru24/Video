@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { Folder, File, Plus, Image as ImageIcon } from 'lucide-react';
+import { Folder, File, Plus, Image as ImageIcon, Film, Check } from 'lucide-react';
 import { toCosmoUrl, isValidMediaExtension, isTauri } from '../../utils/videoUtils';
 
 export interface BrowserItem {
@@ -222,6 +222,9 @@ export function BrowserItemCard({
   item, 
   index,
   layoutMode, 
+  isSelected = false,
+  hasSelection = false,
+  onToggleSelect,
   onAddFile, 
   onDragStart, 
   onDoubleClick 
@@ -229,11 +232,16 @@ export function BrowserItemCard({
   item: BrowserItem; 
   index: number;
   layoutMode: 'grid' | 'list';
+  isSelected?: boolean;
+  hasSelection?: boolean;
+  onToggleSelect?: (path: string, e: React.MouseEvent) => void;
   onAddFile: (path: string) => void;
   onDragStart: (e: React.DragEvent, path: string) => void;
   onDoubleClick: () => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const isVideo = !item.is_dir && isValidMediaExtension(item.path, 'video');
+  const isPicture = !item.is_dir && isValidMediaExtension(item.path, 'picture');
 
   if (item.is_dir) {
     return (
@@ -249,18 +257,43 @@ export function BrowserItemCard({
     );
   }
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || hasSelection) {
+      e.stopPropagation();
+      onToggleSelect?.(item.path, e);
+    }
+  };
+
   return (
     <div 
-      className={`browser-item-card is-file layout-${layoutMode}`}
+      className={`browser-item-card is-file layout-${layoutMode} ${isSelected ? 'is-selected' : ''}`}
       draggable
       onDragStart={(e) => onDragStart(e, item.path)}
+      onClick={handleCardClick}
       onDoubleClick={onDoubleClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {layoutMode === 'list' ? (
         <div className="file-item-content-list">
-          <File size={13} className="file-icon" />
+          <button
+            type="button"
+            className={`browser-item-checkbox-list ${isSelected ? 'selected' : ''} ${hasSelection ? 'has-selection' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect?.(item.path, e);
+            }}
+            title={isSelected ? "Deselect item" : "Select item"}
+          >
+            {isSelected && <Check size={10} strokeWidth={3} />}
+          </button>
+          {isVideo ? (
+            <Film size={13} className="file-icon video-icon" style={{ color: 'var(--accent, #00ff88)' }} />
+          ) : isPicture ? (
+            <ImageIcon size={13} className="file-icon pic-icon" style={{ color: '#38bdf8' }} />
+          ) : (
+            <File size={13} className="file-icon" />
+          )}
           <span className="file-name" title={item.name}>{item.name}</span>
           <button 
             className="add-item-badge-btn-list" 
@@ -276,7 +309,25 @@ export function BrowserItemCard({
       ) : (
         <div className="file-item-content">
           <div className="file-thumbnail-container">
-            {isValidMediaExtension(item.path, 'video') ? (
+            {/* Selection Checkbox */}
+            <button
+              type="button"
+              className={`browser-item-checkbox ${isSelected ? 'selected' : ''} ${hasSelection ? 'has-selection' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect?.(item.path, e);
+              }}
+              title={isSelected ? "Deselect item" : "Select item"}
+            >
+              {isSelected && <Check size={10} strokeWidth={3} />}
+            </button>
+
+            {/* Media Type Corner Badge */}
+            <div className={`browser-item-type-badge ${isVideo ? 'badge-video' : 'badge-picture'}`}>
+              {isVideo ? <Film size={9} /> : <ImageIcon size={9} />}
+            </div>
+
+            {isVideo ? (
               <VideoPreview path={item.path} src={toCosmoUrl(item.path)} isHovered={isHovered} />
             ) : (
               <ImageThumbnail path={item.path} name={item.name} />

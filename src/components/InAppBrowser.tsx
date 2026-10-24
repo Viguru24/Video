@@ -21,20 +21,24 @@ import {
   Zap, 
   Pin,
   Image as ImageIcon,
+  Film,
+  Check,
+  CheckCheck,
+  CheckSquare,
+  Search,
   Maximize2,
   Minimize2
 } from 'lucide-react';
 import { toCosmoUrl, isValidMediaExtension, isTauri } from '../utils/videoUtils';
 import { normalizeTimestamp } from '../utils/sortUtils';
 import { useStore } from '../store/useStore';
+import { BrowserItemCard, type BrowserItem } from './browser/BrowserItemCard';
 
 interface InAppBrowserProps {
   onAddFile: (path: string) => void;
   onAddMultipleFiles: (paths: string[]) => void;
   addLog: (msg: string) => void;
 }
-
-import { BrowserItemCard, type BrowserItem } from './browser/BrowserItemCard';
 
 export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBrowserProps) {
   const {
@@ -45,8 +49,12 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     inAppBrowserCollapsed,
     setInAppBrowserCollapsed,
     autoSyncFolders,
-    toggleAutoSyncFolder
+    toggleAutoSyncFolder,
+    inAppBrowserMediaFilter,
+    setInAppBrowserMediaFilter
   } = useStore() as any;
+
+  const mediaFilter: 'all' | 'video' | 'picture' = inAppBrowserMediaFilter || 'all';
 
   const [items, setItems] = useState<BrowserItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -58,6 +66,15 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     localStorage.getItem('cosmo-auto-add-incoming') !== 'false'
   );
   const [limit, setLimit] = useState(300);
+
+  // Selection & Search state
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showSelectMenu, setShowSelectMenu] = useState(false);
+
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const selectMenuRef = useRef<HTMLDivElement>(null);
   
   const loadedPathsRef = React.useRef<Set<string>>(new Set());
   const pendingPathsRef = React.useRef<Set<string>>(new Set());
@@ -90,6 +107,20 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
 
   const isResizingRef = useRef<ResizeDirection | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+
+  // Close dropdown menus when clicking outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+      }
+      if (selectMenuRef.current && !selectMenuRef.current.contains(e.target as Node)) {
+        setShowSelectMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   const toggleMaximize = () => {
     setIsMaximized(prev => {
@@ -167,7 +198,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     });
   };
 
-  // Reset the path memory, limit, and uncollapse when directory path changes
+  // Reset the path memory, selection, search, limit, and uncollapse when directory path changes
   useEffect(() => {
     loadedPathsRef.current = new Set();
     activeTimeoutsRef.current.forEach(clearTimeout);
@@ -175,6 +206,10 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     pendingPathsRef.current.clear();
     setLimit(300);
     setInAppBrowserCollapsed(false);
+    setSelectedPaths(new Set());
+    setSearchQuery('');
+    setShowAddMenu(false);
+    setShowSelectMenu(false);
   }, [inAppBrowserPath, setInAppBrowserCollapsed]);
 
   // Clean up timeouts on unmount
@@ -216,10 +251,53 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     }
   };
 
+  // Compute media counts for the current directory
+  const mediaCounts = useMemo(() => {
+    let videos = 0;
+    let pictures = 0;
+    let dirs = 0;
+    for (const item of items) {
+      if (item.is_dir) {
+        dirs++;
+      } else if (isValidMediaExtension(item.path, 'video')) {
+        videos++;
+      } else if (isValidMediaExtension(item.path, 'picture')) {
+        pictures++;
+      }
+    }
+    return {
+      all: videos + pictures,
+      video: videos,
+      picture: pictures,
+      dirs
+    };
+  }, [items]);
+
+  // Filter items by active media filter (video / picture / all) and search query
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return items.filter(item => {
+      // Query filter
+      if (query && !item.name.toLowerCase().includes(query)) {
+        return false;
+      }
+      // Keep subdirectories navigable always
+      if (item.is_dir) return true;
+      // Filter by media type
+      if (mediaFilter === 'video') {
+        return isValidMediaExtension(item.path, 'video');
+      }
+      if (mediaFilter === 'picture') {
+        return isValidMediaExtension(item.path, 'picture');
+      }
+      return item.is_media;
+    });
+  }, [items, mediaFilter, searchQuery]);
+
   const sortedItems = useMemo(() => {
     // Keep directories first, then sort files
-    const dirs = items.filter(x => x.is_dir);
-    const files = items.filter(x => !x.is_dir);
+    const dirs = filteredItems.filter(x => x.is_dir);
+    const files = filteredItems.filter(x => !x.is_dir);
 
     // Sort directories by name always
     dirs.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
@@ -244,7 +322,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     });
 
     return [...dirs, ...files];
-  }, [items, sortBy, sortOrder]);
+  }, [filteredItems, sortBy, sortOrder]);
 
   const visibleItems = useMemo(() => {
     return sortedItems.slice(0, limit);
@@ -345,20 +423,84 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     e.dataTransfer.effectAllowed = 'copy';
   };
 
-  const handleAddAll = async () => {
+  // Add files according to filter or typeOverride
+  const handleAddAll = async (typeOverride?: 'all' | 'video' | 'picture') => {
+    setShowAddMenu(false);
+    const targetFilter = typeOverride || mediaFilter;
     const mediaPaths = items
-      .filter(item => !item.is_dir && item.is_media)
+      .filter(item => {
+        if (item.is_dir) return false;
+        if (targetFilter === 'video') return isValidMediaExtension(item.path, 'video');
+        if (targetFilter === 'picture') return isValidMediaExtension(item.path, 'picture');
+        return item.is_media;
+      })
       .map(item => item.path);
     
-    console.log("[InAppBrowser] handleAddAll paths:", mediaPaths);
-    addLog(`System: In-app browser "Add All" requested for ${mediaPaths.length} file(s).`);
+    console.log(`[InAppBrowser] handleAddAll (${targetFilter}) paths:`, mediaPaths);
+    const filterLabel = targetFilter === 'video' ? 'Videos' : targetFilter === 'picture' ? 'Pictures' : 'All Media';
+    addLog(`System: In-app browser "Add ${filterLabel}" requested for ${mediaPaths.length} file(s).`);
 
     if (mediaPaths.length === 0) {
-      alert("No compatible media files in this folder to add.");
+      alert(`No ${targetFilter === 'video' ? 'video' : targetFilter === 'picture' ? 'picture' : 'compatible media'} files in this folder to add.`);
       return;
     }
     
     onAddMultipleFiles(mediaPaths);
+    setInAppBrowserCollapsed(true);
+  };
+
+  // Toggle selection of a single item
+  const handleToggleSelect = (path: string, e?: React.MouseEvent) => {
+    setSelectedPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  // Quick Select handlers
+  const handleSelectAllVideos = () => {
+    const videoPaths = items
+      .filter(item => !item.is_dir && isValidMediaExtension(item.path, 'video'))
+      .map(item => item.path);
+    setSelectedPaths(new Set(videoPaths));
+    setShowSelectMenu(false);
+    addLog(`In-app browser: Selected ${videoPaths.length} video(s)`);
+  };
+
+  const handleSelectAllPictures = () => {
+    const picPaths = items
+      .filter(item => !item.is_dir && isValidMediaExtension(item.path, 'picture'))
+      .map(item => item.path);
+    setSelectedPaths(new Set(picPaths));
+    setShowSelectMenu(false);
+    addLog(`In-app browser: Selected ${picPaths.length} picture(s)`);
+  };
+
+  const handleSelectAllInView = () => {
+    const filePaths = visibleItems
+      .filter(item => !item.is_dir)
+      .map(item => item.path);
+    setSelectedPaths(new Set(filePaths));
+    setShowSelectMenu(false);
+    addLog(`In-app browser: Selected all ${filePaths.length} visible file(s)`);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedPaths(new Set());
+    setShowSelectMenu(false);
+  };
+
+  const handleAddSelected = () => {
+    if (selectedPaths.size === 0) return;
+    const pathsToAdd = Array.from(selectedPaths);
+    addLog(`System: In-app browser adding ${pathsToAdd.length} selected item(s).`);
+    onAddMultipleFiles(pathsToAdd);
+    setSelectedPaths(new Set());
     setInAppBrowserCollapsed(true);
   };
 
@@ -409,7 +551,10 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
             <FolderOpen size={13} style={{ color: isCurrentFolderAutoSync ? 'var(--accent, #00ff88)' : '#fff', flexShrink: 0 }} />
             <span style={{ fontSize: '11px', fontWeight: 600, color: '#fff', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-              {formatPathLabel(inAppBrowserPath || '')} {isCurrentFolderAutoSync && <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 800, marginLeft: '4px' }}>[AUTO-SYNC]</span>}
+              {formatPathLabel(inAppBrowserPath || '')}
+              {isCurrentFolderAutoSync && <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 800, marginLeft: '4px' }}>[AUTO-SYNC]</span>}
+              {mediaFilter === 'video' && <span className="browser-collapsed-filter-badge">[VIDEOS]</span>}
+              {mediaFilter === 'picture' && <span className="browser-collapsed-filter-badge" style={{ color: '#38bdf8' }}>[PICTURES]</span>}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -568,7 +713,7 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
           </div>
         </div>
 
-        {/* Navigation Breadcrumb Area */}
+        {/* Navigation Breadcrumb Area & Smart Add Button */}
         <div className="browser-nav-row">
           <button 
             className="browser-nav-btn up-btn"
@@ -581,18 +726,109 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
           <div className="browser-path-display" title={inAppBrowserPath}>
             {formatPathLabel(inAppBrowserPath || '')}
           </div>
-          <button 
-            className="browser-nav-btn add-all-btn"
-            onClick={handleAddAll}
-            title="Add All Media in Folder"
+          
+          {/* Smart Add Button with Dropdown Selector */}
+          <div className="browser-add-btn-group" ref={addMenuRef}>
+            <button 
+              className="browser-nav-btn add-all-btn"
+              onClick={() => handleAddAll()}
+              title={
+                mediaFilter === 'video'
+                  ? `Add All Videos (${mediaCounts.video}) to workspace`
+                  : mediaFilter === 'picture'
+                    ? `Add All Pictures (${mediaCounts.picture}) to workspace`
+                    : `Add All Media (${mediaCounts.all}) to workspace`
+              }
+            >
+              {mediaFilter === 'video' ? (
+                <Film size={12} />
+              ) : mediaFilter === 'picture' ? (
+                <ImageIcon size={12} />
+              ) : (
+                <Download size={12} />
+              )}
+              <span>
+                {mediaFilter === 'video'
+                  ? `Add Videos (${mediaCounts.video})`
+                  : mediaFilter === 'picture'
+                    ? `Add Pictures (${mediaCounts.picture})`
+                    : `Add All (${mediaCounts.all})`}
+              </span>
+            </button>
+            <button
+              className="browser-nav-btn add-all-dropdown-btn"
+              onClick={() => setShowAddMenu(prev => !prev)}
+              title="Choose media to add (Videos, Pictures, or All)"
+            >
+              <ChevronDown size={10} />
+            </button>
+
+            {showAddMenu && (
+              <div className="browser-dropdown-menu add-menu">
+                <button 
+                  className="browser-dropdown-item" 
+                  onClick={() => handleAddAll('video')}
+                  disabled={mediaCounts.video === 0}
+                >
+                  <Film size={12} style={{ color: 'var(--accent, #00ff88)' }} />
+                  <span>Add Videos Only ({mediaCounts.video})</span>
+                </button>
+                <button 
+                  className="browser-dropdown-item" 
+                  onClick={() => handleAddAll('picture')}
+                  disabled={mediaCounts.picture === 0}
+                >
+                  <ImageIcon size={12} style={{ color: '#38bdf8' }} />
+                  <span>Add Pictures Only ({mediaCounts.picture})</span>
+                </button>
+                <div className="browser-dropdown-divider" />
+                <button 
+                  className="browser-dropdown-item" 
+                  onClick={() => handleAddAll('all')}
+                  disabled={mediaCounts.all === 0}
+                >
+                  <Download size={12} />
+                  <span>Add All Media ({mediaCounts.all})</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Media Mode Filter: ALL / VIDEOS / PICTURES */}
+        <div className="browser-filter-row">
+          <button
+            className={`browser-filter-btn ${mediaFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setInAppBrowserMediaFilter('all')}
+            title="Display All Media in folder"
           >
-            <Download size={12} />
-            <span>Add All</span>
+            <LayoutGrid size={11} />
+            <span>ALL</span>
+            <span className="filter-count-badge">{mediaCounts.all}</span>
+          </button>
+          <button
+            className={`browser-filter-btn ${mediaFilter === 'video' ? 'active' : ''}`}
+            onClick={() => setInAppBrowserMediaFilter('video')}
+            title="Display Video files only"
+          >
+            <Film size={11} />
+            <span>VIDEOS</span>
+            <span className="filter-count-badge">{mediaCounts.video}</span>
+          </button>
+          <button
+            className={`browser-filter-btn ${mediaFilter === 'picture' ? 'active' : ''}`}
+            onClick={() => setInAppBrowserMediaFilter('picture')}
+            title="Display Pictures / Stills only"
+          >
+            <ImageIcon size={11} />
+            <span>PICTURES</span>
+            <span className="filter-count-badge">{mediaCounts.picture}</span>
           </button>
         </div>
 
-        {/* Secondary Toolbar / Sort & Filter */}
+        {/* Secondary Toolbar / Sort, Search & Selection Options */}
         <div className="browser-toolbar-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', paddingTop: '2px' }}>
+          {/* Sort Selection */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <select 
               value={sortBy} 
@@ -628,7 +864,82 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {/* Search Box */}
+          <div className="browser-search-box">
+            <Search size={11} className="browser-search-icon" />
+            <input
+              type="text"
+              className="browser-search-input"
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              title="Filter files by name"
+            />
+            {searchQuery && (
+              <button
+                className="browser-search-clear-btn"
+                onClick={() => setSearchQuery('')}
+                title="Clear filter text"
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Select & Layout Toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', position: 'relative' }}>
+            {/* Quick Select Dropdown */}
+            <div ref={selectMenuRef} style={{ position: 'relative' }}>
+              <button
+                className={`layout-toggle-btn ${selectedPaths.size > 0 ? 'active' : ''}`}
+                onClick={() => setShowSelectMenu(prev => !prev)}
+                title={selectedPaths.size > 0 ? `${selectedPaths.size} items selected (Click for selection menu)` : "Batch Selection Menu"}
+                style={{
+                  color: selectedPaths.size > 0 ? 'var(--accent, #00ff88)' : undefined
+                }}
+              >
+                <CheckSquare size={13} />
+              </button>
+              {showSelectMenu && (
+                <div className="browser-dropdown-menu select-menu">
+                  <button 
+                    className="browser-dropdown-item" 
+                    onClick={handleSelectAllVideos}
+                    disabled={mediaCounts.video === 0}
+                  >
+                    <Film size={12} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Select Videos ({mediaCounts.video})</span>
+                  </button>
+                  <button 
+                    className="browser-dropdown-item" 
+                    onClick={handleSelectAllPictures}
+                    disabled={mediaCounts.picture === 0}
+                  >
+                    <ImageIcon size={12} style={{ color: '#38bdf8' }} />
+                    <span>Select Pictures ({mediaCounts.picture})</span>
+                  </button>
+                  <button 
+                    className="browser-dropdown-item" 
+                    onClick={handleSelectAllInView}
+                    disabled={visibleItems.filter(x => !x.is_dir).length === 0}
+                  >
+                    <CheckCheck size={12} />
+                    <span>Select All in View</span>
+                  </button>
+                  {selectedPaths.size > 0 && (
+                    <>
+                      <div className="browser-dropdown-divider" />
+                      <button className="browser-dropdown-item text-danger" onClick={handleClearSelection}>
+                        <X size={12} />
+                        <span>Deselect All ({selectedPaths.size})</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Folder Auto-Sync */}
             <button 
               className={`layout-toggle-btn ${isCurrentFolderAutoSync ? 'active' : ''}`}
               onClick={() => {
@@ -653,6 +964,8 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
               <Zap size={12} fill={isCurrentFolderAutoSync ? "currentColor" : "none"} />
               <span>SYNC</span>
             </button>
+
+            {/* List / Grid Toggle */}
             <button 
               className={`layout-toggle-btn ${layoutMode === 'list' ? 'active' : ''}`}
               onClick={() => setLayoutMode(layoutMode === 'grid' ? 'list' : 'grid')}
@@ -666,6 +979,33 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
 
       {/* Main List Body */}
       <div className="browser-body">
+        {/* Floating Selection Bar */}
+        {selectedPaths.size > 0 && (
+          <div className="browser-selection-bar">
+            <div className="browser-selection-info">
+              <CheckCheck size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+              <span>{selectedPaths.size} selected</span>
+            </div>
+            <div className="browser-selection-actions">
+              <button 
+                className="browser-selection-btn add"
+                onClick={handleAddSelected}
+                title="Add selected files to workspace"
+              >
+                <Plus size={11} strokeWidth={3} />
+                <span>Add Selected ({selectedPaths.size})</span>
+              </button>
+              <button 
+                className="browser-selection-btn clear"
+                onClick={handleClearSelection}
+                title="Clear selection"
+              >
+                <X size={11} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="browser-loader-box">
             <Loader2 size={24} className="browser-spinner spin" />
@@ -683,6 +1023,67 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
           <div className="browser-empty-box">
             <p>This directory is empty or contains no supported media files.</p>
           </div>
+        ) : visibleItems.length === 0 ? (
+          <div className="browser-empty-box" style={{ flexDirection: 'column', gap: '8px' }}>
+            {searchQuery ? (
+              <>
+                <p>No files matching "{searchQuery}".</p>
+                <button 
+                  className="retry-btn" 
+                  onClick={() => setSearchQuery('')}
+                  style={{ fontSize: '10px', padding: '4px 8px' }}
+                >
+                  Clear Search
+                </button>
+              </>
+            ) : mediaFilter === 'video' ? (
+              <>
+                <p>No video files in this folder.</p>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {mediaCounts.picture > 0 && (
+                    <button 
+                      className="retry-btn" 
+                      onClick={() => setInAppBrowserMediaFilter('picture')}
+                      style={{ fontSize: '10px', padding: '4px 8px', color: '#38bdf8' }}
+                    >
+                      Show Pictures ({mediaCounts.picture})
+                    </button>
+                  )}
+                  <button 
+                    className="retry-btn" 
+                    onClick={() => setInAppBrowserMediaFilter('all')}
+                    style={{ fontSize: '10px', padding: '4px 8px' }}
+                  >
+                    Show All Media ({mediaCounts.all})
+                  </button>
+                </div>
+              </>
+            ) : mediaFilter === 'picture' ? (
+              <>
+                <p>No picture files in this folder.</p>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {mediaCounts.video > 0 && (
+                    <button 
+                      className="retry-btn" 
+                      onClick={() => setInAppBrowserMediaFilter('video')}
+                      style={{ fontSize: '10px', padding: '4px 8px', color: 'var(--accent, #00ff88)' }}
+                    >
+                      Show Videos ({mediaCounts.video})
+                    </button>
+                  )}
+                  <button 
+                    className="retry-btn" 
+                    onClick={() => setInAppBrowserMediaFilter('all')}
+                    style={{ fontSize: '10px', padding: '4px 8px' }}
+                  >
+                    Show All Media ({mediaCounts.all})
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p>No items found.</p>
+            )}
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
             <div className={`browser-items-list mode-${layoutMode}`}>
@@ -692,6 +1093,9 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
                   item={item}
                   index={index}
                   layoutMode={layoutMode}
+                  isSelected={selectedPaths.has(item.path)}
+                  hasSelection={selectedPaths.size > 0}
+                  onToggleSelect={handleToggleSelect}
                   onAddFile={onAddFile}
                   onDragStart={handleDragStart}
                   onDoubleClick={() => {
@@ -740,4 +1144,3 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
     </div>
   );
 }
-
