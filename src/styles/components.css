@@ -3268,6 +3268,393 @@ html[data-theme="distorted"] .workshop-offline-btn:hover {
   color: #fff;
 }
 
+/* In-App Browser Media Filters, Selection & Tools */
+.browser-filter-row {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.browser-filter-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.browser-filter-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.browser-filter-btn.active {
+  background: rgba(0, 255, 136, 0.14);
+  color: var(--accent, #00ff88);
+  border-color: rgba(0, 255, 136, 0.3);
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.15);
+}
+
+.browser-filter-btn .filter-count-badge {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  transition: all 0.2s ease;
+}
+
+.browser-filter-btn.active .filter-count-badge {
+  background: rgba(0, 255, 136, 0.25);
+  color: var(--accent, #00ff88);
+}
+
+.browser-add-btn-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.browser-nav-btn.add-all-btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.browser-nav-btn.add-all-dropdown-btn {
+  padding: 0 4px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  background: rgba(0, 255, 136, 0.1);
+  border-color: rgba(0, 255, 136, 0.2);
+  color: var(--accent, #00ff88);
+}
+
+.browser-nav-btn.add-all-dropdown-btn:hover {
+  background: var(--accent, #00ff88);
+  color: #000;
+}
+
+.browser-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  background: rgba(15, 15, 23, 0.96);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 175px;
+  z-index: 1000;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  animation: browser-fade-in 0.15s ease-out;
+}
+
+.browser-dropdown-menu.add-menu {
+  right: 0;
+}
+
+.browser-dropdown-menu.select-menu {
+  right: 0;
+}
+
+.browser-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.browser-dropdown-item:hover:not(:disabled) {
+  background: rgba(0, 255, 136, 0.12);
+  color: var(--accent, #00ff88);
+}
+
+.browser-dropdown-item:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.browser-dropdown-item.text-danger:hover {
+  background: rgba(255, 77, 77, 0.15);
+  color: #ff4d4d;
+}
+
+.browser-dropdown-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 3px 0;
+}
+
+/* Search input inside browser toolbar */
+.browser-search-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 2px 7px;
+  height: 24px;
+  min-width: 80px;
+  transition: all 0.2s ease;
+}
+
+.browser-search-box:focus-within {
+  border-color: rgba(0, 255, 136, 0.4);
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.15);
+}
+
+.browser-search-icon {
+  color: rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
+}
+
+.browser-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 10px;
+  color: #fff;
+  width: 100%;
+  min-width: 0;
+}
+
+.browser-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.browser-search-clear-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.browser-search-clear-btn:hover {
+  color: #fff;
+}
+
+/* Batch selection bar */
+.browser-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(14, 28, 20, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 255, 136, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 255, 136, 0.15);
+  margin-bottom: 8px;
+  animation: browser-slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes browser-slide-down {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.browser-selection-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.browser-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.browser-selection-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+}
+
+.browser-selection-btn.add {
+  background: var(--accent, #00ff88);
+  color: #000;
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.4);
+}
+
+.browser-selection-btn.add:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+.browser-selection-btn.clear {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.browser-selection-btn.clear:hover {
+  background: rgba(255, 77, 77, 0.2);
+  color: #ff4d4d;
+}
+
+/* Card Selection State & Badges */
+.browser-item-card.is-selected {
+  border-color: var(--accent, #00ff88) !important;
+  background: rgba(0, 255, 136, 0.07) !important;
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.25) !important;
+}
+
+.browser-item-checkbox {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 25;
+  transition: all 0.15s ease;
+  opacity: 0;
+  padding: 0;
+  color: #000;
+}
+
+.browser-item-card:hover .browser-item-checkbox,
+.browser-item-checkbox.has-selection,
+.browser-item-checkbox.selected {
+  opacity: 1;
+}
+
+.browser-item-checkbox.selected {
+  background: var(--accent, #00ff88);
+  border-color: var(--accent, #00ff88);
+  color: #000;
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+}
+
+.browser-item-checkbox:hover {
+  border-color: var(--accent, #00ff88);
+  transform: scale(1.1);
+}
+
+.browser-item-checkbox-list {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  margin-right: 4px;
+  transition: all 0.15s ease;
+  opacity: 0.3;
+  color: #000;
+}
+
+.browser-item-card.layout-list:hover .browser-item-checkbox-list,
+.browser-item-checkbox-list.has-selection,
+.browser-item-checkbox-list.selected {
+  opacity: 1;
+}
+
+.browser-item-checkbox-list.selected {
+  background: var(--accent, #00ff88);
+  border-color: var(--accent, #00ff88);
+  color: #000;
+}
+
+.browser-item-type-badge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.browser-item-type-badge.badge-video {
+  color: var(--accent, #00ff88);
+}
+
+.browser-item-type-badge.badge-picture {
+  color: #38bdf8;
+}
+
+.browser-collapsed-filter-badge {
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--accent, #00ff88);
+  margin-left: 6px;
+  letter-spacing: 0.5px;
+}
+
 /* ==========================================================================
    PREMIUM MUSIC PLAYER & QUEUE VISUALIZER PROTOCOL
    ========================================================================== */

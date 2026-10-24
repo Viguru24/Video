@@ -109,6 +109,8 @@ interface GlobalState {
   setInAppBrowserPath: (path: string) => void;
   inAppBrowserCollapsed: boolean;
   setInAppBrowserCollapsed: (val: boolean) => void;
+  inAppBrowserMediaFilter: 'all' | 'video' | 'picture';
+  setInAppBrowserMediaFilter: (filter: 'all' | 'video' | 'picture') => void;
 
   // Music Player & Queue State
   showQueue: boolean;
@@ -333,6 +335,11 @@ export const useStore = create<GlobalState>((set) => ({
   setInAppBrowserPath: (path) => set({ inAppBrowserPath: path }),
   inAppBrowserCollapsed: false,
   setInAppBrowserCollapsed: (val) => set({ inAppBrowserCollapsed: val }),
+  inAppBrowserMediaFilter: (localStorage.getItem('cosmo-inapp-browser-media-filter') as 'all' | 'video' | 'picture') || 'all',
+  setInAppBrowserMediaFilter: (filter) => {
+    localStorage.setItem('cosmo-inapp-browser-media-filter', filter);
+    set({ inAppBrowserMediaFilter: filter });
+  },
 
   // Music Player & Queue State
   showQueue: false,
