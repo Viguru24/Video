@@ -3,6 +3,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { VideoCard } from './VideoCard';
 import type { VideoItem, RepeatMode } from '../types';
+import { isValidPictureExtension } from '../utils/videoUtils';
 
 interface SortableVideoCardProps {
   video: VideoItem;
@@ -61,6 +62,9 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
   } = useSortable({ id: props.video.id });
 
   const smartCulling = useStore(state => state.smartCulling);
+  const isImage = React.useMemo(() => {
+    return isValidPictureExtension(props.video.realPath || props.video.url);
+  }, [props.video.realPath, props.video.url]);
   const [isVisible, setIsVisible] = React.useState(true);
   const observerRef = React.useRef<IntersectionObserver | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -91,11 +95,11 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
       }, { 
         root: null, // Check intersection relative to the viewport (window) for bulletproof reliability
         threshold: 0.01,
-        rootMargin: '300px' // Tighter pre-render buffer to aggressively cull off-screen videos and conserve GPU VRAM
+        rootMargin: isImage ? '800px' : '300px' // Generous buffer for images; tighter buffer for videos to conserve GPU VRAM
       });
       observerRef.current.observe(node);
     }
-  }, [props.isFocused, smartCulling, setNodeRef]);
+  }, [props.isFocused, smartCulling, setNodeRef, isImage]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
