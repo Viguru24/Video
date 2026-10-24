@@ -1,4 +1,4 @@
-foreach ($port in @(55174, 8005)) {
+foreach ($port in @(55174, 8005, 48273)) {
     $lines = netstat -aon | Where-Object { $_ -match (":$port\s") }
     foreach ($line in $lines) {
         $procId = ($line.Trim() -split '\s+')[-1]

@@ -530,6 +530,7 @@ fn main() {
             commands::filesystem::get_file_stats,
             commands::server::set_wifi_shared_files,
             commands::server::download_shared_file_to_downloads,
+            commands::server::ensure_wifi_share_server,
             commands::system::share_to_whatsapp,
             commands::system::share_media_file
         ])

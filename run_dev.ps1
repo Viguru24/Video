@@ -38,7 +38,7 @@ if (Test-Path $lockFile) {
 
 # 3. Clear port locks (dev server, share server, and backend ports)
 Write-Host "[2/3] Clearing port locks..." -ForegroundColor Yellow
-$ports = @(55174, 59473, 26646, 12000, 8005)
+$ports = @(55174, 59473, 26646, 12000, 8005, 48273)
 foreach ($port in $ports) {
     $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
     if ($connections) {

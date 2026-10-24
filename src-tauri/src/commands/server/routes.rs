@@ -417,6 +417,42 @@ pub fn spawn_cleanup_task(rooms: RoomStore, upload_dir: PathBuf) {
     });
 }
 
+pub async fn health_check() -> impl IntoResponse {
+    let local_ip = get_local_ip();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "ok",
+            "service": "cosmo-symphony-wifi-share",
+            "port": 48273,
+            "localIp": local_ip,
+            "timestamp": now_millis()
+        }))
+    )
+}
+
+pub async fn download_apk_direct(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> impl IntoResponse {
+    let apk_path = state.frontend_path.join("CosmoShare.apk");
+    let fallback_path = state.frontend_path.join("CosmoSymphonyCompanion.apk");
+    let path_to_use = if apk_path.is_file() {
+        apk_path
+    } else if fallback_path.is_file() {
+        fallback_path
+    } else {
+        return (StatusCode::NOT_FOUND, "Companion APK not found on server").into_response();
+    };
+
+    use tower::util::ServiceExt;
+    let service = tower_http::services::ServeFile::new(&path_to_use);
+    match service.oneshot(req).await {
+        Ok(res) => res.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 pub async fn view_local_file(
     Query(params): Query<HashMap<String, String>>,
     req: axum::extract::Request,
@@ -461,6 +497,7 @@ pub async fn start_server_internal(frontend_dist_path: String) {
 
     // API routes
     let api = Router::new()
+        .route("/api/health", get(health_check))
         .route("/api/rooms/create", post(create_room))
         .route("/api/rooms/{code}/status", get(room_status))
         .route("/api/rooms/{code}/join", post(join_room))
@@ -471,7 +508,9 @@ pub async fn start_server_internal(frontend_dist_path: String) {
         )
         .route("/api/rooms/{code}/download-zip", get(download_zip))
         .route("/api/rooms/{code}", delete(delete_room))
-        .route("/api/view-file", get(view_local_file));
+        .route("/api/view-file", get(view_local_file))
+        .route("/CosmoShare.apk", get(download_apk_direct))
+        .route("/CosmoSymphonyCompanion.apk", get(download_apk_direct));
 
     // Static file serving + SPA fallback
     let serve_dir = tower_http::services::ServeDir::new(&frontend_path)
@@ -484,15 +523,32 @@ pub async fn start_server_internal(frontend_dist_path: String) {
         .with_state(state);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 48273));
-    println!("[Wi-Fi Share Server] running on http://0.0.0.0:48273");
+    println!("[Wi-Fi Share Server] Attempting to bind http://0.0.0.0:48273...");
 
-    let listener = match tokio::net::TcpListener::bind(addr).await {
-        Ok(l) => l,
-        Err(e) => {
-            println!("[Wi-Fi Share Server] Bind failed (port may be in use): {}", e);
-            return;
+    let mut listener = None;
+    for attempt in 1..=20 {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => {
+                println!("[Wi-Fi Share Server] Running on http://0.0.0.0:48273 (bound on attempt {})", attempt);
+                listener = Some(l);
+                break;
+            }
+            Err(e) => {
+                if attempt == 20 {
+                    eprintln!("[Wi-Fi Share Server] FATAL: Bind failed after 20 attempts: {}", e);
+                    return;
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+            }
         }
+    }
+
+    let listener = match listener {
+        Some(l) => l,
+        None => return,
     };
 
-    let _ = axum::serve(listener, app).await;
+    if let Err(e) = axum::serve(listener, app).await {
+        eprintln!("[Wi-Fi Share Server] Server error: {}", e);
+    }
 }

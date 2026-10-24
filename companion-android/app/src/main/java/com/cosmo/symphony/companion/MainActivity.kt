@@ -678,6 +678,16 @@ class MainActivity : ComponentActivity() {
         root.addView(title)
         root.addView(subtitle)
 
+        val phoneIp = getLocalDeviceIp()
+        val ipStatusText = TextView(this).apply {
+            text = if (phoneIp != null) "📡 Connected to Wi-Fi ($phoneIp)" else "⚠️ Wi-Fi not connected (LAN sync needs Wi-Fi)"
+            textSize = 11f
+            setTextColor(if (phoneIp != null) Color.parseColor("#38bdf8") else Color.parseColor("#f87171"))
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 16.dp)
+        }
+        root.addView(ipStatusText)
+
         if (!errorMessage.isNullOrBlank()) {
             val errorBox = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -770,9 +780,24 @@ class MainActivity : ComponentActivity() {
             startAutoDetect()
         }
 
+        val otaBtn = Button(this).apply {
+            text = "🚀 CHECK FOR OTA UPDATES"
+            textSize = 12f
+            setTextColor(Color.parseColor("#94a3b8"))
+            setBackgroundColor(Color.parseColor("#141923"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                42.dp
+            ).apply { bottomMargin = 12.dp }
+        }
+        otaBtn.setOnClickListener {
+            checkOtaUpdates(silent = false)
+        }
+
         root.addView(input)
         root.addView(connectBtn)
         root.addView(autoDetectBtn)
+        root.addView(otaBtn)
 
         container.addView(root)
     }
@@ -1203,51 +1228,121 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun getLocalDeviceIp(): String? {
+        try {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return null
+            for (iface in interfaces) {
+                if (iface.isLoopback || !iface.isUp) continue
+                for (addr in iface.inetAddresses) {
+                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                        val host = addr.hostAddress ?: continue
+                        if (host.startsWith("192.168.") || host.startsWith("10.") || host.startsWith("172.")) {
+                            return host
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
+    private fun getLocalScanSubnets(): List<String> {
+        val subnets = mutableListOf<String>()
+        try {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            if (interfaces != null) {
+                for (iface in interfaces) {
+                    if (iface.isLoopback || !iface.isUp) continue
+                    for (addr in iface.inetAddresses) {
+                        if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                            val host = addr.hostAddress ?: continue
+                            if (host.startsWith("192.168.") || host.startsWith("10.") || host.startsWith("172.")) {
+                                val base = host.substringBeforeLast(".") + "."
+                                if (!subnets.contains(base)) {
+                                    subnets.add(base)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        if (!subnets.contains("192.168.1.")) subnets.add("192.168.1.")
+        if (!subnets.contains("192.168.0.")) subnets.add("192.168.0.")
+        return subnets
+    }
+
     private fun startAutoDetect() {
-        Toast.makeText(this, "Scanning local Wi-Fi for Cosmo Symphony...", Toast.LENGTH_SHORT).show()
+        val myIp = getLocalDeviceIp() ?: "unknown"
+        Toast.makeText(this, "Scanning local Wi-Fi for Cosmo Symphony (Device: $myIp)...", Toast.LENGTH_SHORT).show()
         autoDiscoverPc(
             onFound = { foundUrl ->
                 prefs.edit().putString("last_url", foundUrl).apply()
-                Toast.makeText(this, "✅ Found Studio PC at $foundUrl", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "✅ Connected to Studio PC at $foundUrl", Toast.LENGTH_SHORT).show()
                 openWebView(foundUrl)
             },
             onNotFound = {
                 Toast.makeText(this, "Could not find Cosmo Symphony on local network. Check PC IP or Wi-Fi.", Toast.LENGTH_LONG).show()
-                buildConnectScreen("Auto-detection finished. No Cosmo Symphony instance found on local subnet. Verify your PC is on the same Wi-Fi and Wi-Fi Share is running.")
+                buildConnectScreen("Auto-detection finished. No Cosmo Symphony instance found on local subnet ($myIp).\n\n1. Verify PC & Phone are on the same Wi-Fi router\n2. Verify Wi-Fi Share is opened in Cosmo Symphony on PC\n3. Or manually enter your PC's IP address above.")
             }
         )
     }
 
     private fun autoDiscoverPc(onFound: (String) -> Unit, onNotFound: () -> Unit) {
-        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
-        val ipInt = wm?.connectionInfo?.ipAddress ?: 0
-        val baseIp = if (ipInt != 0) {
-            String.format(
-                java.util.Locale.US,
-                "%d.%d.%d.",
-                ipInt and 0xff,
-                ipInt shr 8 and 0xff,
-                ipInt shr 16 and 0xff
-            )
-        } else {
-            "192.168.1."
+        val subnets = getLocalScanSubnets()
+        val scanExecutor = Executors.newFixedThreadPool(64)
+        val found = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        val candidates = mutableListOf<String>()
+        val saved = prefs.getString("last_url", "") ?: ""
+        val savedHost = if (saved.isNotBlank()) {
+            try { Uri.parse(saved).host } catch (_: Exception) { null }
+        } else null
+        if (!savedHost.isNullOrBlank() && !candidates.contains(savedHost)) {
+            candidates.add(savedHost)
+        }
+        if (!candidates.contains("192.168.1.55")) {
+            candidates.add("192.168.1.55")
         }
 
-        val scanExecutor = Executors.newFixedThreadPool(32)
-        val found = java.util.concurrent.atomic.AtomicBoolean(false)
-        val pending = AtomicInteger(254)
+        for (subnet in subnets) {
+            for (i in 1..254) {
+                val ip = "$subnet$i"
+                if (!candidates.contains(ip)) {
+                    candidates.add(ip)
+                }
+            }
+        }
 
-        for (i in 1..254) {
-            val candidateIp = "$baseIp$i"
+        val pending = AtomicInteger(candidates.size)
+
+        for (candidateIp in candidates) {
             scanExecutor.execute {
                 if (!found.get()) {
                     try {
                         val socket = java.net.Socket()
-                        socket.connect(java.net.InetSocketAddress(candidateIp, 48273), 400)
+                        socket.connect(java.net.InetSocketAddress(candidateIp, 48273), 850)
                         socket.close()
-                        if (found.compareAndSet(false, true)) {
-                            val targetUrl = "http://$candidateIp:48273"
-                            runOnUiThread { onFound(targetUrl) }
+
+                        // Verify with health check
+                        try {
+                            val pingUrl = URL("http://$candidateIp:48273/api/health")
+                            val conn = pingUrl.openConnection() as HttpURLConnection
+                            conn.connectTimeout = 1000
+                            conn.readTimeout = 1000
+                            val code = conn.responseCode
+                            conn.disconnect()
+                            if (code in 200..299 || code == 404) {
+                                if (found.compareAndSet(false, true)) {
+                                    val targetUrl = "http://$candidateIp:48273"
+                                    runOnUiThread { onFound(targetUrl) }
+                                }
+                            }
+                        } catch (_: Exception) {
+                            if (found.compareAndSet(false, true)) {
+                                val targetUrl = "http://$candidateIp:48273"
+                                runOnUiThread { onFound(targetUrl) }
+                            }
                         }
                     } catch (_: Exception) {
                     }
