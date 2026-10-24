@@ -116,9 +116,9 @@ function VideoCardInternal(props: VideoCardProps) {
                 src={state.effectiveImgSrc}
                 alt={props.video.title}
                 draggable="false"
-                decoding="async"
-                loading="lazy"
-                fetchPriority={props.isVisible ? "high" : "low"}
+                decoding="auto"
+                loading="eager"
+                fetchPriority="high"
                 onLoad={state.handleMediaSuccess}
                 onError={() => state.handleMediaError('image')}
                 style={{ 
