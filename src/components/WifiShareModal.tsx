@@ -134,7 +134,14 @@ export function WifiShareModal({
       setError(null);
 
       try {
-        const response = await fetch('http://127.0.0.1:48273/api/rooms/create', { method: 'POST' });
+        let response = await fetch('http://127.0.0.1:48273/api/rooms/create', { method: 'POST' }).catch(() => null);
+        if (!response || !response.ok) {
+          try {
+            await invoke('ensure_wifi_share_server');
+            await new Promise((r) => setTimeout(r, 600));
+            response = await fetch('http://127.0.0.1:48273/api/rooms/create', { method: 'POST' }).catch(() => null);
+          } catch {}
+        }
         if (!response.ok) {
           throw new Error(`Server returned status ${response.status}`);
         }
@@ -528,10 +535,32 @@ export function WifiShareModal({
                         padding: '1px 5px',
                         borderRadius: '4px'
                       }}
-                      title="Download CosmoShare Android APK"
+                      title="Download Companion APK from Local Studio PC"
                     >
                       <Smartphone size={8} />
                       <span>CosmoShare APK</span>
+                    </a>
+                    <a
+                      href="https://api.cosmowhisper.com/updates/cosmo-companion/app-latest.apk"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: '8px',
+                        fontWeight: 800,
+                        color: '#00d2ff',
+                        textDecoration: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '2px',
+                        background: 'rgba(0, 210, 255, 0.1)',
+                        border: '1px solid rgba(0, 210, 255, 0.25)',
+                        padding: '1px 5px',
+                        borderRadius: '4px'
+                      }}
+                      title="Download Latest Companion APK from Sovereign Cloud VPS"
+                    >
+                      <ExternalLink size={8} />
+                      <span>Cloud APK</span>
                     </a>
                   </div>
 

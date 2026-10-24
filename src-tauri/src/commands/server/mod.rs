@@ -8,10 +8,33 @@ pub use network::*;
 pub use routes::*;
 pub use types::*;
 
-use std::{fs, path::PathBuf, sync::{Arc, Mutex}};
+use std::{fs, path::PathBuf, sync::{Arc, Mutex, OnceLock}};
+
+static FRONTEND_DIST_PATH: OnceLock<String> = OnceLock::new();
 
 pub async fn start_server(frontend_dist_path: String) {
+    let _ = FRONTEND_DIST_PATH.set(frontend_dist_path.clone());
     routes::start_server_internal(frontend_dist_path).await;
+}
+
+#[tauri::command]
+pub async fn ensure_wifi_share_server() -> Result<bool, String> {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 48273));
+    let is_connected = std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(400)).is_ok();
+    if is_connected {
+        return Ok(true);
+    }
+
+    if let Some(dist_path) = FRONTEND_DIST_PATH.get() {
+        let dist_clone = dist_path.clone();
+        tauri::async_runtime::spawn(async move {
+            routes::start_server_internal(dist_clone).await;
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+        let is_now_connected = std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(400)).is_ok();
+        return Ok(is_now_connected);
+    }
+    Ok(false)
 }
 
 #[tauri::command]
