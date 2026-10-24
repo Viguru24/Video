@@ -94,16 +94,49 @@ export function WifiShareModal({
     });
   };
 
+  useEffect(() => {
+    if (!customDownloadDir) {
+      invoke<string | null>('load_persistence', { key: 'cosmo-wifi-download-dir' })
+        .then((saved) => {
+          if (saved && typeof saved === 'string' && saved.trim()) {
+            setCustomDownloadDir(saved.trim());
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   const selectDownloadDir = async () => {
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        defaultPath: customDownloadDir || undefined
-      });
+      let selected: string | null = null;
+      try {
+        const dialogRes = await open({
+          directory: true,
+          multiple: false,
+          defaultPath: customDownloadDir || undefined
+        });
+        if (dialogRes && typeof dialogRes === 'string') {
+          selected = dialogRes;
+        }
+      } catch (dialogErr) {
+        console.warn('plugin-dialog open failed, attempting backend select_folder_cmd fallback:', dialogErr);
+      }
+
+      if (!selected) {
+        try {
+          const rustRes = await invoke<string>('select_folder_cmd');
+          if (rustRes && typeof rustRes === 'string' && rustRes !== 'Cancelled') {
+            selected = rustRes;
+          }
+        } catch {}
+      }
+
       if (selected && typeof selected === 'string') {
         setCustomDownloadDir(selected);
         localStorage.setItem('cosmo-wifi-download-dir', selected);
+        try {
+          await invoke('save_persistence', { key: 'cosmo-wifi-download-dir', data: selected });
+        } catch {}
 
         setFolderHistory((prev) => {
           const updated = [selected, ...prev.filter((p) => p !== selected)].slice(0, 8);
@@ -111,7 +144,7 @@ export function WifiShareModal({
           return updated;
         });
 
-        onLog(`Wi-Fi Share: Custom download directory set to "${selected}"`);
+        onLog(`Wi-Fi Share: Destination directory set to "${selected}"`);
       }
     } catch (err) {
       console.error('Failed to select directory:', err);
@@ -121,6 +154,7 @@ export function WifiShareModal({
   const resetDownloadDir = () => {
     setCustomDownloadDir('');
     localStorage.removeItem('cosmo-wifi-download-dir');
+    invoke('save_persistence', { key: 'cosmo-wifi-download-dir', data: '' }).catch(() => {});
     onLog('Wi-Fi Share: Reset download directory to system Downloads');
   };
 
