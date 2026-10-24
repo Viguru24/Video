@@ -561,14 +561,14 @@
                 </div>
               </div>
               <div style="display: flex; gap: 6px; align-items: center;">
-                <a href="/api/rooms/${roomCode}/files/${file.id}" download="${file.name}" class="btn btn-small" style="background: rgba(0, 210, 255, 0.15); border-color: rgba(0, 210, 255, 0.4); color: #00d2ff;">
+                <button onclick="downloadSingleFile('${file.id}', '${encodeURIComponent(file.name)}')" class="btn btn-small" style="background: rgba(0, 210, 255, 0.15); border-color: rgba(0, 210, 255, 0.4); color: #00d2ff; cursor: pointer;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
                     <line x1="12" y1="15" x2="12" y2="3"/>
                   </svg>
                   Get
-                </a>
+                </button>
                 <button onclick="deleteFile('${file.id}')" class="btn btn-danger btn-small" title="Remove from share">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"/>
@@ -608,14 +608,14 @@
                 </div>
               </div>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <a href="/api/rooms/${roomCode}/files/${file.id}" download="${file.name}" class="btn btn-primary btn-small">
+                <button onclick="downloadSingleFile('${file.id}', '${encodeURIComponent(file.name)}')" class="btn btn-primary btn-small" style="cursor: pointer;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
                     <line x1="12" y1="15" x2="12" y2="3"/>
                   </svg>
                   Save
-                </a>
+                </button>
                 <button onclick="deleteFile('${file.id}')" class="btn btn-danger btn-small" title="Delete upload">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"/>
@@ -637,6 +637,22 @@
         }
       }
 
+      // Download a single file using CosmoNative if available, or fallback to browser
+      function downloadSingleFile(fileId, encodedName) {
+        const fileName = decodeURIComponent(encodedName);
+        const url = `${window.location.origin}/api/rooms/${roomCode}/files/${fileId}`;
+        if (window.CosmoNative && typeof window.CosmoNative.downloadFile === 'function') {
+          window.CosmoNative.downloadFile(url, fileName);
+          return;
+        }
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+
       // Download all files individually without zipping!
       function downloadAllFiles() {
         const pcFiles = currentFiles.filter(f => !f.isPhoneUpload);
@@ -648,7 +664,7 @@
             const url = `${window.location.origin}/api/rooms/${roomCode}/files/${file.id}`;
             window.CosmoNative.downloadFile(url, file.name);
           });
-          window.CosmoNative.showToast(`⬇ Downloading ${pcFiles.length} files to Downloads/CosmoShare...`);
+          window.CosmoNative.showToast(`⬇ Starting download of ${pcFiles.length} file(s)...`);
           return;
         }
 

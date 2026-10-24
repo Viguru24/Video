@@ -133,9 +133,12 @@ fn resolve_target_dir(app: &tauri::AppHandle, custom_dir: Option<&str>) -> Resul
         if !trimmed.is_empty() {
             let p = PathBuf::from(trimmed);
             if fs::create_dir_all(&p).is_ok() && p.is_dir() {
+                println!("[Wi-Fi Share] Using custom destination folder: {:?}", p);
                 p
             } else {
-                resolve_fallback_download_dir(app)?
+                let fallback = resolve_fallback_download_dir(app)?;
+                println!("[Wi-Fi Share] Custom folder {:?} unwritable, falling back to: {:?}", trimmed, fallback);
+                fallback
             }
         } else {
             resolve_fallback_download_dir(app)?
@@ -145,6 +148,7 @@ fn resolve_target_dir(app: &tauri::AppHandle, custom_dir: Option<&str>) -> Resul
     };
 
     let _ = fs::create_dir_all(&download_dir);
+    println!("[Wi-Fi Share] Final resolved save directory: {:?}", download_dir);
     Ok(download_dir)
 }
 
