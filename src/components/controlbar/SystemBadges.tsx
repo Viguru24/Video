@@ -126,7 +126,7 @@ export const SystemBadges: React.FC<SystemBadgesProps> = ({
           userSelect: 'none',
           marginLeft: '4px'
         }}>
-          v1.4.4
+          v1.4.8
         </div>
         <div style={{
           height: '18px',

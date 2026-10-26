@@ -60,7 +60,7 @@ export function TelemetryPanel({ videosCount, telemetry }: TelemetryPanelProps) 
 
       <div className="tel-brand">
         <div className="status-indicator online" />
-        <span className="tel-status-text">Cosmo v1.4.6</span>
+        <span className="tel-status-text">Cosmo v1.4.8</span>
       </div>
       
       <ClockDisplay />
