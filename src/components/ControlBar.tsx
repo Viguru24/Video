@@ -193,7 +193,6 @@ export function ControlBar({
     inAppBrowserPath, setInAppBrowserPath,
     setInAppBrowserCollapsed,
     enableSlideshowPanZoom, setEnableSlideshowPanZoom,
-    folderSwitchDelay, setFolderSwitchDelay,
     sortOrder, setSortOrder,
     slideshowInterval: storeSlideshowInterval,
     setSlideshowInterval: setStoreSlideshowInterval,
@@ -877,8 +876,6 @@ export function ControlBar({
                 setStoreSlideshowInterval={setStoreSlideshowInterval}
                 isSlideshowActive={isSlideshowActive}
                 setIsSlideshowActive={setIsSlideshowActive}
-                folderSwitchDelay={folderSwitchDelay}
-                setFolderSwitchDelay={setFolderSwitchDelay}
                 setShowSettings={setShowSettings}
                 enableSlideshowPanZoom={enableSlideshowPanZoom}
                 setEnableSlideshowPanZoom={setEnableSlideshowPanZoom}
