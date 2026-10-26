@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Cpu, Pause, Play, RefreshCw, FolderOpen, Maximize } from 'lucide-react';
+import { Sparkles, Cpu, Pause, Play, RefreshCw, Maximize } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface SystemBadgesProps {
@@ -11,8 +11,6 @@ interface SystemBadgesProps {
   setStoreSlideshowInterval?: (val: number | ((prev: number) => number)) => void;
   isSlideshowActive: boolean;
   setIsSlideshowActive: (val: boolean) => void;
-  folderSwitchDelay: number;
-  setFolderSwitchDelay: (val: number | ((prev: number) => number)) => void;
   setShowSettings: (val: boolean) => void;
   enableSlideshowPanZoom: boolean;
   setEnableSlideshowPanZoom: (val: boolean) => void;
@@ -27,8 +25,6 @@ export const SystemBadges: React.FC<SystemBadgesProps> = ({
   setStoreSlideshowInterval,
   isSlideshowActive,
   setIsSlideshowActive,
-  folderSwitchDelay,
-  setFolderSwitchDelay,
   setShowSettings,
   enableSlideshowPanZoom,
   setEnableSlideshowPanZoom,
@@ -202,50 +198,6 @@ export const SystemBadges: React.FC<SystemBadgesProps> = ({
         {isSlideshowActive ? <Pause size={11} /> : <Play size={11} />}
         <RefreshCw size={11} className={isSlideshowActive ? "spin-slow" : ""} style={{ color: isSlideshowActive ? 'var(--accent, #00ff88)' : 'rgba(255,255,255,0.7)' }} />
         <span>{currentInterval}s</span>
-      </div>
-
-      {/* FOLDER FILE DELAY WIDGET */}
-      <div 
-        className="folder-delay-badge"
-        data-tooltip={`Folder File Delay: ${(folderSwitchDelay && !isNaN(folderSwitchDelay)) ? folderSwitchDelay : 10}s (Scroll wheel to adjust exact seconds)`}
-        onClick={() => setShowSettings(true)}
-        onWheel={(e) => {
-          e.stopPropagation();
-          const direction = e.deltaY < 0 ? 1 : -1;
-          setFolderSwitchDelay((prev) => {
-            const current = typeof prev === 'number' && !isNaN(prev) ? prev : 10;
-            return Math.max(1, Math.min(120, current + direction));
-          });
-        }}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '5px',
-          background: 'rgba(0, 255, 136, 0.08)',
-          border: '1px solid rgba(0, 255, 136, 0.3)',
-          borderRadius: '6px',
-          height: '28px',
-          padding: '0 8px',
-          color: 'var(--accent, #00ff88)',
-          fontSize: '11px',
-          fontFamily: 'monospace',
-          cursor: 'pointer',
-          userSelect: 'none',
-          transition: 'all 0.2s',
-          marginRight: '4px',
-          pointerEvents: 'auto',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'rgba(0, 255, 136, 0.18)';
-          e.currentTarget.style.boxShadow = '0 0 10px rgba(0, 255, 136, 0.3)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'rgba(0, 255, 136, 0.08)';
-          e.currentTarget.style.boxShadow = 'none';
-        }}
-      >
-        <FolderOpen size={11} />
-        <span>{(folderSwitchDelay && !isNaN(folderSwitchDelay)) ? folderSwitchDelay : 10}s</span>
       </div>
 
       {/* SLIDESHOW PAN & ZOOM TOGGLE */}

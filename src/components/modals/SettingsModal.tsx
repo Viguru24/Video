@@ -50,8 +50,6 @@ export function SettingsModal({
     setSlideshowInterval,
     autoAddNewFiles,
     setAutoAddNewFiles,
-    folderSwitchDelay,
-    setFolderSwitchDelay,
     aiHardwareStatus,
     setAiHardwareStatus
   } = useStore();
@@ -369,47 +367,6 @@ export function SettingsModal({
                     <button className={fitMode === 'contain' ? 'active' : ''} onClick={() => setFitMode('contain')}>
                       NATIVE
                     </button>
-                  </div>
-                </div>
-
-                <div className="setting-item">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <label style={{ fontSize: '10px', fontWeight: 900, color: 'var(--accent, #00ff88)', letterSpacing: '1px' }}>FOLDER FILE DELAY (SECONDS)</label>
-                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
-                        Exact number of seconds to wait before a folder tile shows a new file or cycles to the next file
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input 
-                        type="range"
-                        min="1"
-                        max="60"
-                        value={folderSwitchDelay}
-                        onChange={(e) => setFolderSwitchDelay(parseInt(e.target.value, 10))}
-                        style={{ width: '80px', accentColor: 'var(--accent, #00ff88)' }}
-                      />
-                      <input 
-                        type="number"
-                        min="1"
-                        max="300"
-                        value={folderSwitchDelay}
-                        onChange={(e) => setFolderSwitchDelay(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        style={{
-                          width: '46px',
-                          height: '24px',
-                          background: 'rgba(0,0,0,0.6)',
-                          border: '1px solid var(--accent, #00ff88)',
-                          color: '#fff',
-                          borderRadius: '4px',
-                          textAlign: 'center',
-                          fontSize: '11px',
-                          fontWeight: 'bold',
-                          outline: 'none'
-                        }}
-                      />
-                      <span style={{ fontSize: '10px', color: 'var(--accent, #00ff88)', fontWeight: 800 }}>sec</span>
-                    </div>
                   </div>
                 </div>
 

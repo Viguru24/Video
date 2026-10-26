@@ -86,7 +86,7 @@ function isDemoFile(video: { url?: string; realPath?: string }): boolean {
 }
 
 export default function App() {
-  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus, enableOSFullscreen, sortOrder, setSortOrder, quickFolders, setQuickFolders, autoSyncFolders, folderSwitchDelay, slideshowInterval, setSlideshowInterval } = useStore();
+  const { mediaMode, setMediaMode, theme, setTheme, alwaysOnTop, setAlwaysOnTop, isFS, setIsFS, masterPlaying, setMasterPlaying, masterMuted, setMasterMuted, globalVolume, setGlobalVolume, speed, setSpeed, globalRepeat, setGlobalRepeat, fitMode, setFitMode, zoom, setZoom, immersive, setImmersive, masterShowUI, setMasterShowUI, selectedIds, setSelectedIds, selectionMode, setSelectionMode, renameHistory, setRenameHistory, addToRenameHistory, aiHardwareStatus, setAiHardwareStatus, enableOSFullscreen, sortOrder, setSortOrder, quickFolders, setQuickFolders, autoSyncFolders, slideshowInterval, setSlideshowInterval } = useStore();
   
   const hasCheckedQuickFolders = useRef(false);
 
@@ -1052,8 +1052,6 @@ export default function App() {
   autoSyncFoldersRef.current = autoSyncFolders;
   const handleIngestPathsRef = useRef(handleIngestPaths);
   handleIngestPathsRef.current = handleIngestPaths;
-  const folderSwitchDelayRef = useRef(folderSwitchDelay);
-  folderSwitchDelayRef.current = folderSwitchDelay;
   const addLogRef = useRef(addLog);
   addLogRef.current = addLog;
 
@@ -1380,8 +1378,7 @@ export default function App() {
                   url: toCosmoUrl(fi.url),
                   path: fi.url
                 }));
-                // Update playlist files immediately while respecting user-configured delay before switching tile display
-                const delayMs = (useStore.getState().folderSwitchDelay || 10) * 1000;
+                // Update playlist files immediately
                 setVideos(prev => prev.map(v => {
                   if (v.id !== vid.id) return v;
                   const currentFileStillExists = v.url && scanned.some(s => toCosmoUrl(s.url) === v.url || s.url === v.realPath);
@@ -1399,7 +1396,7 @@ export default function App() {
                   };
                 }));
 
-                // Schedule delayed transition if new files are detected
+                // Transition tile display if new files are detected
                 if (scanned.length > (vid.folderFiles?.length || 0)) {
                   const newestFile = scanned[scanned.length - 1];
                   setTimeout(() => {
@@ -1410,8 +1407,8 @@ export default function App() {
                       title: newestFile.name,
                       currentIdx: scanned.length - 1
                     } : v));
-                    addLog(`Folder Sync: Switched tile [${vid.title}] to newly added file "${newestFile.name}" after ${useStore.getState().folderSwitchDelay}s delay`);
-                  }, delayMs);
+                    addLog(`Folder Sync: Switched tile [${vid.title}] to newly added file "${newestFile.name}"`);
+                  }, 5000);
                 }
                 folderRescannedCount++;
               }

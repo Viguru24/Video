@@ -90,9 +90,6 @@ interface GlobalState {
   autoAddNewFiles: boolean;
   setAutoAddNewFiles: (val: boolean) => void;
 
-  folderSwitchDelay: number;
-  setFolderSwitchDelay: (val: number | ((prev: number) => number)) => void;
-
   slideshowInterval: number;
   setSlideshowInterval: (val: number | ((prev: number) => number)) => void;
 
@@ -237,24 +234,6 @@ export const useStore = create<GlobalState>((set) => ({
   setAutoAddNewFiles: (val) => {
     localStorage.setItem('cosmo-auto-add-new-files', String(val));
     set({ autoAddNewFiles: val });
-  },
-
-  folderSwitchDelay: (() => {
-    const saved = localStorage.getItem('cosmo-folder-switch-delay');
-    if (saved) {
-      const num = parseInt(saved, 10);
-      if (!isNaN(num) && num >= 1) return num;
-    }
-    return 10;
-  })(),
-  setFolderSwitchDelay: (val) => {
-    set((state) => {
-      const resolved = typeof val === 'function' ? (val as any)(state.folderSwitchDelay) : val;
-      const num = parseInt(String(resolved), 10);
-      const safeVal = isNaN(num) ? 10 : Math.max(1, num);
-      localStorage.setItem('cosmo-folder-switch-delay', String(safeVal));
-      return { folderSwitchDelay: safeVal };
-    });
   },
 
   slideshowInterval: (() => {
