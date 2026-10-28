@@ -22,44 +22,7 @@ pub struct DirectoryWatcherState {
 
 pub static POPOUT_MEDIA_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// Zero-overhead embedded EXIF JPEG thumbnail extractor.
-/// Searches the first 128KB header for an embedded JPEG preview without decoding full raw bitmap.
-fn extract_exif_jpeg_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
-    if bytes.len() < 100 || &bytes[0..2] != b"\xFF\xD8" {
-        return None;
-    }
-    let search_limit = bytes.len().min(131072);
-    let mut offset = 2;
-    while offset + 4 < search_limit {
-        if bytes[offset] != 0xFF {
-            offset += 1;
-            continue;
-        }
-        let marker = bytes[offset + 1];
-        if marker == 0xE1 { // APP1 (EXIF segment)
-            let len = ((bytes[offset + 2] as usize) << 8) | (bytes[offset + 3] as usize);
-            let app1_end = (offset + 2 + len).min(bytes.len());
-            let app1_slice = &bytes[offset + 4..app1_end];
-            // Locate embedded JPEG payload inside EXIF (starts with 0xFF 0xD8, ends with 0xFF 0xD9)
-            if let Some(thumb_start) = app1_slice.windows(2).position(|w| w == b"\xFF\xD8") {
-                let thumb_data = &app1_slice[thumb_start..];
-                if let Some(thumb_end_rel) = thumb_data.windows(2).rposition(|w| w == b"\xFF\xD9") {
-                    let full_thumb = &thumb_data[..thumb_end_rel + 2];
-                    if full_thumb.len() > 1024 {
-                        return Some(full_thumb.to_vec());
-                    }
-                }
-            }
-            break;
-        } else if marker == 0xDA || marker == 0xD9 {
-            break;
-        } else {
-            let len = ((bytes[offset + 2] as usize) << 8) | (bytes[offset + 3] as usize);
-            offset += 2 + len;
-        }
-    }
-    None
-}
+use commands::media::raw::{extract_embedded_jpeg_thumbnail, extract_raw_full_preview, is_raw_image_extension};
 
 fn main() {
     // Set WebView2 environment variables to prevent sleep, background freezing, and white-screen issues:
@@ -290,7 +253,7 @@ fn main() {
                         let mut header_buf = vec![0u8; 131072];
                         if let Ok(n) = file.read(&mut header_buf) {
                             header_buf.truncate(n);
-                            if let Some(thumb_bytes) = extract_exif_jpeg_thumbnail(&header_buf) {
+                            if let Some(thumb_bytes) = extract_embedded_jpeg_thumbnail(&header_buf) {
                                 let thumb_len = thumb_bytes.len();
                                 return tauri::http::Response::builder()
                                     .status(200)
@@ -323,6 +286,40 @@ fn main() {
             }
             
             let ext_lower = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
+            if is_raw_image_extension(&ext_lower) {
+                // Browsers cannot decode raw sensor mosaic files.
+                // Serve the embedded developed JPEG preview or thumbnail instead.
+                if let Some(preview_bytes) = extract_raw_full_preview(&path) {
+                    let preview_len = preview_bytes.len();
+                    return tauri::http::Response::builder()
+                        .status(200)
+                        .header("Content-Type", "image/jpeg")
+                        .header("Content-Length", preview_len)
+                        .header("Cache-Control", "no-store, no-cache, must-revalidate")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Private-Network", "true")
+                        .body(preview_bytes)
+                        .unwrap();
+                } else if let Ok(mut f) = std::fs::File::open(&path) {
+                    use std::io::Read;
+                    let mut header_buf = vec![0u8; 131072];
+                    if let Ok(n) = f.read(&mut header_buf) {
+                        header_buf.truncate(n);
+                        if let Some(thumb_bytes) = extract_embedded_jpeg_thumbnail(&header_buf) {
+                            let thumb_len = thumb_bytes.len();
+                            return tauri::http::Response::builder()
+                                .status(200)
+                                .header("Content-Type", "image/jpeg")
+                                .header("Content-Length", thumb_len)
+                                .header("Cache-Control", "no-store, no-cache, must-revalidate")
+                                .header("Access-Control-Allow-Origin", "*")
+                                .header("Access-Control-Allow-Private-Network", "true")
+                                .body(thumb_bytes)
+                                .unwrap();
+                        }
+                    }
+                }
+            }
             let is_image = matches!(ext_lower.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "tiff" | "tif" | "heic" | "heif" | "avif" | "jxl" | "cr2" | "cr3" | "nef" | "arw" | "dng" | "tga");
 
             let range = request

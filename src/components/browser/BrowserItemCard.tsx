@@ -107,24 +107,29 @@ export function VideoPreview({ path, src, isHovered }: { path: string; src?: str
 }
 
 export function ImageThumbnail({ path, name }: { path: string; name: string }) {
-  const [imgSrc, setImgSrc] = useState(() => {
+  const ext = path.split('.').pop()?.toUpperCase() || 'IMG';
+  const isRaw = ['DNG', 'CR2', 'CR3', 'NEF', 'ARW', 'RAW', 'ORF', 'RW2', 'PEF'].includes(ext);
+
+  const getInitialSrc = () => {
+    if (isRaw) {
+      return `http://cosmo.localhost/${encodeURIComponent(path)}?thumb=1`;
+    }
     if (isTauri()) {
       try {
         return convertFileSrc(path);
       } catch {}
     }
     return toCosmoUrl(path);
-  });
+  };
+
+  const [imgSrc, setImgSrc] = useState(getInitialSrc);
   const [hasError, setHasError] = useState(false);
   const [fallbackStage, setFallbackStage] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  const ext = path.split('.').pop()?.toUpperCase() || 'IMG';
-
   useEffect(() => {
-    const initial = isTauri() ? (convertFileSrc(path) || toCosmoUrl(path)) : toCosmoUrl(path);
-    setImgSrc(initial);
+    setImgSrc(getInitialSrc());
     setHasError(false);
     setFallbackStage(0);
     setIsLoaded(false);
@@ -134,13 +139,13 @@ export function ImageThumbnail({ path, name }: { path: string; name: string }) {
   const handleError = () => {
     if (fallbackStage === 0) {
       setFallbackStage(1);
-      setImgSrc(`http://cosmo.localhost/${encodeURIComponent(path)}`);
+      setImgSrc(`http://cosmo.localhost/${encodeURIComponent(path)}?thumb=1`);
       return;
     }
 
     if (fallbackStage === 1) {
       setFallbackStage(2);
-      setImgSrc(`cosmo://localhost/${encodeURIComponent(path)}`);
+      setImgSrc(`cosmo://localhost/${encodeURIComponent(path)}?thumb=1`);
       return;
     }
 
@@ -149,7 +154,7 @@ export function ImageThumbnail({ path, name }: { path: string; name: string }) {
       setRetryCount(nextRetry);
       setTimeout(() => {
         const base = imgSrc.split('?')[0];
-        setImgSrc(`${base}?_r=${Date.now()}`);
+        setImgSrc(`${base}?thumb=1&_r=${Date.now()}`);
       }, nextRetry * 300);
       return;
     }

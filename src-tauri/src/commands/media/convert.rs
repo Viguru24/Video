@@ -11,6 +11,7 @@ use super::utils::{
     debug_log, new_hidden_command, new_hidden_ffmpeg_command, new_hidden_ffprobe_command,
     safe_recycle_file,
 };
+use super::raw::{extract_embedded_jpeg_thumbnail, extract_raw_full_preview, is_raw_image_extension};
 
 const HEIC_CONVERT_SCRIPT: &str = r#"import sys, os
 from PIL import Image, ImageOps
@@ -211,8 +212,53 @@ pub async fn convert_media_to_standard(app: AppHandle, src_path: String, media_t
                 return Err(format!("FFmpeg video conversion failed: {}", stderr));
             }
         } else {
-            let is_heic = src_path.to_lowercase().ends_with(".heic") || src_path.to_lowercase().ends_with(".heif");
-            if is_heic {
+            let ext_lower = src.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
+            let is_heic = ext_lower == "heic" || ext_lower == "heif";
+            let is_raw = is_raw_image_extension(&ext_lower);
+
+            // If a valid converted target already exists (e.g. from camera RAW+JPEG capture), use it
+            if dest_path.exists() {
+                if let Ok(meta) = fs::metadata(&dest_str) {
+                    if meta.len() > 1024 {
+                        let mut header = [0u8; 2];
+                        if let Ok(mut f) = fs::File::open(&dest_str) {
+                            if f.read_exact(&mut header).is_ok() && header == [0xFF, 0xD8] {
+                                debug_log(&format!("convert_media: existing valid JPEG found for {}", src_path));
+                                return Ok(dest_str);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if is_raw {
+                let mut raw_converted = false;
+                if let Some(preview_bytes) = extract_raw_full_preview(src) {
+                    if fs::write(&dest_str, &preview_bytes).is_ok() {
+                        raw_converted = true;
+                        debug_log(&format!("convert_media: extracted {} byte embedded JPEG preview from RAW {}", preview_bytes.len(), src_path));
+                    }
+                }
+
+                if !raw_converted {
+                    if let Ok(mut f) = fs::File::open(src) {
+                        let mut header_buf = vec![0u8; 131072];
+                        if let Ok(n) = f.read(&mut header_buf) {
+                            header_buf.truncate(n);
+                            if let Some(thumb_bytes) = extract_embedded_jpeg_thumbnail(&header_buf) {
+                                if fs::write(&dest_str, &thumb_bytes).is_ok() {
+                                    raw_converted = true;
+                                    debug_log(&format!("convert_media: extracted {} byte thumbnail from RAW {}", thumb_bytes.len(), src_path));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !raw_converted {
+                    return Err(format!("Could not extract preview from RAW file: {}. File preserved.", src_path));
+                }
+            } else if is_heic {
                 // For HEIC/HEIF images, exclusively use pillow_heif.
                 // FFmpeg does not support HEIC decoding on Windows.
                 convert_heic_pillow(&src_path, &dest_str)
@@ -251,8 +297,12 @@ pub async fn convert_media_to_standard(app: AppHandle, src_path: String, media_t
             }
         }
 
-        if let Err(e) = safe_recycle_file(src, 5) {
-            debug_log(&format!("convert_media: failed to recycle original {}: {}", src_path, e));
+        let ext_lower = src.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
+        let is_raw = is_raw_image_extension(&ext_lower);
+        if !is_raw {
+            if let Err(e) = safe_recycle_file(src, 5) {
+                debug_log(&format!("convert_media: failed to recycle original {}: {}", src_path, e));
+            }
         }
 
         Ok(dest_str)

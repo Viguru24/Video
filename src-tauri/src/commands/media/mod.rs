@@ -3,6 +3,7 @@ pub mod convert;
 pub mod transform;
 pub mod upscale;
 pub mod metadata;
+pub mod raw;
 
 use tauri::AppHandle;
 use serde_json::Value;
