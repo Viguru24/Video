@@ -2458,6 +2458,7 @@ html[data-theme="distorted"] .workshop-offline-btn:hover {
   top: 36px;
   left: 0;
   width: 280px;
+  max-height: calc(100vh - 56px);
   background: rgba(20, 20, 28, 0.95);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -2469,6 +2470,7 @@ html[data-theme="distorted"] .workshop-offline-btn:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  box-sizing: border-box;
 }
 
 @keyframes qf-slide-down {
@@ -2488,6 +2490,7 @@ html[data-theme="distorted"] .workshop-offline-btn:hover {
   align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: 6px;
+  flex-shrink: 0;
 }
 
 .quick-folders-title {
@@ -2523,7 +2526,9 @@ html[data-theme="distorted"] .workshop-offline-btn:hover {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 220px;
+  max-height: calc(100vh - 116px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
 }
