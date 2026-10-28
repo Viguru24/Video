@@ -35,6 +35,11 @@ export function toCosmoUrl(absolutePathOrUrl: string): string {
   }
 
   const realPath = toRealPath(absolutePathOrUrl) || absolutePathOrUrl;
+  const cleanExt = realPath.split('?')[0].split('.').pop()?.toLowerCase() || '';
+  const isRaw = ['dng', 'cr2', 'cr3', 'nef', 'arw', 'raw', 'orf', 'rw2', 'pef'].includes(cleanExt);
+  if (isRaw) {
+    return `http://cosmo.localhost/${encodeURIComponent(realPath)}`;
+  }
 
   if (isTauri()) {
     try {
