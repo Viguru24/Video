@@ -64,20 +64,31 @@ pub fn extract_embedded_jpeg_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
                 let marker_byte = bytes[soi + 3];
                 // Thumbnails typically start with APP0 (JFIF: 0xE0), APP1 (EXIF: 0xE1), DQT (0xDB), or SOF (0xC0/0xC2)
                 if (0xE0..=0xEF).contains(&marker_byte) || marker_byte == 0xDB || marker_byte == 0xC0 || marker_byte == 0xC2 {
-                    // Look for matching EOI (0xFF 0xD9) within a thumbnail size limit (e.g. 512KB)
+                    let mut min_eoi = soi + 4;
+                    // If marker has a 16-bit segment length, EOI must be strictly beyond that segment
+                    if soi + 5 < limit {
+                        let seg_len = ((bytes[soi + 4] as usize) << 8) | (bytes[soi + 5] as usize);
+                        min_eoi = (soi + 4 + seg_len).min(limit);
+                    }
+
+                    // Look for matching EOI (0xFF 0xD9) strictly after min_eoi
                     let max_eoi_scan = (soi + 524288).min(limit);
-                    let mut eoi_pos = soi + 4;
-                    while eoi_pos + 1 < max_eoi_scan {
-                        if let Some(rel_eoi) = bytes[eoi_pos..max_eoi_scan].windows(2).position(|w| w == b"\xFF\xD9") {
-                            let eoi = eoi_pos + rel_eoi + 2;
-                            let candidate = &bytes[soi..eoi];
-                            // Must be valid size and contain SOS marker (0xFF 0xDA)
-                            if candidate.len() >= 1024 && candidate.windows(2).any(|w| w == b"\xFF\xDA") {
-                                return Some(candidate.to_vec());
+                    if min_eoi < max_eoi_scan {
+                        let mut eoi_pos = min_eoi;
+                        while eoi_pos + 1 < max_eoi_scan {
+                            if let Some(rel_eoi) = bytes[eoi_pos..max_eoi_scan].windows(2).position(|w| w == b"\xFF\xD9") {
+                                let eoi = eoi_pos + rel_eoi + 2;
+                                let candidate = &bytes[soi..eoi];
+                                // Candidate must have valid size, contain SOS marker (0xFF 0xDA), and decode cleanly as JPEG
+                                if candidate.len() >= 1024 && candidate.windows(2).any(|w| w == b"\xFF\xDA") {
+                                    if image::load_from_memory_with_format(candidate, image::ImageFormat::Jpeg).is_ok() {
+                                        return Some(candidate.to_vec());
+                                    }
+                                }
+                                eoi_pos = eoi;
+                            } else {
+                                break;
                             }
-                            eoi_pos = eoi;
-                        } else {
-                            break;
                         }
                     }
                 }
@@ -249,6 +260,11 @@ mod tests {
             let t = thumb.unwrap();
             println!("Extracted thumbnail size: {} bytes", t.len());
             assert!(t.len() > 1024);
+            let img = image::load_from_memory_with_format(&t, image::ImageFormat::Jpeg)
+                .expect("Extracted thumbnail must decode into valid pixels");
+            println!("Decoded thumbnail dimensions: {}x{}", img.width(), img.height());
+            assert_eq!(img.width(), 512);
+            assert_eq!(img.height(), 384);
         }
     }
 
