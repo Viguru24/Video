@@ -315,9 +315,11 @@ export function ColorAdjustmentPanel({
               fontSize: '11px',
               padding: '2px 8px',
               borderRadius: '4px',
-              backgroundColor: showOriginalCompare ? '#7c3aed' : '#262636',
-              color: '#ffffff',
-              border: '1px solid #4c1d95',
+              backgroundColor: showOriginalCompare ? '#f59e0b' : '#1c1c21',
+              color: showOriginalCompare ? '#050505' : '#f4f4f5',
+              fontWeight: 700,
+              border: showOriginalCompare ? '1px solid #fbbf24' : '1px solid rgba(255, 255, 255, 0.14)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 4px rgba(0,0,0,0.6)',
               cursor: 'pointer'
             }}
             onClick={() => {

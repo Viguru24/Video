@@ -24,7 +24,7 @@ export const PcFilesTab: React.FC<PcFilesTabProps> = ({
 }) => {
   return (
     <div style={{
-      background: 'linear-gradient(135deg, rgba(0, 119, 182, 0.1) 0%, rgba(13, 27, 42, 0.4) 100%)',
+      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(18, 18, 22, 0.65) 100%)',
       border: '1px solid rgba(0, 210, 255, 0.25)',
       borderRadius: '10px',
       padding: '8px 10px',

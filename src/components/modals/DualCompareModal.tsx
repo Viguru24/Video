@@ -462,7 +462,7 @@ export const DualCompareModal: React.FC<DualCompareModalProps> = ({
                   width: '28px',
                   height: '28px',
                   borderRadius: '50%',
-                  background: '#1a1a24',
+                  background: '#18181c',
                   border: '2px solid var(--accent, #00ff88)',
                   display: 'flex',
                   alignItems: 'center',

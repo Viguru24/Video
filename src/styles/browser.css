@@ -1,4 +1,4 @@
-/* In-App Browser Panel */
+/* === IN-APP STUDIO MEDIA BROWSER PANEL (3D MACHINED CARBON) === */
 .in-app-browser-panel {
   position: absolute;
   top: 110px;
@@ -9,16 +9,16 @@
   max-width: calc(100% - 32px);
   min-height: 200px;
   max-height: calc(100% - 120px);
-  background: rgba(12, 12, 18, 0.82);
-  backdrop-filter: blur(25px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 14px;
   z-index: 15000;
   display: flex;
   flex-direction: column;
-  box-shadow: -10px 10px 40px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--bevel-panel);
   overflow: hidden;
-  animation: browser-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: browser-slide-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Resize handles for In-App Browser */
@@ -40,14 +40,14 @@
   width: 2px;
   height: 32px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .browser-resize-handle-left:hover::after,
 .browser-resize-handle-left.resizing::after {
-  background: var(--accent, #00ff88);
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.7);
+  background: var(--accent, #10b981);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.7);
   height: 56px;
   width: 3px;
 }
@@ -70,14 +70,14 @@
   height: 2px;
   width: 32px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .browser-resize-handle-bottom:hover::after,
 .browser-resize-handle-bottom.resizing::after {
-  background: var(--accent, #00ff88);
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.7);
+  background: var(--accent, #10b981);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.7);
   width: 56px;
   height: 3px;
 }
@@ -108,8 +108,8 @@
 
 .browser-resize-handle-corner-bl:hover::after,
 .browser-resize-handle-corner-bl.resizing::after {
-  border-color: var(--accent, #00ff88);
-  box-shadow: -1px 1px 8px rgba(0, 255, 136, 0.6);
+  border-color: var(--accent, #10b981);
+  box-shadow: -1px 1px 8px rgba(var(--accent-rgb), 0.6);
   width: 9px;
   height: 9px;
 }
@@ -132,14 +132,14 @@
   height: 2px;
   width: 32px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .browser-resize-handle-top:hover::after,
 .browser-resize-handle-top.resizing::after {
-  background: var(--accent, #00ff88);
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.7);
+  background: var(--accent, #10b981);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.7);
   width: 56px;
   height: 3px;
 }
@@ -170,8 +170,8 @@
 
 .browser-resize-handle-corner-tl:hover::after,
 .browser-resize-handle-corner-tl.resizing::after {
-  border-color: var(--accent, #00ff88);
-  box-shadow: -1px -1px 8px rgba(0, 255, 136, 0.6);
+  border-color: var(--accent, #10b981);
+  box-shadow: -1px -1px 8px rgba(var(--accent-rgb), 0.6);
   width: 9px;
   height: 9px;
 }
@@ -189,8 +189,8 @@
 
 .browser-header {
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(0, 0, 0, 0.2) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -209,34 +209,35 @@
 }
 
 .browser-title-icon {
-  color: var(--accent, #00ff88);
+  color: var(--accent-bright, #34d399);
 }
 
 .browser-title-lbl {
+  font-family: var(--font-display);
   font-size: 11px;
-  font-weight: 800;
-  color: #fff;
-  letter-spacing: 0.8px;
+  font-weight: 700;
+  color: #fafafa;
+  letter-spacing: 1px;
   text-transform: uppercase;
 }
 
 .browser-close-btn {
   background: transparent;
   border: none;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-muted);
   width: 22px;
   height: 22px;
-  border-radius: 50%;
+  border-radius: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.16s ease;
 }
 
 .browser-close-btn:hover {
-  background: rgba(255, 77, 77, 0.1);
-  color: #ff4d4d;
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
 }
 
 .browser-nav-row {
@@ -246,11 +247,12 @@
 }
 
 .browser-nav-btn {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: var(--keycap-bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: var(--keycap-shadow);
+  color: var(--text-primary);
   border-radius: 6px;
-  height: 24px;
+  height: 25px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -262,8 +264,8 @@
 }
 
 .browser-nav-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--keycap-bg-hover);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .browser-nav-btn:disabled {
@@ -272,32 +274,33 @@
 }
 
 .browser-nav-btn.up-btn {
-  width: 24px;
+  width: 25px;
 }
 
 .browser-nav-btn.add-all-btn {
   padding: 0 8px;
   gap: 4px;
-  background: rgba(0, 255, 136, 0.1);
-  border-color: rgba(0, 255, 136, 0.2);
-  color: var(--accent, #00ff88);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.3);
+  color: var(--accent-bright);
 }
 
 .browser-nav-btn.add-all-btn:hover {
-  background: var(--accent, #00ff88);
-  color: #000;
-  box-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+  background: var(--accent);
+  color: #050505;
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.35);
 }
 
 .browser-path-display {
   flex: 1;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--bg-well, #060608);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: var(--well-recessed);
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 10px;
-  font-family: monospace;
-  color: rgba(255, 255, 255, 0.6);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -310,16 +313,15 @@
   padding: 10px;
 }
 
-/* Custom scrollbar for browser body */
 .browser-body::-webkit-scrollbar {
   width: 6px;
 }
 .browser-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
 }
 .browser-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .browser-loader-box {
@@ -329,18 +331,18 @@
   justify-content: center;
   gap: 10px;
   height: 200px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-muted);
   font-size: 11px;
 }
 
 .browser-spinner {
-  color: var(--accent, #00ff88);
+  color: var(--accent-bright);
 }
 
 .browser-error-box {
   padding: 20px;
   text-align: center;
-  color: #ff4d4d;
+  color: #f87171;
 }
 
 .browser-error-box .error-title {
@@ -352,14 +354,14 @@
 
 .browser-error-box .error-msg {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-secondary);
   margin-bottom: 12px;
   word-break: break-all;
 }
 
 .browser-error-box .retry-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--keycap-bg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   color: #fff;
   padding: 6px 12px;
   border-radius: 6px;
@@ -369,10 +371,6 @@
   transition: all 0.2s ease;
 }
 
-.browser-error-box .retry-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
 .browser-empty-box {
   display: flex;
   align-items: center;
@@ -380,7 +378,7 @@
   text-align: center;
   height: 150px;
   padding: 20px;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-muted);
   font-size: 11px;
   font-style: italic;
 }
@@ -394,14 +392,14 @@
 .layout-toggle-btn {
   background: transparent;
   border: none;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--text-muted);
   cursor: pointer;
   padding: 4px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
 }
 
 .layout-toggle-btn:hover {
@@ -410,8 +408,8 @@
 }
 
 .layout-toggle-btn.active {
-  color: var(--accent, #00ff88);
-  background: rgba(0, 255, 136, 0.12);
+  color: var(--accent-bright);
+  background: rgba(var(--accent-rgb), 0.14);
 }
 
 .browser-items-list {
@@ -427,24 +425,26 @@
 }
 
 .browser-item-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  position: relative;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   border-radius: 8px;
   padding: 6px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
   min-width: 0;
 }
 
 .browser-item-card:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.065);
+  border-color: rgba(255, 255, 255, 0.14);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 6px 16px rgba(0, 0, 0, 0.45);
 }
 
 .browser-item-card.layout-list {
@@ -453,13 +453,14 @@
   padding: 6px 8px;
   background: transparent;
   border: 1px solid transparent;
+  box-shadow: none;
   gap: 0;
   border-radius: 6px;
 }
 
 .browser-item-card.layout-list:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.07);
   transform: none;
   box-shadow: none;
 }
@@ -485,14 +486,14 @@
 }
 
 .file-icon {
-  color: var(--accent, #00ff88);
-  opacity: 0.65;
+  color: var(--accent-bright);
+  opacity: 0.75;
   flex-shrink: 0;
 }
 
 .add-item-badge-btn-list {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-secondary);
   border: none;
   width: 20px;
   height: 20px;
@@ -511,8 +512,8 @@
 }
 
 .add-item-badge-btn-list:hover {
-  background: var(--accent, #00ff88);
-  color: #000;
+  background: var(--accent);
+  color: #050505;
   transform: scale(1.08);
 }
 
@@ -522,14 +523,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-  color: rgba(255, 255, 255, 0.3);
+  background: #070709;
+  color: var(--text-muted);
   transition: background-color 0.2s ease;
 }
 
 .file-thumbnail-container:hover .file-thumb-placeholder {
-  background: rgba(0, 0, 0, 0.6);
-  color: var(--accent, #00ff88);
+  background: #0c0c0f;
+  color: var(--accent-bright);
 }
 
 .dir-item-content {
@@ -540,21 +541,21 @@
 }
 
 .dir-icon {
-  color: #ffb703;
+  color: #fbbf24;
   flex-shrink: 0;
 }
 
 .dir-name {
   font-size: 11px;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .browser-item-card.is-dir:hover .dir-name {
-  color: var(--accent, #00ff88);
+  color: var(--accent-bright);
 }
 
 .file-item-content {
@@ -563,15 +564,11 @@
   gap: 4px;
 }
 
-.browser-item-card {
-  position: relative;
-}
-
 .file-thumbnail-container {
   position: relative;
   width: 100%;
   aspect-ratio: 1.5;
-  background: rgba(0, 0, 0, 0.4);
+  background: #070709;
   border-radius: 6px;
   overflow: hidden;
   transform: translateZ(0);
@@ -588,12 +585,12 @@
 .thumb-hover-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(9, 9, 11, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.18s ease;
 }
 
 .browser-item-card:hover .thumb-hover-overlay {
@@ -601,8 +598,8 @@
 }
 
 .add-item-badge-btn {
-  background: var(--accent, #00ff88);
-  color: #000;
+  background: linear-gradient(180deg, var(--accent-bright) 0%, var(--accent) 100%);
+  color: #050505;
   border: none;
   width: 26px;
   height: 26px;
@@ -611,7 +608,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 255, 136, 0.4);
+  box-shadow: 0 2px 10px rgba(var(--accent-rgb), 0.45);
   transition: transform 0.15s ease;
 }
 
@@ -620,8 +617,8 @@
 }
 
 .file-name {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 9.5px;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

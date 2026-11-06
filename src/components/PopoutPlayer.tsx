@@ -721,7 +721,7 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: 'rgba(10, 15, 29, 0.85)',
+              background: 'rgba(12, 12, 15, 0.9)',
               border: '1px solid var(--accent, #00ff88)',
               borderRadius: '20px',
               padding: '4px 10px',

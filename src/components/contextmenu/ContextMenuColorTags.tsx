@@ -10,10 +10,10 @@ interface ContextMenuColorTagsProps {
 
 const TAGS: { tag: ColorTag; label: string; color: string }[] = [
   { tag: 'red', label: 'Review', color: '#f87171' },
-  { tag: 'green', label: 'Approved', color: '#4ade80' },
-  { tag: 'blue', label: 'B-Roll', color: '#60a5fa' },
+  { tag: 'green', label: 'Approved', color: '#34d399' },
+  { tag: 'blue', label: 'B-Roll', color: '#38bdf8' },
   { tag: 'yellow', label: 'WIP', color: '#facc15' },
-  { tag: 'purple', label: 'Select', color: '#c084fc' },
+  { tag: 'purple', label: 'Select', color: '#fb923c' },
 ];
 
 export const ContextMenuColorTags: React.FC<ContextMenuColorTagsProps> = ({
@@ -21,6 +21,10 @@ export const ContextMenuColorTags: React.FC<ContextMenuColorTagsProps> = ({
   onSelectTag,
   selectedCount = 0,
 }) => {
+  const activeLabel = currentColorTag
+    ? TAGS.find((t) => t.tag === currentColorTag)?.label || currentColorTag
+    : null;
+
   return (
     <div style={{ padding: '6px 14px 8px' }}>
       <div
@@ -28,20 +32,21 @@ export const ContextMenuColorTags: React.FC<ContextMenuColorTagsProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          fontSize: '11px',
+          fontSize: '10px',
+          fontWeight: 700,
           color: 'rgba(255, 255, 255, 0.45)',
           textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          marginBottom: '6px',
+          letterSpacing: '0.06em',
+          marginBottom: '7px',
         }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Tag size={12} />
+          <Tag size={11} />
           Color Tag {selectedCount > 1 ? `(${selectedCount})` : ''}
         </span>
-        {currentColorTag && (
-          <span style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.6)' }}>
-            Active: {currentColorTag}
+        {activeLabel && (
+          <span style={{ fontSize: '10px', color: '#fbbf24', fontFamily: 'var(--font-mono, monospace)' }}>
+            {activeLabel}
           </span>
         )}
       </div>
@@ -53,7 +58,7 @@ export const ContextMenuColorTags: React.FC<ContextMenuColorTagsProps> = ({
             <button
               key={tag}
               type="button"
-              title={`${label} (${tag})`}
+              title={label}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelectTag(`set_color_tag:${tag}`);
@@ -63,8 +68,10 @@ export const ContextMenuColorTags: React.FC<ContextMenuColorTagsProps> = ({
                 height: '18px',
                 borderRadius: '50%',
                 backgroundColor: color,
-                border: isSelected ? '2px solid #ffffff' : '1px solid rgba(0,0,0,0.3)',
-                boxShadow: isSelected ? `0 0 8px ${color}` : 'none',
+                border: isSelected ? '2px solid #ffffff' : '1px solid rgba(255,255,255,0.22)',
+                boxShadow: isSelected
+                  ? `0 0 10px ${color}, inset 0 1px 0 rgba(255,255,255,0.45)`
+                  : 'inset 0 1px 0 rgba(255,255,255,0.35), 0 2px 4px rgba(0,0,0,0.6)',
                 cursor: 'pointer',
                 transform: isSelected ? 'scale(1.15)' : 'scale(1)',
                 transition: 'transform 0.15s ease, box-shadow 0.15s ease',
@@ -85,9 +92,10 @@ export const ContextMenuColorTags: React.FC<ContextMenuColorTagsProps> = ({
             width: '18px',
             height: '18px',
             borderRadius: '50%',
-            backgroundColor: 'rgba(255, 255, 255, 0.12)',
+            backgroundColor: '#1c1c21',
             border: '1px solid rgba(255, 255, 255, 0.2)',
-            color: '#aaa',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 4px rgba(0,0,0,0.5)',
+            color: '#a1a1aa',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',

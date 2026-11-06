@@ -27,7 +27,7 @@ export const ReshapeSuccessModal: React.FC<ReshapeSuccessModalProps> = ({
     >
       <div
         style={{
-          background: 'linear-gradient(135deg, rgba(20, 20, 28, 0.95), rgba(12, 12, 18, 0.98))',
+          background: 'linear-gradient(180deg, rgba(24, 24, 29, 0.97), rgba(12, 12, 15, 0.99))',
           border: '1px solid rgba(0, 255, 136, 0.3)',
           borderRadius: '24px',
           padding: '28px 32px',

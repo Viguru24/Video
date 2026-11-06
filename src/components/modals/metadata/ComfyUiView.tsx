@@ -43,15 +43,15 @@ export function ComfyUiView({
           style={{
             padding: '14px 16px',
             borderRadius: '12px',
-            background: 'rgba(168, 85, 247, 0.08)',
-            border: '1px solid rgba(168, 85, 247, 0.25)',
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
             display: 'flex',
             flexDirection: 'column',
             gap: '10px',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: '#d8b4fe', letterSpacing: '0.6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: '#fbbf24', letterSpacing: '0.6px' }}>
               🧬 EXTRACTED COMFYUI GENERATION SUMMARY ({comfySummary.nodeCount} NODES)
             </span>
           </div>
@@ -70,8 +70,8 @@ export function ComfyUiView({
                     padding: '2px 8px',
                     borderRadius: '6px',
                     background: 'rgba(0,0,0,0.35)',
-                    color: '#f3e8ff',
-                    border: '1px solid rgba(168, 85, 247, 0.3)',
+                    color: '#fef3c7',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
                   }}
                 >
                   {m}
@@ -81,7 +81,7 @@ export function ComfyUiView({
           )}
 
           {comfySummary.samplerInfo.length > 0 && (
-            <div style={{ fontSize: '11px', color: '#cbd5e1' }}>
+            <div style={{ fontSize: '11px', color: '#d4d4d8' }}>
               <strong style={{ color: 'rgba(255,255,255,0.55)' }}>Sampler: </strong>
               {comfySummary.samplerInfo.join(' | ')}
             </div>
@@ -106,7 +106,7 @@ export function ComfyUiView({
                   style={{
                     background: 'none',
                     border: 'none',
-                    color: '#cbd5e1',
+                    color: '#d4d4d8',
                     fontSize: '10px',
                     cursor: 'pointer',
                     display: 'flex',
@@ -118,7 +118,7 @@ export function ComfyUiView({
                   {copiedKey === `pos-${idx}` ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <div style={{ fontSize: '11.5px', color: '#f1f5f9', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+              <div style={{ fontSize: '11.5px', color: '#f4f4f5', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
                 {p}
               </div>
             </div>
@@ -143,7 +143,7 @@ export function ComfyUiView({
                   style={{
                     background: 'none',
                     border: 'none',
-                    color: '#cbd5e1',
+                    color: '#d4d4d8',
                     fontSize: '10px',
                     cursor: 'pointer',
                     display: 'flex',
@@ -272,7 +272,7 @@ export function ComfyUiView({
                     border: '1px solid rgba(255,255,255,0.15)',
                     borderRadius: '6px',
                     padding: '4px 8px',
-                    color: '#e9d5ff',
+                    color: '#fde68a',
                     fontSize: '11.5px',
                     fontWeight: 800,
                     width: '160px',
@@ -308,7 +308,7 @@ export function ComfyUiView({
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: '6px',
                     padding: '4px 8px',
-                    color: '#cbd5e1',
+                    color: '#d4d4d8',
                     fontSize: '10px',
                     fontWeight: 700,
                     cursor: 'pointer',
@@ -326,7 +326,7 @@ export function ComfyUiView({
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: '6px',
                     padding: '4px 8px',
-                    color: '#cbd5e1',
+                    color: '#d4d4d8',
                     fontSize: '10px',
                     fontWeight: 700,
                     cursor: 'pointer',
@@ -375,7 +375,7 @@ export function ComfyUiView({
                 border: '1px solid rgba(255, 255, 255, 0.08)',
                 borderRadius: '8px',
                 padding: '10px',
-                color: '#e2e8f0',
+                color: '#f4f4f5',
                 fontFamily: 'Consolas, Monaco, monospace',
                 fontSize: '11px',
                 lineHeight: 1.45,

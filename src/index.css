@@ -1,4 +1,4 @@
-/* Cosmo Symphony Modular Style Manifest */
+/* Cosmo Symphony Modular Style Manifest — 3D Machined Studio Edition */
 
 @import "./styles/variables.css";
 @import "./styles/themes.css";
@@ -15,10 +15,12 @@ img {
 }
 
 html, body {
-  background: #0a0a10;
+  background: #09090b;
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }

@@ -77,7 +77,7 @@ export const CropOverlayBox: React.FC<CropOverlayBoxProps> = ({
           top: '-28px',
           left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(10, 14, 22, 0.92)',
+          background: 'rgba(10, 10, 13, 0.94)',
           backdropFilter: 'blur(8px)',
           border: '1px solid rgba(0, 255, 136, 0.4)',
           padding: '2px 8px',

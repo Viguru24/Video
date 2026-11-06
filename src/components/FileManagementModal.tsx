@@ -534,7 +534,7 @@ export function FileManagementModal({
                 left: 0,
                 right: 0,
                 marginTop: '6px',
-                background: 'rgba(15, 15, 25, 0.95)',
+                background: 'rgba(18, 18, 22, 0.97)',
                 border: '1px solid rgba(255, 255, 255, 0.15)',
                 borderRadius: '10px',
                 boxShadow: '0 12px 30px rgba(0, 0, 0, 0.6)',

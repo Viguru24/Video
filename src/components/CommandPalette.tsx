@@ -178,8 +178,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(15, 15, 26, 0.8)',
-        backdropFilter: 'blur(8px)',
+        backgroundColor: 'rgba(5, 5, 7, 0.78)',
+        backdropFilter: 'blur(12px)',
         zIndex: 99999,
         display: 'flex',
         justifyContent: 'center',
@@ -192,10 +192,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         style={{
           width: '600px',
           maxWidth: '90vw',
-          backgroundColor: '#181824',
-          border: '1px solid #334155',
-          borderRadius: '16px',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          background: 'var(--glass-bg, #141418)',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          borderRadius: '14px',
+          boxShadow: 'var(--bevel-panel)',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -209,10 +209,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             display: 'flex',
             alignItems: 'center',
             padding: '16px 20px',
-            borderBottom: '1px solid #2a2a3c',
+            background: 'var(--bg-well, #060608)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
           }}
         >
-          <span style={{ fontSize: '20px', marginRight: '12px' }}>🔍</span>
+          <span style={{ fontSize: '18px', marginRight: '12px' }}>🔍</span>
           <input
             ref={inputRef}
             type="text"
@@ -224,18 +225,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               backgroundColor: 'transparent',
               border: 'none',
               outline: 'none',
-              color: '#ffffff',
-              fontSize: '16px',
+              color: '#f4f4f5',
+              fontSize: '15px',
+              fontFamily: 'var(--font)',
             }}
           />
           <span
             style={{
-              fontSize: '11px',
-              backgroundColor: '#262636',
-              color: '#94a3b8',
+              fontSize: '10px',
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 700,
+              backgroundColor: '#18181c',
+              color: '#a1a1aa',
               padding: '4px 8px',
               borderRadius: '6px',
-              border: '1px solid #334155',
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 0 #050507',
             }}
           >
             ESC
@@ -245,7 +250,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         {/* Command List */}
         <div style={{ maxHeight: '380px', overflowY: 'auto', padding: '8px 0' }}>
           {filteredCommands.length === 0 ? (
-            <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>
+            <div style={{ padding: '32px', textAlign: 'center', color: '#a1a1aa' }}>
               No tools or commands matching "{query}"
             </div>
           ) : (
@@ -263,25 +268,26 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '12px 20px',
-                    backgroundColor: isSelected ? '#2d2b45' : 'transparent',
+                    padding: '11px 20px',
+                    backgroundColor: isSelected ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
+                    borderLeft: isSelected ? '2px solid var(--accent-bright, #34d399)' : '2px solid transparent',
                     cursor: 'pointer',
-                    transition: 'background-color 0.15s ease',
+                    transition: 'background-color 0.14s ease',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ fontSize: '20px', marginRight: '14px' }}>{cmd.icon}</span>
+                    <span style={{ fontSize: '18px', marginRight: '14px' }}>{cmd.icon}</span>
                     <div>
                       <div
                         style={{
-                          color: isSelected ? '#00ff88' : '#ffffff',
-                          fontWeight: isSelected ? 'bold' : 'normal',
-                          fontSize: '14px',
+                          color: isSelected ? 'var(--accent-bright, #34d399)' : '#f4f4f5',
+                          fontWeight: isSelected ? 700 : 500,
+                          fontSize: '13.5px',
                         }}
                       >
                         {cmd.title}
                       </div>
-                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                      <div style={{ fontSize: '11px', color: '#71717a' }}>
                         {cmd.category}
                       </div>
                     </div>
@@ -289,12 +295,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   {cmd.shortcut && (
                     <span
                       style={{
-                        fontSize: '11px',
-                        color: '#a78bfa',
-                        backgroundColor: '#1e1b2e',
+                        fontSize: '10.5px',
+                        fontFamily: 'var(--font-mono)',
+                        fontWeight: 700,
+                        color: '#fbbf24',
+                        backgroundColor: '#18181c',
                         padding: '3px 8px',
-                        borderRadius: '4px',
-                        border: '1px solid #4c1d95',
+                        borderRadius: '5px',
+                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 0 #050507',
                       }}
                     >
                       {cmd.shortcut}
@@ -310,12 +319,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         <div
           style={{
             padding: '10px 20px',
-            backgroundColor: '#12121c',
-            borderTop: '1px solid #2a2a3c',
+            backgroundColor: '#0c0c0f',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
             display: 'flex',
             justifyContent: 'space-between',
             fontSize: '11px',
-            color: '#64748b',
+            color: '#71717a',
           }}
         >
           <span>Use <strong>↑ ↓</strong> to navigate, <strong>Enter</strong> to select</span>

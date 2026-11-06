@@ -81,7 +81,7 @@ export function ExifEditorView({
                 cursor: 'pointer',
                 background: 'rgba(255,255,255,0.05)',
                 border: '1px solid rgba(255,255,255,0.1)',
-                color: '#cbd5e1',
+                color: '#d4d4d8',
               }}
             >
               Clear Fields
@@ -293,7 +293,7 @@ export function ExifEditorView({
                 <div style={{ width: '180px', color: '#7dd3fc', fontWeight: 700, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {entry.key}
                 </div>
-                <div style={{ flex: 1, color: '#e2e8f0', wordBreak: 'break-all' }}>
+                <div style={{ flex: 1, color: '#f4f4f5', wordBreak: 'break-all' }}>
                   {entry.value}
                 </div>
                 <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '9.5px', marginLeft: '12px', flexShrink: 0 }}>

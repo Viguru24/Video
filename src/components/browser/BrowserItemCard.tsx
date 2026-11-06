@@ -172,7 +172,7 @@ export function ImageThumbnail({ path, name }: { path: string; name: string }) {
         alignItems: 'center',
         justifyContent: 'center',
         gap: '4px',
-        background: 'radial-gradient(circle at center, rgba(30, 30, 48, 0.95), rgba(12, 12, 18, 0.98))',
+        background: 'radial-gradient(circle at center, rgba(30, 30, 35, 0.96), rgba(12, 12, 15, 0.99))',
         color: 'rgba(255, 255, 255, 0.8)'
       }}>
         <div style={{

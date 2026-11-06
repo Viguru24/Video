@@ -529,7 +529,7 @@ export function VideoTrimCropModal({
       style={{ 
         position: 'fixed', 
         inset: 0, 
-        backgroundColor: 'rgba(5, 7, 12, 0.88)', 
+        backgroundColor: 'rgba(5, 5, 7, 0.88)', 
         backdropFilter: 'blur(28px) saturate(180%)',
         zIndex: 99999,
         display: 'flex',
@@ -544,7 +544,7 @@ export function VideoTrimCropModal({
       <div 
         className="trim-crop-studio-container"
         style={{
-          background: 'linear-gradient(180deg, rgba(16, 20, 28, 0.95) 0%, rgba(10, 13, 20, 0.98) 100%)',
+          background: 'linear-gradient(180deg, rgba(24, 24, 29, 0.97) 0%, rgba(12, 12, 15, 0.99) 100%)',
           border: '1px solid rgba(255, 255, 255, 0.12)',
           borderRadius: '20px',
           width: '100%',
@@ -697,7 +697,7 @@ export function VideoTrimCropModal({
             flex: '1 1 auto',
             minHeight: '140px',
             maxHeight: 'min(50vh, calc(100vh - 360px))',
-            background: 'radial-gradient(circle at 50% 50%, #131722 0%, #06080d 100%)',
+            background: 'radial-gradient(circle at 50% 50%, #141418 0%, #060608 100%)',
             position: 'relative',
             alignItems: 'center',
             justifyContent: 'center',

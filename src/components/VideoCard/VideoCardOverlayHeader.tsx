@@ -14,7 +14,7 @@ const COLOR_TAG_MAP: Record<string, string> = {
   green: '#4ade80',
   blue: '#60a5fa',
   yellow: '#facc15',
-  purple: '#c084fc',
+  purple: '#fb923c',
 };
 
 export function VideoCardOverlayHeader({ props, state, immersive }: VideoCardOverlayHeaderProps) {

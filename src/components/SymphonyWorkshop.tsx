@@ -565,9 +565,9 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
                 onClick={() => setRenderMode('hyperframes')}
                 style={{ 
                   flex: 1, padding: '4px 8px', borderRadius: '4px', 
-                  background: renderMode === 'hyperframes' ? 'rgba(139,92,246,0.1)' : 'transparent',
-                  border: renderMode === 'hyperframes' ? '1px solid #8B5CF6' : '1px solid rgba(255,255,255,0.1)',
-                  color: renderMode === 'hyperframes' ? '#8B5CF6' : 'rgba(255,255,255,0.4)',
+                  background: renderMode === 'hyperframes' ? 'rgba(245, 158, 11, 0.14)' : 'transparent',
+                  border: renderMode === 'hyperframes' ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
+                  color: renderMode === 'hyperframes' ? '#f59e0b' : 'rgba(255,255,255,0.4)',
                   fontSize: '9px', fontWeight: '800', cursor: 'pointer'
                 }}
               >
@@ -597,12 +597,12 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
               disabled={(!script && renderMode === 'remotion') || productionStep !== 'idle'}
               style={{ 
                 padding: '10px 25px', borderRadius: '8px', 
-                background: productionStep === 'idle' ? (renderMode === 'hyperframes' ? '#8B5CF6' : 'var(--accent)') : 'rgba(255,255,255,0.1)',
+                background: productionStep === 'idle' ? (renderMode === 'hyperframes' ? '#f59e0b' : 'var(--accent)') : 'rgba(255,255,255,0.1)',
                 color: productionStep === 'idle' ? '#000' : 'rgba(255,255,255,0.3)',
                 fontSize: '12px', fontWeight: '900', letterSpacing: '1px',
                 cursor: productionStep === 'idle' ? 'pointer' : 'default', border: 'none',
                 display: 'flex', alignItems: 'center', gap: '10px',
-                boxShadow: productionStep === 'idle' ? `0 4px 15px ${renderMode === 'hyperframes' ? 'rgba(139,92,246,0.3)' : 'rgba(0,255,204,0.3)'}` : 'none'
+                boxShadow: productionStep === 'idle' ? `0 4px 15px ${renderMode === 'hyperframes' ? 'rgba(245, 158, 11, 0.32)' : 'rgba(0,255,204,0.3)'}` : 'none'
               }}
             >
               {productionStep === 'idle' ? (
@@ -693,7 +693,7 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
       <AnimatePresence>
         {showProductionForm && (
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} style={{ width: '450px', background: '#1a1f26', padding: '30px', borderRadius: '12px', border: '1px solid var(--accent)' }}>
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} style={{ width: '450px', background: '#141418', padding: '30px', borderRadius: '12px', border: '1px solid var(--accent)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '900', color: 'var(--accent)' }}>PRODUCTION MANIFEST</h3>
                 <button onClick={() => setShowProductionForm(false)} className="premium-close-btn"><X size={16} /></button>

@@ -161,7 +161,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
         bottom: 24,
         right: 24,
         width: 320,
-        background: 'rgba(15, 20, 28, 0.95)',
+        background: 'rgba(18, 18, 22, 0.97)',
         backdropFilter: 'blur(16px)',
         border: '1px solid rgba(0, 255, 136, 0.2)',
         borderRadius: 12,
@@ -202,7 +202,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
     <div style={{
       position: 'fixed',
       inset: 0,
-      background: 'radial-gradient(ellipse at 30% 20%, rgba(0,255,136,0.08) 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, rgba(100,100,255,0.06) 0%, transparent 60%), #080b0f',
+      background: 'radial-gradient(ellipse at 30% 20%, rgba(16, 185, 129, 0.08) 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, rgba(245, 158, 11, 0.06) 0%, transparent 60%), #09090b',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -211,7 +211,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
     }}>
       {/* Ambient glow orbs */}
       <div style={{ position: 'absolute', top: '15%', left: '20%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,255,136,0.06) 0%, transparent 70%)', pointerEvents: 'none' }} />
-      <div style={{ position: 'absolute', bottom: '20%', right: '15%', width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(120,100,255,0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: '20%', right: '15%', width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(245, 158, 11, 0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
       <motion.div
         initial={{ opacity: 0, y: 24 }}
@@ -299,7 +299,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
               {/* What gets installed */}
               {[
                 { icon: <Cpu size={15} />, label: 'Python 3.11 Runtime', detail: '~8 MB', color: '#60a5fa' },
-                { icon: <Package size={15} />, label: 'AI Libraries (PyTorch, OpenCV, basicsr…)', detail: '~380 MB', color: '#a78bfa' },
+                { icon: <Package size={15} />, label: 'AI Libraries (PyTorch, OpenCV, basicsr…)', detail: '~380 MB', color: '#fbbf24' },
                 { icon: <Brain size={15} />, label: 'Model Weights (Real-ESRGAN, GFPGAN)', detail: '~130 MB', color: '#34d399' },
               ].map(({ icon, label, detail, color }) => (
                 <div key={label} style={{
