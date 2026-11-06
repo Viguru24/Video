@@ -79,9 +79,15 @@ fn main() {
     let builder = tauri::Builder::default()
         .on_window_event(|window, event| {
             match event {
-                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
                     if window.label() == "main" {
-                        println!("Cosmo Symphony: Close/Destroy requested on main window. Saving state and exiting...");
+                        println!("Cosmo Symphony: CloseRequested on main window. Preventing immediate exit for frontend shutdown...");
+                        api.prevent_close();
+                    }
+                }
+                tauri::WindowEvent::Destroyed => {
+                    if window.label() == "main" {
+                        println!("Cosmo Symphony: Main window destroyed. Saving state and exiting...");
                         
                         // Manually save window position/size before hard exit, otherwise tauri-plugin-window-state hooks are bypassed
                         use tauri::Manager;
@@ -91,7 +97,7 @@ fn main() {
 
                         std::process::exit(0);
                     } else {
-                        println!("Cosmo Symphony: Close/Destroy requested on secondary window '{}'. Allowing standard window close.", window.label());
+                        println!("Cosmo Symphony: Secondary window '{}' destroyed. Allowing standard window close.", window.label());
                     }
                 }
                 tauri::WindowEvent::Focused(true) => {

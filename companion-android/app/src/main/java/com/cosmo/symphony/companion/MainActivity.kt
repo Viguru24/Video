@@ -3,21 +3,15 @@ package com.cosmo.symphony.companion
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.DownloadManager
-import android.content.ContentValues
 import android.content.Context
-import android.provider.MediaStore
-import androidx.documentfile.provider.DocumentFile
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
-import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.provider.OpenableColumns
 import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
@@ -28,21 +22,12 @@ import android.webkit.*
 import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import java.io.File
-import java.io.FileOutputStream
-import java.io.OutputStreamWriter
-import java.io.PrintWriter
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLDecoder
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
 class MainActivity : ComponentActivity() {
 
@@ -53,9 +38,9 @@ class MainActivity : ComponentActivity() {
     private var uploadMessage: ValueCallback<Array<Uri>>? = null
     private var folderBtnView: TextView? = null
 
-    // Shared thread pool for non-blocking parallel transfers
-    private val transferExecutor = Executors.newFixedThreadPool(4)
     private val prefs by lazy { getSharedPreferences("cosmo_symphony_companion", Context.MODE_PRIVATE) }
+    private val transferEngine by lazy { TransferEngine(this, { container }, prefs) }
+    private val updateManager by lazy { AppUpdateManager(this, "cosmo-companion") }
 
     // DP Helper Extension
     private val Int.dp: Int
@@ -106,7 +91,7 @@ class MainActivity : ComponentActivity() {
             val doc = DocumentFile.fromTreeUri(this, uri) ?: DocumentFile.fromTreeUri(applicationContext, uri)
             if (doc != null && doc.canWrite()) {
                 val rawSegment = Uri.decode(uri.lastPathSegment ?: "")
-                val folderName = sanitizeFileName(
+                val folderName = SafStorageHelper.sanitizeFileName(
                     if (rawSegment.contains(":")) rawSegment.substringAfterLast(":") else rawSegment
                 ).ifBlank { "Selected Folder" }
 
@@ -115,7 +100,7 @@ class MainActivity : ComponentActivity() {
                     .putString("custom_folder_name", folderName)
                     .putString("custom_subfolder_name", "")
                     .apply()
-                updateFolderLabel()
+                folderBtnView?.let { SafStorageHelper.updateFolderLabel(prefs, it) }
 
                 Toast.makeText(this, "✅ Target Folder set to: $folderName", Toast.LENGTH_SHORT).show()
             } else {
@@ -124,528 +109,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ── Security & Hardening Helpers ────────────────────────────────────────
-
-    /**
-     * Sanitizes incoming filenames to prevent Directory Traversal attacks (OWASP A01:2021).
-     */
-    private fun sanitizeFileName(rawName: String): String {
-        var clean = File(rawName).name
-        clean = clean.replace(Regex("""[\\/:\*\?"<>\|]"""), "_").trim()
-        return clean.ifBlank { "download_${System.currentTimeMillis()}" }
-    }
-
-    /**
-     * Restricts SSL bypass strictly to local LAN IP subnets.
-     */
-    private fun isLocalLanUrl(urlStr: String): Boolean {
-        val host = Uri.parse(urlStr).host ?: return false
-        return host == "127.0.0.1" || host == "localhost" ||
-                host.startsWith("192.168.") || host.startsWith("10.") ||
-                Regex("""^172\.(1[6-9]|2[0-9]|3[0-1])\.""").containsMatchIn(host)
-    }
-
-    private fun queryFileName(uri: Uri): String {
-        if (uri.scheme == "content") {
-            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (nameIdx != -1) {
-                        cursor.getString(nameIdx)?.let { return sanitizeFileName(it) }
-                    }
-                }
-            }
-        }
-        val fallback = uri.path?.substringAfterLast('/') ?: "upload_${System.currentTimeMillis()}.jpg"
-        return sanitizeFileName(fallback)
-    }
-
-    // ── Visual HUD Overlay (WCAG 2.1 Accessible & Micro-Animated) ──────────
-
-    private var hudOverlay: LinearLayout? = null
-    private var hudTitle: TextView? = null
-    private var hudSub: TextView? = null
-    private var hudProgressBar: ProgressBar? = null
-    private val lastHudUpdateMs = AtomicLong(0L)
-
-    private fun setupProgressHUD() {
-        if (hudOverlay != null) {
-            if (hudOverlay?.parent == null) {
-                container.addView(hudOverlay)
-            }
-            hudOverlay?.bringToFront()
-            return
-        }
-
-        hudTitle = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.parseColor("#00ff88")) // Cyber Emerald Green
-            setTypeface(null, Typeface.BOLD)
-            text = "🎵 Ingesting into Cosmo Symphony..."
-        }
-
-        hudSub = TextView(this).apply {
-            textSize = 11f
-            setTextColor(Color.parseColor("#94a3b8")) // WCAG 2.1 AA compliant
-            setPadding(0, 4.dp, 0, 8.dp)
-            text = "Preparing media stream..."
-            ellipsize = TextUtils.TruncateAt.END
-            maxLines = 1
-        }
-
-        hudProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = 0
-            progressTintList = ColorStateList.valueOf(Color.parseColor("#00ff88"))
-            progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#064e3b"))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                16.dp
-            )
-        }
-
-        hudOverlay = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#f009121a"))
-            setPadding(20.dp, 16.dp, 20.dp, 16.dp)
-            visibility = View.GONE
-            alpha = 0f
-            elevation = 16.dp.toFloat()
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                topMargin = 48.dp
-                leftMargin = 20.dp
-                rightMargin = 20.dp
-            }
-            addView(hudTitle)
-            addView(hudSub)
-            addView(hudProgressBar)
-        }
-
-        container.addView(hudOverlay)
-    }
-
-    private fun updateProgressHUD(completed: Int, total: Int, currentFileName: String) {
-        val now = System.currentTimeMillis()
-        // Throttle UI updates to ~60 FPS (16ms) to avoid main loop starvation
-        if (completed < total && now - lastHudUpdateMs.get() < 16) return
-        lastHudUpdateMs.set(now)
-
-        runOnUiThread {
-            setupProgressHUD()
-            hudOverlay?.let { hud ->
-                hud.bringToFront()
-                if (hud.visibility != View.VISIBLE) {
-                    hud.visibility = View.VISIBLE
-                    hud.animate().alpha(1f).setDuration(250).start()
-                }
-            }
-            val percent = if (total > 0) (completed * 100) / total else 0
-            hudTitle?.text = "🎵 Ingesting $completed of $total Files ($percent%)"
-            hudSub?.text = "Active: $currentFileName"
-            hudProgressBar?.progress = percent
-        }
-    }
-
-    private fun hideProgressHUD(message: String, isSuccess: Boolean = true) {
-        runOnUiThread {
-            hudTitle?.text = message
-            hudTitle?.setTextColor(if (isSuccess) Color.parseColor("#00ff88") else Color.parseColor("#ff6b6b"))
-            hudSub?.text = if (isSuccess) "Media ingested directly into Cosmo Symphony!" else "Please check PC Wi-Fi connection and tap Auto-Detect."
-            hudProgressBar?.progress = 100
-            hudOverlay?.postDelayed({
-                hudOverlay?.animate()?.alpha(0f)?.setDuration(300)?.withEndAction {
-                    hudOverlay?.visibility = View.GONE
-                }?.start()
-            }, 3000)
-        }
-    }
-
-    // ── Optimized High-Speed Multi-Thread Transfer Engine ─────────────────
-
     private fun uploadUrisDirectly(uriList: List<Uri>) {
-        val serverUrl = prefs.getString("last_url", "") ?: ""
-        if (serverUrl.isBlank() || uriList.isEmpty()) return
-
-        val baseUrl = if (serverUrl.contains("/room/")) {
-            val code = serverUrl.substringAfter("/room/").trim('/')
-            val origin = serverUrl.substringBefore("/room/")
-            "$origin/api/rooms/$code/upload"
-        } else {
-            val origin = serverUrl.trimEnd('/')
-            "$origin/api/rooms/local/upload"
-        }
-
-        val total = uriList.size
-        val completedCount = AtomicInteger(0)
-        val successCount = AtomicInteger(0)
-
-        updateProgressHUD(0, total, "Starting high-speed transfer…")
-
-        for (uri in uriList) {
-            transferExecutor.execute {
-                val fileName = queryFileName(uri)
-                try {
-                    val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
-                    val boundary = "---CosmoShareBoundary${System.currentTimeMillis()}_${(0..999).random()}"
-
-                    val url = URL(baseUrl)
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "POST"
-                    conn.doOutput = true
-                    conn.doInput = true
-                    conn.useCaches = false
-                    conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-                    conn.setRequestProperty("Connection", "Keep-Alive")
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 60000
-
-                    val outputStream = conn.outputStream
-                    val writer = PrintWriter(OutputStreamWriter(outputStream, "UTF-8"), true)
-
-                    writer.append("--").append(boundary).append("\r\n")
-                    writer.append("Content-Disposition: form-data; name=\"files\"; filename=\"")
-                        .append(fileName.replace("\"", "\\\"")).append("\"\r\n")
-                    writer.append("Content-Type: ").append(mimeType).append("\r\n\r\n")
-                    writer.flush()
-
-                    // High-performance 256 KB stream buffer
-                    contentResolver.openInputStream(uri)?.use { inputStream ->
-                        val buffer = ByteArray(262144)
-                        var bytesRead: Int
-                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                            outputStream.write(buffer, 0, bytesRead)
-                        }
-                        outputStream.flush()
-                    }
-
-                    writer.append("\r\n").flush()
-                    writer.append("--").append(boundary).append("--\r\n").flush()
-                    writer.close()
-
-                    if (conn.responseCode in 200..299) {
-                        successCount.incrementAndGet()
-                    }
-                    conn.disconnect()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    val currentCompleted = completedCount.incrementAndGet()
-                    updateProgressHUD(currentCompleted, total, fileName)
-
-                    if (currentCompleted == total) {
-                        val successes = successCount.get()
-                        if (successes > 0) {
-                            hideProgressHUD("🎉 Transfer Complete! $successes of $total files sent to PC.", true)
-                            runOnUiThread {
-                                if (::webView.isInitialized) {
-                                    webView.reload()
-                                }
-                            }
-                        } else {
-                            hideProgressHUD("⚠️ Upload failed: Could not connect to PC Studio ($serverUrl)", false)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * O(log N) Binary-Probe Unique File Deduplication algorithm.
-     */
-    private fun getUniqueDestinationFile(targetDir: File, rawFileName: String): File {
-        val fileName = sanitizeFileName(rawFileName)
-        val destFile = File(targetDir, fileName)
-        if (!destFile.exists()) return destFile
-
-        val dotIndex = fileName.lastIndexOf('.')
-        val baseName = if (dotIndex != -1) fileName.substring(0, dotIndex) else fileName
-        val extension = if (dotIndex != -1) fileName.substring(dotIndex) else ""
-
-        // Binary jump probe algorithm to find duplicate index range in O(log N)
-        var high = 1
-        while (File(targetDir, "$baseName ($high)$extension").exists()) {
-            high *= 2
-        }
-        var low = high / 2
-        var targetIndex = high
-
-        while (low <= high) {
-            val mid = (low + high) / 2
-            if (File(targetDir, "$baseName ($mid)$extension").exists()) {
-                low = mid + 1
-            } else {
-                targetIndex = mid
-                high = mid - 1
-            }
-        }
-
-        return File(targetDir, "$baseName ($targetIndex)$extension")
-    }
-
-    private fun getMimeTypeForName(name: String): String {
-        val ext = name.substringAfterLast('.', "").lowercase()
-        if (ext.isNotBlank()) {
-            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
-            if (!mime.isNullOrBlank()) return mime
-        }
-        return when (ext) {
-            "mp4", "m4v" -> "video/mp4"
-            "mov" -> "video/quicktime"
-            "webm" -> "video/webm"
-            "mkv" -> "video/x-matroska"
-            "avi" -> "video/x-msvideo"
-            "jpg", "jpeg" -> "image/jpeg"
-            "png" -> "image/png"
-            "gif" -> "image/gif"
-            "webp" -> "image/webp"
-            "mp3" -> "audio/mpeg"
-            "wav" -> "audio/wav"
-            "aac" -> "audio/aac"
-            "m4a" -> "audio/mp4"
-            "pdf" -> "application/pdf"
-            else -> "application/octet-stream"
-        }
-    }
-
-    private fun saveStreamToSelectedDestination(inputStream: java.io.InputStream, cleanName: String): Boolean {
-        // Tier 1: User selected custom folder via System Storage Access Framework (SAF tree Uri)
-        val treeUriStr = prefs.getString("custom_tree_uri", null)
-        if (!treeUriStr.isNullOrBlank()) {
-            try {
-                val treeUri = Uri.parse(treeUriStr)
-                val rootDoc = DocumentFile.fromTreeUri(this, treeUri)
-                    ?: DocumentFile.fromTreeUri(applicationContext, treeUri)
-                if (rootDoc != null && rootDoc.canWrite()) {
-                    val subFolder = prefs.getString("custom_subfolder_name", "")?.trim() ?: ""
-                    val targetDoc = if (subFolder.isNotBlank()) {
-                        rootDoc.findFile(subFolder) ?: rootDoc.createDirectory(subFolder) ?: rootDoc
-                    } else {
-                        rootDoc
-                    }
-                    val mimeType = getMimeTypeForName(cleanName)
-                    val existing = targetDoc.findFile(cleanName)
-                    val fileDoc = existing?.takeIf { it.canWrite() } ?: targetDoc.createFile(mimeType, cleanName)
-                    if (fileDoc != null) {
-                        contentResolver.openOutputStream(fileDoc.uri, "wt")?.use { output ->
-                            inputStream.copyTo(output)
-                        } ?: throw IllegalStateException("Could not open stream for ${fileDoc.uri}")
-                        android.util.Log.i("CosmoSave", "Saved via SAF Tree URI to: ${fileDoc.uri}")
-                        return true
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("CosmoSave", "Tree URI save failed, falling back to MediaStore: ${e.message}", e)
-            }
-        }
-
-        // Tier 2: Standard folder selection (Downloads, Pictures, DCIM, Documents, Movies) via MediaStore on Android 10+
-        val baseDirName = prefs.getString("phone_download_dir", Environment.DIRECTORY_DOWNLOADS) ?: Environment.DIRECTORY_DOWNLOADS
-        val subFolder = prefs.getString("custom_subfolder_name", "")?.trim() ?: ""
-        val relativePath = if (subFolder.isNotBlank()) "$baseDirName/$subFolder" else baseDirName
-        val mimeType = getMimeTypeForName(cleanName)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val contentUri = when (baseDirName) {
-                    Environment.DIRECTORY_PICTURES, Environment.DIRECTORY_DCIM -> {
-                        if (mimeType.startsWith("image/")) MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-                        else if (mimeType.startsWith("video/")) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                        else MediaStore.Files.getContentUri("external")
-                    }
-                    Environment.DIRECTORY_MOVIES -> {
-                        if (mimeType.startsWith("video/")) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                        else MediaStore.Files.getContentUri("external")
-                    }
-                    Environment.DIRECTORY_DOCUMENTS -> {
-                        MediaStore.Files.getContentUri("external")
-                    }
-                    Environment.DIRECTORY_DOWNLOADS -> {
-                        MediaStore.Downloads.EXTERNAL_CONTENT_URI
-                    }
-                    else -> {
-                        MediaStore.Files.getContentUri("external")
-                    }
-                }
-
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, cleanName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
-                }
-
-                var uri = contentResolver.insert(contentUri, contentValues)
-                if (uri == null && contentUri != MediaStore.Files.getContentUri("external")) {
-                    uri = contentResolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
-                }
-
-                if (uri != null) {
-                    contentResolver.openOutputStream(uri, "wt")?.use { output ->
-                        inputStream.copyTo(output)
-                    } ?: throw IllegalStateException("Could not open stream for $uri")
-                    contentValues.clear()
-                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                    contentResolver.update(uri, contentValues, null, null)
-                    android.util.Log.i("CosmoSave", "Saved via MediaStore to: $relativePath/$cleanName")
-                    return true
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("CosmoSave", "MediaStore primary insert failed: ${e.message}, trying Files fallback", e)
-                try {
-                    val fallbackValues = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, cleanName)
-                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                        put(MediaStore.MediaColumns.IS_PENDING, 1)
-                    }
-                    val uri = contentResolver.insert(MediaStore.Files.getContentUri("external"), fallbackValues)
-                    if (uri != null) {
-                        contentResolver.openOutputStream(uri, "wt")?.use { output ->
-                            inputStream.copyTo(output)
-                        } ?: throw IllegalStateException("Could not open stream for $uri")
-                        fallbackValues.clear()
-                        fallbackValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                        contentResolver.update(uri, fallbackValues, null, null)
-                        android.util.Log.i("CosmoSave", "Saved via MediaStore.Files fallback to: $relativePath/$cleanName")
-                        return true
-                    }
-                } catch (e2: Exception) {
-                    android.util.Log.e("CosmoSave", "MediaStore fallback failed: ${e2.message}", e2)
-                }
-            }
-        }
-
-        // Tier 3: Direct File API (Android 9 or legacy fallback)
-        try {
-            val publicBase = Environment.getExternalStoragePublicDirectory(baseDirName)
-            val targetDir = if (subFolder.isNotBlank()) File(publicBase, subFolder) else publicBase
-            if (!targetDir.exists()) targetDir.mkdirs()
-
-            val destFile = getUniqueDestinationFile(targetDir, cleanName)
-            FileOutputStream(destFile).use { output ->
-                inputStream.copyTo(output)
-            }
-            MediaScannerConnection.scanFile(
-                applicationContext,
-                arrayOf(destFile.absolutePath),
-                arrayOf(mimeType),
-                null
-            )
-            android.util.Log.i("CosmoSave", "Saved via legacy File API to: ${destFile.absolutePath}")
-            return true
-        } catch (e: Exception) {
-            android.util.Log.w("CosmoSave", "Public File save failed, falling back to app external files dir", e)
-            val fallbackBase = getExternalFilesDir(baseDirName) ?: filesDir
-            val fallbackDir = if (subFolder.isNotBlank()) File(fallbackBase, subFolder) else fallbackBase
-            if (!fallbackDir.exists()) fallbackDir.mkdirs()
-            val fallbackFile = getUniqueDestinationFile(fallbackDir, cleanName)
-            FileOutputStream(fallbackFile).use { output ->
-                inputStream.copyTo(output)
-            }
-            MediaScannerConnection.scanFile(
-                applicationContext,
-                arrayOf(fallbackFile.absolutePath),
-                arrayOf(mimeType),
-                null
-            )
-            return true
+        transferEngine.uploadUrisDirectly(uriList) {
+            if (::webView.isInitialized) webView else null
         }
     }
 
     private fun downloadFilesDirectly(files: List<Pair<String, String>>) {
-        if (files.isEmpty()) return
-
-        val total = files.size
-        val completedCount = AtomicInteger(0)
-        val successCount = AtomicInteger(0)
-
-        updateProgressHUD(0, total, "Downloading from PC…")
-
-        for ((downloadUrl, fileName) in files) {
-            val cleanName = sanitizeFileName(fileName)
-            transferExecutor.execute {
-                try {
-                    val url = URL(downloadUrl)
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "GET"
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 60000
-
-                    if (conn.responseCode in 200..299) {
-                        val saved = conn.inputStream.use { input ->
-                            saveStreamToSelectedDestination(input, cleanName)
-                        }
-                        if (saved) {
-                            successCount.incrementAndGet()
-                        }
-                    }
-                    conn.disconnect()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    val currentCompleted = completedCount.incrementAndGet()
-                    updateProgressHUD(currentCompleted, total, cleanName)
-                    if (currentCompleted == total) {
-                        val successes = successCount.get()
-                        val destName = getSaveDestinationPath()
-                        if (successes > 0) {
-                            hideProgressHUD("🎉 Complete! $successes of $total files saved.")
-                            runOnUiThread {
-                                Toast.makeText(this@MainActivity, "✅ Saved $successes file(s) to $destName!", Toast.LENGTH_LONG).show()
-                            }
-                        } else {
-                            hideProgressHUD("⚠️ Failed to save files to $destName", false)
-                            runOnUiThread {
-                                Toast.makeText(this@MainActivity, "⚠️ Download failed. Please check network/storage.", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun getSaveDestinationPath(): String {
-        val customName = prefs.getString("custom_folder_name", "") ?: ""
-        val subFolder = prefs.getString("custom_subfolder_name", "") ?: ""
-        if (customName.isNotBlank()) {
-            return if (subFolder.isNotBlank()) "$customName/$subFolder" else customName
-        }
-
-        val baseDir = prefs.getString("phone_download_dir", Environment.DIRECTORY_DOWNLOADS) ?: Environment.DIRECTORY_DOWNLOADS
-        val baseLabel = when(baseDir) {
-            Environment.DIRECTORY_PICTURES -> "Pictures"
-            Environment.DIRECTORY_DCIM -> "DCIM"
-            Environment.DIRECTORY_DOCUMENTS -> "Documents"
-            Environment.DIRECTORY_MOVIES -> "Movies"
-            else -> "Downloads"
-        }
-        return if (subFolder.isNotBlank()) "$baseLabel/$subFolder" else baseLabel
-    }
-
-    private fun updateFolderLabel() {
-        val btn = folderBtnView ?: return
-        val customFolder = prefs.getString("custom_folder_name", "") ?: ""
-        val subFolder = prefs.getString("custom_subfolder_name", "") ?: ""
-
-        val label = if (customFolder.isNotBlank()) {
-            if (subFolder.isNotBlank()) "$customFolder/$subFolder" else customFolder
-        } else {
-            val selectedSubDir = prefs.getString("phone_download_dir", Environment.DIRECTORY_DOWNLOADS) ?: Environment.DIRECTORY_DOWNLOADS
-            val base = when(selectedSubDir) {
-                Environment.DIRECTORY_PICTURES -> "Pictures"
-                Environment.DIRECTORY_DCIM -> "DCIM"
-                Environment.DIRECTORY_DOCUMENTS -> "Documents"
-                else -> "Downloads"
-            }
-            if (subFolder.isNotBlank()) "$base/$subFolder" else base
-        }
-        btn.text = "📁 $label"
+        transferEngine.downloadFilesDirectly(files)
     }
 
     private val defaultStudioUrl = "http://192.168.1.55:48273"
@@ -683,8 +154,6 @@ class MainActivity : ComponentActivity() {
         // Check for OTA Updates in background
         checkOtaUpdates(silent = true)
     }
-
-    private val updateManager by lazy { AppUpdateManager(this, "cosmo-companion") }
 
     private fun checkOtaUpdates(silent: Boolean = false) {
         lifecycleScope.launch(Dispatchers.IO) {
@@ -850,7 +319,7 @@ class MainActivity : ComponentActivity() {
         root.addView(title)
         root.addView(subtitle)
 
-        val phoneIp = getLocalDeviceIp()
+        val phoneIp = NetworkDiscoveryHelper.getLocalDeviceIp()
         val ipStatusText = TextView(this).apply {
             text = if (phoneIp != null) "📡 Connected to Wi-Fi ($phoneIp)" else "⚠️ Wi-Fi not connected (LAN sync needs Wi-Fi)"
             textSize = 11f
@@ -1120,7 +589,7 @@ class MainActivity : ComponentActivity() {
                 override fun onReceivedSslError(
                     view: WebView, handler: SslErrorHandler, error: android.net.http.SslError
                 ) {
-                    if (isLocalLanUrl(error.url)) {
+                    if (SafStorageHelper.isLocalLanUrl(error.url)) {
                         handler.proceed()
                     } else {
                         handler.cancel()
@@ -1129,7 +598,7 @@ class MainActivity : ComponentActivity() {
             }
 
             setDownloadListener { downloadUrl, _, contentDisposition, _, _ ->
-                val fileName = extractFileName(contentDisposition, downloadUrl)
+                val fileName = SafStorageHelper.extractFileName(contentDisposition, downloadUrl)
                 downloadFilesDirectly(listOf(Pair(downloadUrl, fileName)))
             }
 
@@ -1191,7 +660,7 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         folderBtnView = folderBtn
-        updateFolderLabel()
+        SafStorageHelper.updateFolderLabel(prefs, folderBtn)
 
         folderBtn.setOnClickListener {
             val options = arrayOf(
@@ -1217,7 +686,7 @@ class MainActivity : ComponentActivity() {
                                 .putString("custom_folder_name", "")
                                 .putString("custom_subfolder_name", "")
                                 .apply()
-                            updateFolderLabel()
+                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
                             Toast.makeText(this@MainActivity, "Destination set to: Downloads", Toast.LENGTH_SHORT).show()
                         }
                         1 -> {
@@ -1228,7 +697,7 @@ class MainActivity : ComponentActivity() {
                                 .putString("custom_folder_name", "")
                                 .putString("custom_subfolder_name", "")
                                 .apply()
-                            updateFolderLabel()
+                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
                             Toast.makeText(this@MainActivity, "Destination set to: Pictures", Toast.LENGTH_SHORT).show()
                         }
                         2 -> {
@@ -1239,7 +708,7 @@ class MainActivity : ComponentActivity() {
                                 .putString("custom_folder_name", "")
                                 .putString("custom_subfolder_name", "")
                                 .apply()
-                            updateFolderLabel()
+                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
                             Toast.makeText(this@MainActivity, "Destination set to: DCIM", Toast.LENGTH_SHORT).show()
                         }
                         3 -> {
@@ -1250,7 +719,7 @@ class MainActivity : ComponentActivity() {
                                 .putString("custom_folder_name", "")
                                 .putString("custom_subfolder_name", "")
                                 .apply()
-                            updateFolderLabel()
+                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
                             Toast.makeText(this@MainActivity, "Destination set to: Documents", Toast.LENGTH_SHORT).show()
                         }
                         4 -> {
@@ -1261,7 +730,7 @@ class MainActivity : ComponentActivity() {
                                 .putString("custom_folder_name", "")
                                 .putString("custom_subfolder_name", "")
                                 .apply()
-                            updateFolderLabel()
+                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
                             Toast.makeText(this@MainActivity, "Destination set to: Movies", Toast.LENGTH_SHORT).show()
                         }
                         5 -> {
@@ -1279,18 +748,18 @@ class MainActivity : ComponentActivity() {
                             }
                             AlertDialog.Builder(this@MainActivity)
                                 .setTitle("➕ Set Subfolder Name")
-                                .setMessage("Files will be saved in ${getSaveDestinationPath()}/[subfolder]:")
+                                .setMessage("Files will be saved in ${SafStorageHelper.getSaveDestinationPath(prefs)}/[subfolder]:")
                                 .setView(input)
                                 .setPositiveButton("Set") { _, _ ->
-                                    val newFolderName = sanitizeFileName(input.text.toString().trim())
+                                    val newFolderName = SafStorageHelper.sanitizeFileName(input.text.toString().trim())
                                     prefs.edit().putString("custom_subfolder_name", newFolderName).apply()
-                                    updateFolderLabel()
-                                    Toast.makeText(this@MainActivity, "Destination: ${getSaveDestinationPath()}", Toast.LENGTH_LONG).show()
+                                    SafStorageHelper.updateFolderLabel(prefs, folderBtn)
+                                    Toast.makeText(this@MainActivity, "Destination: ${SafStorageHelper.getSaveDestinationPath(prefs)}", Toast.LENGTH_LONG).show()
                                 }
                                 .setNegativeButton("Clear Subfolder") { _, _ ->
                                     prefs.edit().putString("custom_subfolder_name", "").apply()
-                                    updateFolderLabel()
-                                    Toast.makeText(this@MainActivity, "Subfolder cleared. Destination: ${getSaveDestinationPath()}", Toast.LENGTH_SHORT).show()
+                                    SafStorageHelper.updateFolderLabel(prefs, folderBtn)
+                                    Toast.makeText(this@MainActivity, "Subfolder cleared. Destination: ${SafStorageHelper.getSaveDestinationPath(prefs)}", Toast.LENGTH_SHORT).show()
                                 }
                                 .show()
                         }
@@ -1302,7 +771,7 @@ class MainActivity : ComponentActivity() {
                                 .putString("custom_folder_name", "")
                                 .putString("custom_subfolder_name", "")
                                 .apply()
-                            updateFolderLabel()
+                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
                             Toast.makeText(this@MainActivity, "Reset to Default Downloads", Toast.LENGTH_SHORT).show()
                         }
                         8 -> {
@@ -1375,30 +844,6 @@ class MainActivity : ComponentActivity() {
         webView.loadUrl(url)
     }
 
-    private fun extractFileName(
-        contentDisposition: String?,
-        fallbackUrl: String
-    ): String {
-        if (!contentDisposition.isNullOrBlank()) {
-            val regex = Regex("""filename[*]?=["']?([^"';\r\n]+)""", RegexOption.IGNORE_CASE)
-            regex.find(contentDisposition)?.groupValues?.getOrNull(1)
-                ?.trim()
-                ?.let { return sanitizeFileName(URLDecoder.decode(it, "UTF-8")) }
-        }
-        val rawPath = Uri.parse(fallbackUrl).lastPathSegment ?: "cosmo-download"
-        return sanitizeFileName(rawPath)
-    }
-
-    private fun showError(message: String) {
-        if (!isFinishing) {
-            AlertDialog.Builder(this)
-                .setTitle("Connection Error")
-                .setMessage(message)
-                .setPositiveButton("Back") { _, _ -> buildConnectScreen() }
-                .show()
-        }
-    }
-
     private fun hideSystemBars() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -1430,131 +875,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun getLocalDeviceIp(): String? {
-        try {
-            val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return null
-            for (iface in interfaces) {
-                if (iface.isLoopback || !iface.isUp) continue
-                for (addr in iface.inetAddresses) {
-                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
-                        val host = addr.hostAddress ?: continue
-                        if (host.startsWith("192.168.") || host.startsWith("10.") || host.startsWith("172.")) {
-                            return host
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        return null
-    }
-
-    private fun getLocalScanSubnets(): List<String> {
-        val subnets = mutableListOf<String>()
-        try {
-            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            if (interfaces != null) {
-                for (iface in interfaces) {
-                    if (iface.isLoopback || !iface.isUp) continue
-                    for (addr in iface.inetAddresses) {
-                        if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
-                            val host = addr.hostAddress ?: continue
-                            if (host.startsWith("192.168.") || host.startsWith("10.") || host.startsWith("172.")) {
-                                val base = host.substringBeforeLast(".") + "."
-                                if (!subnets.contains(base)) {
-                                    subnets.add(base)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        if (!subnets.contains("192.168.1.")) subnets.add("192.168.1.")
-        if (!subnets.contains("192.168.0.")) subnets.add("192.168.0.")
-        return subnets
-    }
-
     private fun startAutoDetect() {
-        val myIp = getLocalDeviceIp() ?: "unknown"
+        val myIp = NetworkDiscoveryHelper.getLocalDeviceIp() ?: "unknown"
         Toast.makeText(this, "Scanning local Wi-Fi for Cosmo Symphony (Device: $myIp)...", Toast.LENGTH_SHORT).show()
-        autoDiscoverPc(
+        NetworkDiscoveryHelper.autoDiscoverPc(
+            prefs,
             onFound = { foundUrl ->
-                prefs.edit().putString("last_url", foundUrl).apply()
-                Toast.makeText(this, "✅ Connected to Studio PC at $foundUrl", Toast.LENGTH_SHORT).show()
-                openWebView(foundUrl)
+                runOnUiThread {
+                    prefs.edit().putString("last_url", foundUrl).apply()
+                    Toast.makeText(this, "✅ Connected to Studio PC at $foundUrl", Toast.LENGTH_SHORT).show()
+                    openWebView(foundUrl)
+                }
             },
             onNotFound = {
-                Toast.makeText(this, "Could not find Cosmo Symphony on local network. Check PC IP or Wi-Fi.", Toast.LENGTH_LONG).show()
-                buildConnectScreen("Auto-detection finished. No Cosmo Symphony instance found on local subnet ($myIp).\n\n1. Verify PC & Phone are on the same Wi-Fi router\n2. Verify Wi-Fi Share is opened in Cosmo Symphony on PC\n3. Or manually enter your PC's IP address above.")
+                runOnUiThread {
+                    Toast.makeText(this, "Could not find Cosmo Symphony on local network. Check PC IP or Wi-Fi.", Toast.LENGTH_LONG).show()
+                    buildConnectScreen("Auto-detection finished. No Cosmo Symphony instance found on local subnet ($myIp).\n\n1. Verify PC & Phone are on the same Wi-Fi router\n2. Verify Wi-Fi Share is opened in Cosmo Symphony on PC\n3. Or manually enter your PC's IP address above.")
+                }
             }
         )
-    }
-
-    private fun autoDiscoverPc(onFound: (String) -> Unit, onNotFound: () -> Unit) {
-        val subnets = getLocalScanSubnets()
-        val scanExecutor = Executors.newFixedThreadPool(64)
-        val found = java.util.concurrent.atomic.AtomicBoolean(false)
-
-        val candidates = mutableListOf<String>()
-        val saved = prefs.getString("last_url", "") ?: ""
-        val savedHost = if (saved.isNotBlank()) {
-            try { Uri.parse(saved).host } catch (_: Exception) { null }
-        } else null
-        if (!savedHost.isNullOrBlank() && !candidates.contains(savedHost)) {
-            candidates.add(savedHost)
-        }
-        if (!candidates.contains("192.168.1.55")) {
-            candidates.add("192.168.1.55")
-        }
-
-        for (subnet in subnets) {
-            for (i in 1..254) {
-                val ip = "$subnet$i"
-                if (!candidates.contains(ip)) {
-                    candidates.add(ip)
-                }
-            }
-        }
-
-        val pending = AtomicInteger(candidates.size)
-
-        for (candidateIp in candidates) {
-            scanExecutor.execute {
-                if (!found.get()) {
-                    try {
-                        val socket = java.net.Socket()
-                        socket.connect(java.net.InetSocketAddress(candidateIp, 48273), 850)
-                        socket.close()
-
-                        // Verify with health check
-                        try {
-                            val pingUrl = URL("http://$candidateIp:48273/api/health")
-                            val conn = pingUrl.openConnection() as HttpURLConnection
-                            conn.connectTimeout = 1000
-                            conn.readTimeout = 1000
-                            val code = conn.responseCode
-                            conn.disconnect()
-                            if (code in 200..299 || code == 404) {
-                                if (found.compareAndSet(false, true)) {
-                                    val targetUrl = "http://$candidateIp:48273"
-                                    runOnUiThread { onFound(targetUrl) }
-                                }
-                            }
-                        } catch (_: Exception) {
-                            if (found.compareAndSet(false, true)) {
-                                val targetUrl = "http://$candidateIp:48273"
-                                runOnUiThread { onFound(targetUrl) }
-                            }
-                        }
-                    } catch (_: Exception) {
-                    }
-                }
-                if (pending.decrementAndGet() == 0 && !found.get()) {
-                    runOnUiThread { onNotFound() }
-                }
-            }
-        }
-        scanExecutor.shutdown()
     }
 
     @Deprecated("Deprecated in Java")
@@ -1591,6 +930,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        transferExecutor.shutdownNow()
+        transferEngine.shutdown()
     }
 }

@@ -1,5 +1,25 @@
 export type RepeatMode = 'none' | 'once' | 'always' | 'folder';
 
+export type MediaFilterMode = 'all' | 'video' | 'picture';
+
+export type ColorTag = 'red' | 'green' | 'blue' | 'yellow' | 'purple';
+
+export interface BookmarkItem {
+  id: string;
+  time: number;
+  label: string;
+  createdAt?: number;
+}
+
+export interface LayoutPreset {
+  id: string;
+  name: string;
+  cols: number;
+  zoom: number;
+  description?: string;
+  isCustom?: boolean;
+}
+
 export interface ColorFilters {
   brightness: number;
   contrast: number;
@@ -49,6 +69,8 @@ export interface VideoItem {
   currentTime?: number;
   colorFilters?: ColorFilters;
   prevColorFilters?: ColorFilters;
+  colorTag?: ColorTag | null;
+  bookmarks?: BookmarkItem[];
   size?: number;
   modified?: number;
   created?: number;
@@ -66,6 +88,8 @@ export type SortOption =
   | 'created-oldest'
   | 'videos-first'
   | 'pictures-first';
+
+export type SortOrder = SortOption;
 
 export interface TelemetryData {
   cpu: string;

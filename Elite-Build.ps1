@@ -4,6 +4,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 0. Ensure Rust / Cargo toolchain paths point to the real user installation
+$env:RUSTUP_HOME = "C:\Users\louis\.rustup"
+$env:CARGO_HOME = "C:\Users\louis\.cargo"
+if ($env:PATH -notlike "*C:\Users\louis\.cargo\bin*") {
+    $env:PATH = "C:\Users\louis\.cargo\bin;$env:PATH"
+}
+
+# Cap Cargo compiler concurrency to leave cores free for desktop responsiveness
+$coreCount = [Environment]::ProcessorCount
+$env:CARGO_BUILD_JOBS = [Math]::Min(4, [Math]::Max(2, $coreCount - 4))
+
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host " COSMO SYMPHONY: INITIALIZING MSIX BUILD" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -16,6 +27,10 @@ if (Test-Path $msixDir) {
     Remove-Item -Path "$msixDir\*" -Include "*.msix", "*.msixbundle" -Force -ErrorAction SilentlyContinue
 }
 npm run tauri:windows:build
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Error: MSIX packaging build failed with exit code $LASTEXITCODE" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 
 # 2. Locate signtool.exe dynamically
 Write-Host "`n[2/3] Locating Windows SDK SignTool..." -ForegroundColor Yellow
@@ -37,7 +52,6 @@ Write-Host "Found SignTool: $signtool" -ForegroundColor Green
 
 # 3. Sign the generated packages
 Write-Host "`n[3/3] Signing MSIX packages with local certificate..." -ForegroundColor Yellow
-$msixDir = "src-tauri\target\msix"
 $certPath = "src-tauri\certificates\dev.pfx"
 $password = "Cosmo2026!"
 
@@ -51,6 +65,10 @@ if ($packages.Count -eq 0) {
 foreach ($package in $packages) {
     Write-Host "Signing: $($package.Name)" -ForegroundColor Cyan
     & $signtool sign /f $certPath /p $password /fd SHA256 $package.FullName
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Signing failed for $($package.Name)" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
 }
 
 # 4. Copy to root-level CosmoSymphony-Package folder (to mirror CosmoWhisper packaging style)

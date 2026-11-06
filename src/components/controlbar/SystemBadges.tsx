@@ -126,13 +126,13 @@ export const SystemBadges: React.FC<SystemBadgesProps> = ({
           userSelect: 'none',
           marginLeft: '4px'
         }}>
-          v1.4.8
+          v1.4.9
         </div>
         <div style={{
           height: '18px',
           padding: '0 6px',
-          background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)',
-          boxShadow: '0 0 8px rgba(168, 85, 247, 0.4)',
+          background: 'linear-gradient(135deg, #10b981 0%, #0d9488 100%)',
+          boxShadow: '0 0 8px rgba(16, 185, 129, 0.4)',
           borderRadius: '4px',
           color: '#fff',
           fontSize: '8px',

@@ -13,6 +13,8 @@ import { validateCollectionName } from '../utils/validation';
 import { SortDropdown } from './controlbar/SortDropdown';
 import { QuickFoldersMenu } from './controlbar/QuickFoldersMenu';
 import { SystemBadges } from './controlbar/SystemBadges';
+import { ColorTagFilterBar } from './controlbar/ColorTagFilterBar';
+import { LayoutPresetDropdown } from './controlbar/LayoutPresetDropdown';
 import {
   Play,
   Pause,
@@ -712,6 +714,9 @@ export function ControlBar({
               sortDropdownRef={sortDropdownRef}
             />
 
+            {/* COLOR TAG FILTER BAR */}
+            <ColorTagFilterBar videos={videos} />
+
             {/* PLAYBACK ENGINE */}
             {mediaMode === 'video' && (
               <div className="ctrl-group playback-group">
@@ -769,6 +774,7 @@ export function ControlBar({
 
             {/* DENSITY & UI */}
             <div className="ctrl-group density-group">
+              <LayoutPresetDropdown />
               {/* HORIZONTAL DENSITY */}
               <div className="slider-h-box" data-tooltip={`Density: ${(MAX_ZOOM + MIN_ZOOM) - zoom}`}>
                 <LayoutGrid 

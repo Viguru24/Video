@@ -60,14 +60,7 @@ if (Test-Path $BuildOutputsJson) {
 }
 
 if ([string]::IsNullOrWhiteSpace($Notes)) {
-    Write-Host ""
-    Write-Host "Release Notes (or press Enter for default 'Performance enhancements and bug fixes'):" -ForegroundColor Cyan
-    $InputNotes = Read-Host
-    if ([string]::IsNullOrWhiteSpace($InputNotes)) {
-        $ReleaseNotes = "Performance enhancements and stability updates."
-    } else {
-        $ReleaseNotes = $InputNotes
-    }
+    $ReleaseNotes = "Performance enhancements and stability updates."
 } else {
     $ReleaseNotes = $Notes
 }
