@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background Gradients -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141720" />
+      <stop offset="50%" stop-color="#0c0d12" />
+      <stop offset="100%" stop-color="#050608" />
+    </linearGradient>
+
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="50%" stop-color="#00ff88" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+
+    <linearGradient id="accentGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00ff88" />
+      <stop offset="100%" stop-color="#22d3ee" />
+    </linearGradient>
+
+    <linearGradient id="bladeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00ff88" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#059669" stop-opacity="0.65" />
+    </linearGradient>
+
+    <radialGradient id="lensReflect" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#00ff88" stop-opacity="0.25" />
+      <stop offset="45%" stop-color="#00ff88" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="24" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="subtleGlow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Base Icon Squircle Canvas -->
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bgGrad)" stroke="#222734" stroke-width="12" />
+  <rect x="44" y="44" width="936" height="936" rx="212" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="4" />
+
+  <!-- Outer Viewfinder Calibration Ring -->
+  <circle cx="512" cy="512" r="380" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4" stroke-dasharray="8 16" />
+  <circle cx="512" cy="512" r="350" fill="#08090d" stroke="rgba(0,255,136,0.3)" stroke-width="6" />
+
+  <!-- Shutter / Lens Inner Reflection -->
+  <circle cx="512" cy="512" r="344" fill="url(#lensReflect)" />
+
+  <!-- 4 Viewfinder Precision Corner Ticks -->
+  <path d="M 270 200 L 200 200 L 200 270" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="10" stroke-linecap="round" />
+  <path d="M 754 200 L 824 200 L 824 270" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="10" stroke-linecap="round" />
+  <path d="M 200 754 L 200 824 L 270 824" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="10" stroke-linecap="round" />
+  <path d="M 824 754 L 824 824 L 754 824" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="10" stroke-linecap="round" />
+
+  <!-- Aperture Shutter Blades System (6 Blades) -->
+  <!-- Blade 1 (Top right) -->
+  <path d="M 512 180 C 650 180 770 270 820 390 L 640 460 C 610 380 540 330 460 320 Z" fill="url(#bladeGrad)" opacity="0.85" />
+  <!-- Blade 2 (Right) -->
+  <path d="M 844 512 C 844 650 754 770 634 820 L 564 640 C 644 610 694 540 704 460 Z" fill="url(#bladeGrad)" opacity="0.9" />
+  <!-- Blade 3 (Bottom right) -->
+  <path d="M 512 844 C 374 844 254 754 204 634 L 384 564 C 414 644 484 694 564 704 Z" fill="url(#bladeGrad)" opacity="0.85" />
+  <!-- Blade 4 (Bottom left) -->
+  <path d="M 180 512 C 180 374 270 254 390 204 L 460 384 C 380 414 330 484 320 564 Z" fill="url(#bladeGrad)" opacity="0.9" />
+
+  <!-- Core Camera Iris Ring -->
+  <circle cx="512" cy="512" r="260" fill="none" stroke="url(#accentGlow)" stroke-width="12" filter="url(#subtleGlow)" />
+  <circle cx="512" cy="512" r="248" fill="#090a0f" stroke="#161b24" stroke-width="6" />
+
+  <!-- Dynamic Play / Shutter Chevron Emblem -->
+  <!-- Outer Glow Triangle -->
+  <path d="M 430 360 C 430 342 450 332 466 342 L 670 484 C 684 494 684 516 670 526 L 466 668 C 450 678 430 668 430 650 Z" 
+        fill="url(#emeraldGrad)" 
+        filter="url(#glow)" 
+        opacity="0.4" />
+
+  <!-- Main Sharp Triangle (Crisp & High-Contrast) -->
+  <path d="M 430 360 C 430 342 450 332 466 342 L 670 484 C 684 494 684 516 670 526 L 466 668 C 450 678 430 668 430 650 Z" 
+        fill="url(#emeraldGrad)" 
+        stroke="#ffffff" 
+        stroke-width="10" 
+        stroke-linejoin="round" />
+
+  <!-- Inner Shutter Aperture Center Pin -->
+  <circle cx="490" cy="505" r="28" fill="#090a0f" stroke="rgba(255,255,255,0.4)" stroke-width="6" />
+  <circle cx="490" cy="505" r="10" fill="#00ff88" />
+</svg>
