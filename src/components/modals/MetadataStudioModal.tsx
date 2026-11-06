@@ -287,7 +287,7 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(4, 5, 10, 0.85)',
+        background: 'rgba(5, 5, 7, 0.85)',
         backdropFilter: 'blur(22px)',
         zIndex: 350000,
         display: 'flex',
@@ -305,10 +305,10 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
         style={{
           width: 'min(1140px, 96vw)',
           height: 'min(820px, 92vh)',
-          background: 'linear-gradient(160deg, rgba(18, 20, 30, 0.96) 0%, rgba(10, 11, 18, 0.98) 100%)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '20px',
-          boxShadow: '0 32px 80px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
+          background: 'var(--glass-bg, linear-gradient(180deg, rgba(24, 24, 29, 0.98) 0%, rgba(14, 14, 17, 0.99) 100%))',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          borderRadius: '18px',
+          boxShadow: 'var(--bevel-panel)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -333,7 +333,7 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                 width: '40px',
                 height: '40px',
                 borderRadius: '12px',
-                background: 'linear-gradient(135deg, rgba(0, 255, 136, 0.18), rgba(168, 85, 247, 0.22))',
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(245, 158, 11, 0.22))',
                 border: '1px solid rgba(0, 255, 136, 0.35)',
                 display: 'flex',
                 alignItems: 'center',
@@ -368,7 +368,7 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                 </span>
                 <span>•</span>
                 <span>
-                  <strong style={{ color: '#c084fc' }}>{stats.comfyCount}</strong> with ComfyUI JSON
+                  <strong style={{ color: '#fbbf24' }}>{stats.comfyCount}</strong> with ComfyUI JSON
                 </span>
                 <span>•</span>
                 <span>
@@ -396,7 +396,7 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                 border: '1px solid rgba(255, 255, 255, 0.12)',
                 borderRadius: '8px',
                 padding: '7px 12px',
-                color: '#e2e8f0',
+                color: '#f4f4f5',
                 fontSize: '11px',
                 fontWeight: 700,
                 cursor: 'pointer',
@@ -417,7 +417,7 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                 border: '1px solid rgba(255, 255, 255, 0.12)',
                 borderRadius: '8px',
                 padding: '7px 12px',
-                color: '#e2e8f0',
+                color: '#f4f4f5',
                 fontSize: '11px',
                 fontWeight: 700,
                 cursor: 'pointer',
@@ -434,7 +434,7 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                 border: '1px solid rgba(255, 255, 255, 0.12)',
                 borderRadius: '8px',
                 padding: '7px 9px',
-                color: '#e2e8f0',
+                color: '#f4f4f5',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -526,9 +526,9 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                 fontSize: '11.5px',
                 fontWeight: 800,
                 cursor: isProcessing || checkedList.length === 0 ? 'not-allowed' : 'pointer',
-                background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.22), rgba(126, 34, 206, 0.32))',
-                border: '1px solid rgba(192, 132, 252, 0.45)',
-                color: '#e9d5ff',
+                background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.32))',
+                border: '1px solid rgba(251, 191, 36, 0.45)',
+                color: '#fef3c7',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
@@ -679,9 +679,9 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                         fontSize: '10.5px',
                         fontWeight: 700,
                         cursor: 'pointer',
-                        background: 'rgba(168, 85, 247, 0.14)',
-                        border: '1px solid rgba(168, 85, 247, 0.35)',
-                        color: '#e9d5ff',
+                        background: 'rgba(245, 158, 11, 0.14)',
+                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                        color: '#fde68a',
                       }}
                     >
                       Strip ComfyUI (This File)
@@ -714,9 +714,9 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                     background: 'none',
                     border: 'none',
                     borderBottom:
-                      activeTab === 'comfyui' ? '2px solid #c084fc' : '2px solid transparent',
+                      activeTab === 'comfyui' ? '2px solid #fbbf24' : '2px solid transparent',
                     padding: '8px 4px',
-                    color: activeTab === 'comfyui' ? '#e9d5ff' : 'rgba(255,255,255,0.5)',
+                    color: activeTab === 'comfyui' ? '#fde68a' : 'rgba(255,255,255,0.5)',
                     fontSize: '12px',
                     fontWeight: 800,
                     cursor: 'pointer',
@@ -725,15 +725,15 @@ export const MetadataStudioModal: React.FC<MetadataStudioModalProps> = ({
                     gap: '7px',
                   }}
                 >
-                  <Sparkles size={14} style={{ color: '#c084fc' }} />
+                  <Sparkles size={14} style={{ color: '#fbbf24' }} />
                   <span>ComfyUI & AI Workflow JSON</span>
                   <span
                     style={{
                       padding: '1px 6px',
                       borderRadius: '999px',
                       fontSize: '10px',
-                      background: 'rgba(168, 85, 247, 0.2)',
-                      color: '#d8b4fe',
+                      background: 'rgba(245, 158, 11, 0.2)',
+                      color: '#fcd34d',
                     }}
                   >
                     {editableComfyEntries.length}

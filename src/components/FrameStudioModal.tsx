@@ -247,7 +247,7 @@ export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos, onF
         ctx.fillStyle = g; ctx.fillRect(0, 0, totalW, totalH); break;
       }
       case 'neon': {
-        ctx.fillStyle = '#0a0a14'; ctx.fillRect(0, 0, totalW, totalH);
+        ctx.fillStyle = '#09090b'; ctx.fillRect(0, 0, totalW, totalH);
         ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 20; ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 3;
         ctx.strokeRect(pad/2, pad/2, iw+pad, ih+pad); ctx.shadowBlur = 0; break;
       }
@@ -416,7 +416,7 @@ export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos, onF
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)', fontWeight: 700 }}>Frame:</span>
           <select value={framePreset} onChange={(e) => setFramePreset(e.target.value as FramePreset)}
-            style={{ background: 'rgba(20,20,28,0.95)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', padding: '2px 6px', borderRadius: '6px', fontSize: '9px', fontWeight: 700, cursor: 'pointer', outline: 'none' }}>
+            style={{ background: 'rgba(20,20,24,0.96)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', padding: '2px 6px', borderRadius: '6px', fontSize: '9px', fontWeight: 700, cursor: 'pointer', outline: 'none' }}>
             <option value="none">🚫 Borderless</option>
             <option value="white">⬜ Studio White</option>
             <option value="polaroid">📷 Polaroid</option>
@@ -433,7 +433,7 @@ export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos, onF
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.6)', fontWeight: 700 }}>Corners:</span>
           <select value={cornerShape} onChange={(e) => setCornerShape(e.target.value as CornerShape)}
-            style={{ background: 'rgba(20,20,28,0.95)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', padding: '2px 6px', borderRadius: '6px', fontSize: '9px', fontWeight: 700, cursor: 'pointer', outline: 'none' }}>
+            style={{ background: 'rgba(20,20,24,0.96)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', padding: '2px 6px', borderRadius: '6px', fontSize: '9px', fontWeight: 700, cursor: 'pointer', outline: 'none' }}>
             <option value="round">🔴 Round</option>
             <option value="chamfer">✂️ Notched</option>
             <option value="concave">🌙 Scalloped</option>

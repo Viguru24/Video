@@ -425,7 +425,7 @@ export function WifiShareModal({
         className="modal-content"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: 'linear-gradient(180deg, rgba(16, 18, 26, 0.98) 0%, rgba(10, 12, 18, 0.99) 100%)',
+          background: 'linear-gradient(180deg, rgba(24, 24, 29, 0.98) 0%, rgba(12, 12, 15, 0.99) 100%)',
           border: '1px solid rgba(255, 255, 255, 0.15)',
           borderRadius: '16px',
           width: '100%',

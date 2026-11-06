@@ -136,7 +136,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                 <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Metadata</span>
                 <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                   {metadata.has_comfyui && (
-                    <span style={{ fontSize: '8.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(168, 85, 247, 0.22)', color: '#d8b4fe', border: '1px solid rgba(168, 85, 247, 0.4)' }}>
+                    <span style={{ fontSize: '8.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.18)', color: '#fcd34d', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
                       COMFYUI
                     </span>
                   )}
@@ -233,7 +233,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                 {metadata.upscaled_by && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
                     <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Enhancement</span>
-                    <strong style={{ fontSize: '8.5px', color: '#e9d5ff', textAlign: 'right' }}>{metadata.upscaled_by}</strong>
+                    <strong style={{ fontSize: '8.5px', color: '#fde68a', textAlign: 'right' }}>{metadata.upscaled_by}</strong>
                   </div>
                 )}
               </div>
@@ -316,11 +316,11 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
           {isTauri() && (
             <>
               <div className="context-menu-item accent-text" onClick={() => onAction('metadata_studio_selected')} style={{ fontWeight: 'bold' }}>
-                <FileCode2 size={14} style={{ color: '#c084fc' }} />
-                <span style={{ color: '#e9d5ff' }}>Edit / Strip EXIF & ComfyUI ({selectedCount})...</span>
+                <FileCode2 size={14} style={{ color: '#fbbf24' }} />
+                <span style={{ color: '#fde68a' }}>Edit / Strip EXIF & ComfyUI ({selectedCount})...</span>
               </div>
               <div className="context-menu-item" onClick={() => onAction('quick_strip_comfyui_selected')}>
-                <Sparkles size={14} style={{ color: '#c084fc' }} />
+                <Sparkles size={14} style={{ color: '#fbbf24' }} />
                 <span>Remove ComfyUI Info ({selectedCount})</span>
               </div>
               <div className="context-menu-item" onClick={() => onAction('quick_strip_exif_selected')}>
@@ -386,8 +386,8 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
 
                   {isTauri() && (
                     <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
-                      <FileCode2 size={14} style={{ color: '#c084fc' }} />
-                      <span style={{ color: '#e9d5ff' }}>
+                      <FileCode2 size={14} style={{ color: '#fbbf24' }} />
+                      <span style={{ color: '#fde68a' }}>
                         {selectedCount > 1 && isSelected
                           ? `Edit / Strip Metadata (${selectedCount})...`
                           : 'Edit / Strip Metadata & EXIF...'}
@@ -402,7 +402,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               ) : (
                 <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
                   <ShieldAlert size={12} />
-                  <span>Demo video â€” upscale/snapshot disabled</span>
+                  <span>Demo video — upscale/snapshot disabled</span>
                 </div>
               )}
               <div className="context-menu-separator"></div>
@@ -415,7 +415,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               {isDemo ? (
                 <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
                   <ShieldAlert size={12} />
-                  <span>Demo file â€” drag in your own image to edit</span>
+                  <span>Demo file — drag in your own image to edit</span>
                 </div>
               ) : (
                 <>
@@ -456,15 +456,15 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                   {isTauri() && (
                     <>
                       <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
-                        <FileCode2 size={14} style={{ color: '#c084fc' }} />
-                        <span style={{ color: '#e9d5ff' }}>
+                        <FileCode2 size={14} style={{ color: '#fbbf24' }} />
+                        <span style={{ color: '#fde68a' }}>
                           {selectedCount > 1 && isSelected
                             ? `Edit / Strip EXIF & ComfyUI (${selectedCount})...`
                             : 'Edit / Strip EXIF & ComfyUI...'}
                         </span>
                       </div>
                       <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_comfyui_selected' : 'quick_strip_comfyui')}>
-                        <Sparkles size={14} style={{ color: '#c084fc' }} />
+                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
                         <span>{selectedCount > 1 && isSelected ? `Remove ComfyUI Info (${selectedCount})` : 'Remove ComfyUI Info'}</span>
                       </div>
                       <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_exif_selected' : 'quick_strip_exif')}>
@@ -606,8 +606,8 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
 
                   {isTauri() && (
                     <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
-                      <FileCode2 size={14} style={{ color: '#c084fc' }} />
-                      <span style={{ color: '#e9d5ff' }}>
+                      <FileCode2 size={14} style={{ color: '#fbbf24' }} />
+                      <span style={{ color: '#fde68a' }}>
                         {selectedCount > 1 && isSelected
                           ? `Edit / Strip Metadata (${selectedCount})...`
                           : 'Edit / Strip Metadata & EXIF...'}
@@ -622,7 +622,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               ) : (
                 <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
                   <ShieldAlert size={12} />
-                  <span>Demo video â€” upscale/snapshot disabled</span>
+                  <span>Demo video — upscale/snapshot disabled</span>
                 </div>
               )}
               <div className="context-menu-separator"></div>
@@ -635,7 +635,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
               {isDemo ? (
                 <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
                   <ShieldAlert size={12} />
-                  <span>Demo file â€” drag in your own image to edit</span>
+                  <span>Demo file — drag in your own image to edit</span>
                 </div>
               ) : (
                 <>
@@ -672,15 +672,15 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                   {isTauri() && (
                     <>
                       <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
-                        <FileCode2 size={14} style={{ color: '#c084fc' }} />
-                        <span style={{ color: '#e9d5ff' }}>
+                        <FileCode2 size={14} style={{ color: '#fbbf24' }} />
+                        <span style={{ color: '#fde68a' }}>
                           {selectedCount > 1 && isSelected
                             ? `Edit / Strip EXIF & ComfyUI (${selectedCount})...`
                             : 'Edit / Strip EXIF & ComfyUI...'}
                         </span>
                       </div>
                       <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_comfyui_selected' : 'quick_strip_comfyui')}>
-                        <Sparkles size={14} style={{ color: '#c084fc' }} />
+                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
                         <span>{selectedCount > 1 && isSelected ? `Remove ComfyUI Info (${selectedCount})` : 'Remove ComfyUI Info'}</span>
                       </div>
                       <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_exif_selected' : 'quick_strip_exif')}>

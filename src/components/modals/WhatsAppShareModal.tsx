@@ -143,7 +143,7 @@ export function WhatsAppShareModal({ target, onClose, addLog }: WhatsAppShareMod
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(3, 7, 18, 0.85)',
+        backgroundColor: 'rgba(5, 5, 7, 0.86)',
         backdropFilter: 'blur(24px) saturate(180%)',
         display: 'flex',
         alignItems: 'center',

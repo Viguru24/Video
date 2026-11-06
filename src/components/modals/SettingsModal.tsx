@@ -236,7 +236,7 @@ export function SettingsModal({
               marginTop: '12px',
               padding: '12px',
               borderRadius: '6px',
-              background: 'rgba(15,20,28,0.95)',
+              background: '#0a0a0d',
               border: '1px solid rgba(0, 255, 136, 0.25)',
               color: '#fff',
               fontSize: '10.5px',
@@ -631,8 +631,8 @@ export function SettingsModal({
                     <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#fff', fontWeight: 600 }}>MP4, WebM, MOV, M4V, HLS</p>
                     <small style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', display: 'block', marginTop: '4px' }}>GPU accelerated, lag-free.</small>
                   </div>
-                  <div style={{ background: 'rgba(168,85,247,0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(168,85,247,0.1)' }}>
-                    <span style={{ fontSize: '9px', color: '#a855f7', fontWeight: 'bold', letterSpacing: '1px' }}>IMAGE ENGINE</span>
+                  <div style={{ background: 'rgba(245, 158, 11, 0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.22)' }}>
+                    <span style={{ fontSize: '9px', color: '#fbbf24', fontWeight: 'bold', letterSpacing: '1px' }}>IMAGE ENGINE</span>
                     <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#fff', fontWeight: 600 }}>PNG, JPG, JPEG, SVG, WEBP</p>
                     <small style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)', display: 'block', marginTop: '4px' }}>Ultra-sharp renders, upscaling.</small>
                   </div>

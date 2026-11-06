@@ -107,7 +107,7 @@ export function AudioCard({
         style={{
           width: '100%',
           height: '100%',
-          background: 'linear-gradient(135deg, #09090e 0%, #11111d 100%)',
+          background: 'linear-gradient(180deg, #121216 0%, #09090b 100%)',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',

@@ -426,18 +426,32 @@ export function ControlBar({
                 }}
                 data-no-drag
               >
-                <img src="/logo.png" style={{ height: '16px', objectFit: 'contain' }} alt="Cosmo" />
+                <img src="/logo.png" style={{ height: '16px', objectFit: 'contain', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.85))' }} alt="Cosmo" />
                 <span style={{ 
-                  fontSize: '11px', 
-                  fontWeight: 900, 
-                  letterSpacing: '1.5px', 
-                  color: '#fff', 
-                  fontFamily: 'system-ui, sans-serif',
-                  background: 'linear-gradient(90deg, #fff 0%, #a855f7 100%)',
+                  fontSize: '11.5px', 
+                  fontWeight: 800, 
+                  letterSpacing: '1.8px', 
+                  color: '#f4f4f5', 
+                  fontFamily: 'var(--font-display)',
+                  background: 'linear-gradient(90deg, #ffffff 0%, #e4e4e7 55%, var(--accent-bright, #34d399) 100%)',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent'
                 }}>
                   COSMO SYMPHONY
+                </span>
+                <span style={{
+                  fontSize: '8px',
+                  fontWeight: 700,
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '1px',
+                  color: 'var(--accent-warm, #f59e0b)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                  background: 'rgba(245, 158, 11, 0.08)',
+                  padding: '1px 5px',
+                  borderRadius: '4px',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)'
+                }}>
+                  STUDIO
                 </span>
               </div>
 
@@ -593,15 +607,15 @@ export function ControlBar({
                     position: 'absolute',
                     top: '25px',
                     right: '15px',
-                    background: 'rgba(15, 15, 20, 0.95)',
+                    background: 'var(--glass-bg, #141418)',
                     backdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '10px',
                     padding: '6px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '4px',
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                    boxShadow: 'var(--bevel-panel)',
                     zIndex: 100002
                   }}>
                     <button 
@@ -834,40 +848,50 @@ export function ControlBar({
                 >
                   <Palette size={14} />
                   <span className="theme-text-lbl">
-                    {theme === 'symphony' ? 'AURORA' : theme === 'midnight' ? 'VELVET' : theme === 'nordic' ? 'FROST' : 'AURORA'}
+                    {theme === 'midnight' ? 'TUNGSTEN' : theme === 'nordic' ? 'SURGICAL' : theme === 'cobalt' ? 'TITANIUM' : 'OBSIDIAN'}
                   </span>
                   <ChevronDown size={10} className="theme-arrow-icon" />
                 </button>
                 <div className="theme-glass-dropdown">
                   <div 
-                    className={`theme-dropdown-item ${theme === 'symphony' || (!['symphony', 'midnight', 'nordic'].includes(theme)) ? 'active' : ''}`}
+                    className={`theme-dropdown-item ${theme === 'symphony' || (!['symphony', 'midnight', 'nordic', 'cobalt'].includes(theme)) ? 'active' : ''}`}
                     onClick={() => {
                       setTheme('symphony');
-                      addLog('THEME SHIFT: COSMO AURORA');
+                      addLog('THEME SHIFT: OBSIDIAN EMERALD');
                     }}
                   >
                     <span className="theme-preview-dot aurora-dot" />
-                    <span className="theme-dropdown-lbl">Cosmo Aurora</span>
+                    <span className="theme-dropdown-lbl">Obsidian Emerald</span>
                   </div>
                   <div 
                     className={`theme-dropdown-item ${theme === 'midnight' ? 'active' : ''}`}
                     onClick={() => {
                       setTheme('midnight');
-                      addLog('THEME SHIFT: NEBULA VELVET');
+                      addLog('THEME SHIFT: TUNGSTEN CINEMA');
                     }}
                   >
                     <span className="theme-preview-dot velvet-dot" />
-                    <span className="theme-dropdown-lbl">Nebula Velvet</span>
+                    <span className="theme-dropdown-lbl">Tungsten Cinema</span>
                   </div>
                   <div 
                     className={`theme-dropdown-item ${theme === 'nordic' ? 'active' : ''}`}
                     onClick={() => {
                       setTheme('nordic');
-                      addLog('THEME SHIFT: NORDIC FROST');
+                      addLog('THEME SHIFT: SURGICAL TEAL');
                     }}
                   >
                     <span className="theme-preview-dot frost-dot" />
-                    <span className="theme-dropdown-lbl">Nordic Frost</span>
+                    <span className="theme-dropdown-lbl">Surgical Teal</span>
+                  </div>
+                  <div 
+                    className={`theme-dropdown-item ${theme === 'cobalt' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTheme('cobalt');
+                      addLog('THEME SHIFT: TITANIUM STUDIO');
+                    }}
+                  >
+                    <span className="theme-preview-dot cobalt-dot" />
+                    <span className="theme-dropdown-lbl">Titanium Studio</span>
                   </div>
                 </div>
               </div>

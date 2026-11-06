@@ -209,7 +209,7 @@ export function useWorkspacePersistence(
         let c: string | null = localStorage.getItem('cosmo-collections') || localStorage.getItem('cosmo-video-collections');
         let r: string | null = localStorage.getItem('cosmo-rot-int');
         let s: string | null = localStorage.getItem('cosmo-snap-dir');
-        let t: string | null = localStorage.getItem('cosmo-theme');
+        let t: string | null = localStorage.getItem('cosmo-studio-theme');
         let gr: string | null = localStorage.getItem('cosmo-repeat');
         let cd: string | null = localStorage.getItem('cosmo-confirm-del');
 
@@ -221,7 +221,7 @@ export function useWorkspacePersistence(
               invoke<string | null>('load_persistence', { key: 'cosmo-collections' }),
               invoke<string | null>('load_persistence', { key: 'cosmo-rot-int' }),
               invoke<string | null>('load_persistence', { key: 'cosmo-snap-dir' }),
-              invoke<string | null>('load_persistence', { key: 'cosmo-theme' }),
+              invoke<string | null>('load_persistence', { key: 'cosmo-studio-theme' }),
               invoke<string | null>('load_persistence', { key: 'cosmo-repeat' }),
               invoke<string | null>('load_persistence', { key: 'cosmo-confirm-del' })
             ]);
@@ -548,8 +548,8 @@ export function useWorkspacePersistence(
   useEffect(() => {
     if (!isInitialized || isPopout || !readyToSaveRef.current) return;
     const timer = setTimeout(() => {
-      if (isTauri()) invoke('save_persistence', { key: 'cosmo-theme', data: theme }).catch(console.error);
-      localStorage.setItem('cosmo-theme', theme);
+      if (isTauri()) invoke('save_persistence', { key: 'cosmo-studio-theme', data: theme }).catch(console.error);
+      localStorage.setItem('cosmo-studio-theme', theme);
     }, PERSISTENCE_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [theme, isInitialized, isPopout]);
@@ -614,7 +614,7 @@ export function useWorkspacePersistence(
               if (!isTauri()) safeSetLocalStorage('cosmo-collections', collectionsStr);
               localStorage.setItem('cosmo-rot-int',     curRot.toString());
               if (curSnap) localStorage.setItem('cosmo-snap-dir', curSnap);
-              localStorage.setItem('cosmo-theme',       curTheme);
+              localStorage.setItem('cosmo-studio-theme',       curTheme);
               localStorage.setItem('cosmo-repeat',      curRepeat);
               localStorage.setItem('cosmo-confirm-del', curConfirm.toString());
 
@@ -666,7 +666,7 @@ export function useWorkspacePersistence(
       safeSetLocalStorage('cosmo-collections', collectionsStr);
       localStorage.setItem('cosmo-rot-int',     curRot.toString());
       if (curSnap) localStorage.setItem('cosmo-snap-dir', curSnap);
-      localStorage.setItem('cosmo-theme',       curTheme);
+      localStorage.setItem('cosmo-studio-theme',       curTheme);
       localStorage.setItem('cosmo-repeat',      curRepeat);
       localStorage.setItem('cosmo-confirm-del', curConfirm.toString());
     };

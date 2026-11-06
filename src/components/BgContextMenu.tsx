@@ -129,13 +129,13 @@ export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge,
     top: submenuPos.top,
     left: submenuPos.left,
     zIndex: 1000001,
-    background: 'var(--bg-glass, rgba(13, 8, 27, 0.92))',
-    backdropFilter: 'blur(16px)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '8px',
-    padding: '4px 0',
-    minWidth: '200px',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+    background: 'var(--glass-bg, #141418)',
+    backdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '10px',
+    padding: '6px',
+    minWidth: '210px',
+    boxShadow: 'var(--bevel-panel, 0 18px 40px rgba(0,0,0,0.85))',
   };
 
   const sortingOptions: { label: string; value: SortOption }[] = [
@@ -153,11 +153,10 @@ export function BgContextMenu({ x, y, onClose, onAddFolder, onAddMedia, onPurge,
   const columnOptions = [1, 2, 3, 4, 5, 6, 8];
 
   const themeOptions = [
-    { name: 'Cobalt', id: 'cobalt' },
-    { name: 'Emerald', id: 'emerald' },
-    { name: 'Amethyst', id: 'amethyst' },
-    { name: 'Crimson', id: 'crimson' },
-    { name: 'Onyx', id: 'onyx' },
+    { name: 'Obsidian Emerald', id: 'symphony' },
+    { name: 'Tungsten Cinema', id: 'midnight' },
+    { name: 'Surgical Teal', id: 'nordic' },
+    { name: 'Titanium Studio', id: 'cobalt' },
   ];
 
   return (

@@ -143,9 +143,9 @@ export const useStore = create<GlobalState>((set) => ({
     set({ mediaMode: mode });
   },
   
-  theme: localStorage.getItem('cosmo-theme') || 'cobalt',
+  theme: localStorage.getItem('cosmo-studio-theme') || 'symphony',
   setTheme: (theme) => {
-    localStorage.setItem('cosmo-theme', theme);
+    localStorage.setItem('cosmo-studio-theme', theme);
     set({ theme });
   },
   

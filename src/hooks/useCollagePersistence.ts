@@ -9,7 +9,7 @@ export function useCollagePersistence() {
   const [collageItems, setCollageItems] = useState<CollageItem[]>([]);
   const [collageConfig, setCollageConfig] = useState<CollageConfig>({
     backgroundType: 'gradient',
-    backgroundValue: 'linear-gradient(135deg, #0d081b 0%, #150d2e 50%, #05020c 100%)'
+    backgroundValue: 'linear-gradient(135deg, #09090b 0%, #141418 50%, #050507 100%)'
   });
 
   // Load collage state on mount
@@ -21,7 +21,7 @@ export function useCollagePersistence() {
     }).catch(() => {});
     invoke<string | null>('load_persistence', { key: 'cosmo-collage-cfg' }).then(saved => {
       if (saved) {
-        try { const p = JSON.parse(saved); if (p?.backgroundValue) setCollageConfig(p); } catch {}
+        try { const p = JSON.parse(saved); if (p?.backgroundValue) { if (/0d081b|2a0845|150d2e/i.test(p.backgroundValue)) p.backgroundValue = 'linear-gradient(135deg, #09090b 0%, #141418 50%, #050507 100%)'; setCollageConfig(p); } } catch {}
       }
     }).catch(() => {});
   }, []);

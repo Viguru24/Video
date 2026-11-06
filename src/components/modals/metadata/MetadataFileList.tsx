@@ -57,7 +57,7 @@ export function MetadataFileList({
             style={{
               background: 'none',
               border: 'none',
-              color: '#e2e8f0',
+              color: '#f4f4f5',
               fontSize: '11px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -163,7 +163,7 @@ export function MetadataFileList({
                   style={{
                     fontSize: '11.5px',
                     fontWeight: isActive ? 800 : 600,
-                    color: isActive ? '#fff' : '#e2e8f0',
+                    color: isActive ? '#fff' : '#f4f4f5',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -185,9 +185,9 @@ export function MetadataFileList({
                             fontWeight: 800,
                             padding: '1px 5px',
                             borderRadius: '4px',
-                            background: 'rgba(168, 85, 247, 0.22)',
-                            color: '#d8b4fe',
-                            border: '1px solid rgba(168, 85, 247, 0.4)',
+                            background: 'rgba(245, 158, 11, 0.18)',
+                            color: '#fcd34d',
+                            border: '1px solid rgba(245, 158, 11, 0.4)',
                           }}
                         >
                           COMFYUI

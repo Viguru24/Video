@@ -86,7 +86,7 @@ export function PromoExporter({ isOpen, onClose, videos }: PromoExporterProps) {
             <div className="promo-section">
               <h3><Palette size={14} /> Accent Theme</h3>
               <div className="color-presets">
-                {['#4f8ff7', '#e5484d', '#30a46c', '#f59e0b', '#8b5cf6'].map(color => (
+                {['#4f8ff7', '#e5484d', '#30a46c', '#f59e0b', '#14b8a6'].map(color => (
                   <button 
                     key={color}
                     className={`color-btn ${themeColor === color ? 'active' : ''}`}

@@ -43,21 +43,21 @@ export const SortDropdown: React.FC<SortDropdownProps> = ({
       </div>
 
       {showSortDropdown && (
-        <div 
+        <div
           ref={sortDropdownRef}
           className="sort-dropdown"
           style={{
             position: 'fixed',
             top: sortDropdownPos.top,
             left: sortDropdownPos.left,
-            background: 'var(--bg-glass, rgba(13, 8, 27, 0.92))',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '8px',
-            padding: '6px 0',
-            width: '200px',
+            background: 'var(--glass-bg, #141418)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: '10px',
+            padding: '6px',
+            width: '210px',
             zIndex: 999999,
-            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.1)',
+            boxShadow: 'var(--bevel-panel, 0 18px 40px rgba(0, 0, 0, 0.85))',
           }}
         >
           {[
@@ -80,12 +80,14 @@ export const SortDropdown: React.FC<SortDropdownProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                padding: '6px 12px',
+                padding: '6px 10px',
+                borderRadius: '6px',
                 fontSize: '11px',
-                color: sortOrder === opt.value ? 'var(--accent, #00ff88)' : 'rgba(255, 255, 255, 0.7)',
+                fontWeight: sortOrder === opt.value ? 700 : 500,
+                color: sortOrder === opt.value ? 'var(--accent-bright, #34d399)' : 'rgba(255, 255, 255, 0.75)',
                 cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                background: sortOrder === opt.value ? 'rgba(0, 255, 136, 0.05)' : 'transparent',
+                transition: 'all 0.14s ease',
+                background: sortOrder === opt.value ? 'rgba(var(--accent-rgb, 16, 185, 129), 0.12)' : 'transparent',
               }}
               onMouseDown={() => {
                 setSortOrder(opt.value as SortOption);
@@ -93,14 +95,14 @@ export const SortDropdown: React.FC<SortDropdownProps> = ({
               }}
               onMouseEnter={(e) => {
                 if (sortOrder !== opt.value) {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
-                  e.currentTarget.style.color = '#fff';
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+                  e.currentTarget.style.color = '#ffffff';
                 }
               }}
               onMouseLeave={(e) => {
                 if (sortOrder !== opt.value) {
                   e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.75)';
                 }
               }}
             >

@@ -1,27 +1,19 @@
 /* ==========================================================================
-   PREMIUM MUSIC PLAYER & QUEUE VISUALIZER PROTOCOL
+   MUSIC PLAYER, SETTINGS TABS & PRECISION CINEMA STARTUP SEQUENCE
    ========================================================================== */
 @keyframes bounce-bar {
-  0% {
-    height: 3px;
-  }
-  100% {
-    height: 14px;
-  }
+  0% { height: 3px; }
+  100% { height: 14px; }
 }
 
 @keyframes pulse-slow {
-  0%, 100% {
-    box-shadow: 0 0 15px rgba(0, 255, 136, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 25px rgba(0, 255, 136, 0.7);
-  }
+  0%, 100% { box-shadow: 0 0 14px rgba(16, 185, 129, 0.35); }
+  50% { box-shadow: 0 0 24px rgba(16, 185, 129, 0.65); }
 }
 
 .song-title-hoverable:hover {
   text-decoration: underline;
-  color: var(--accent, #00ff88) !important;
+  color: var(--accent-bright, #34d399) !important;
 }
 
 .music-range-slider::-webkit-slider-thumb {
@@ -30,12 +22,12 @@
   height: 8px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 8px rgba(0, 255, 136, 0.8);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.75);
   transition: transform 0.1s ease;
 }
 
 .music-range-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.4);
+  transform: scale(1.35);
 }
 
 .music-range-slider::-moz-range-thumb {
@@ -44,49 +36,33 @@
   border-radius: 50%;
   background: #fff;
   border: none;
-  box-shadow: 0 0 8px rgba(0, 255, 136, 0.8);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.75);
   transition: transform 0.1s ease;
 }
 
 .music-range-slider::-moz-range-thumb:hover {
-  transform: scale(1.4);
+  transform: scale(1.35);
 }
 
 /* Slideshow Ken Burns Pan & Zoom Animations */
 @keyframes kb-zoom-top-center {
-  0% {
-    transform: scale(1) translate(0, 0);
-  }
-  100% {
-    transform: scale(1.16) translate(0, -2.5%);
-  }
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.16) translate(0, -2.5%); }
 }
 
 @keyframes kb-zoom-top-left {
-  0% {
-    transform: scale(1) translate(0, 0);
-  }
-  100% {
-    transform: scale(1.16) translate(-3.5%, -2.5%);
-  }
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.16) translate(-3.5%, -2.5%); }
 }
 
 @keyframes kb-zoom-bottom-right {
-  0% {
-    transform: scale(1) translate(0, 0);
-  }
-  100% {
-    transform: scale(1.16) translate(3.5%, 2.5%);
-  }
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.16) translate(3.5%, 2.5%); }
 }
 
 @keyframes kb-zoom-out-pan {
-  0% {
-    transform: scale(1.18) translate(-2%, -2%);
-  }
-  100% {
-    transform: scale(1.02) translate(0, 0);
-  }
+  0% { transform: scale(1.18) translate(-2%, -2%); }
+  100% { transform: scale(1.02) translate(0, 0); }
 }
 
 .kb-zoom-top-center {
@@ -108,82 +84,85 @@
 .media-wrapper {
   position: relative;
   overflow: hidden;
-  background-color: #000;
+  background-color: #050507;
 }
 
 .browser-sort-select {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--keycap-bg);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 10px;
+  box-shadow: var(--keycap-shadow);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
   font-weight: 600;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
   outline: none;
-  transition: all 0.2s ease;
-  height: 22px;
+  transition: all 0.18s ease;
+  height: 23px;
 }
 
 .browser-sort-select:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--keycap-bg-hover);
   border-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
 }
 
 .browser-sort-select option {
-  background: #121218;
-  color: #fff;
+  background: #141418;
+  color: #f4f4f5;
 }
 
-/* SETTINGS TABS SYSTEM */
+/* === SETTINGS TABS SYSTEM (3D RECESSED WELL) === */
 .settings-tab-bar {
   display: flex;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.02);
+  gap: 4px;
+  background: var(--bg-well, #060608);
+  box-shadow: var(--well-recessed);
   padding: 4px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
   margin-bottom: 20px;
 }
 
 .settings-tab-btn {
   flex: 1;
   background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid transparent;
+  color: var(--text-muted);
   padding: 8px 10px;
   border-radius: 6px;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
 }
 
 .settings-tab-btn:hover {
-  color: #fff;
+  color: var(--text-primary);
   background: rgba(255, 255, 255, 0.04);
 }
 
 .settings-tab-btn.active {
-  background: rgba(0, 255, 136, 0.08);
-  color: var(--accent, #00ff88);
-  border: 1px solid rgba(0, 255, 136, 0.15);
+  background: var(--keycap-bg-hover);
+  color: var(--accent-bright);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  box-shadow: var(--keycap-shadow);
 }
 
-/* WIDER SETTINGS MODAL */
 .settings-modal {
   max-width: 540px !important;
 }
 
 /* ==========================================================================
-   COSMO SYMPHONY PREMIUM BOOT / LOADING OVERLAY
+   PRECISION CINEMA STUDIO BOOT / LOADING OVERLAY (ZERO PURPLE)
    ========================================================================== */
 .cosmo-boot {
   position: fixed;
@@ -191,34 +170,31 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: radial-gradient(circle at center, #0b071a 0%, #030207 100%);
+  background-color: #09090b;
+  background-image:
+    radial-gradient(circle at 50% 45%, #121216 0%, #070709 100%),
+    radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 100% 100%, 24px 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999999;
   overflow: hidden;
-  color: #ffffff;
-  font-family: var(--font-sans, sans-serif);
+  color: #f4f4f5;
+  font-family: var(--font);
 }
 
 .boot-nebula {
   position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: 
-    radial-gradient(circle at 30% 40%, rgba(0, 255, 136, 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 70% 60%, rgba(147, 51, 234, 0.12) 0%, transparent 50%),
-    radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 60%);
-  animation: nebula-slow-spin 25s infinite linear;
+  top: -30%;
+  left: -30%;
+  width: 160%;
+  height: 160%;
+  background:
+    radial-gradient(circle at 38% 38%, rgba(16, 185, 129, 0.11) 0%, transparent 45%),
+    radial-gradient(circle at 65% 62%, rgba(245, 158, 11, 0.08) 0%, transparent 45%);
   filter: blur(80px);
   z-index: 1;
-}
-
-@keyframes nebula-slow-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 
 .boot-content {
@@ -229,59 +205,51 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 40px;
+  padding: 42px;
   max-width: 480px;
   width: 90%;
-  background: rgba(11, 8, 20, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(24, 24, 29, 0.94) 0%, rgba(14, 14, 18, 0.97) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
-  backdrop-filter: blur(20px);
-  box-shadow: 
-    0 20px 50px rgba(0, 0, 0, 0.6),
-    inset 0 0 20px rgba(255, 255, 255, 0.02);
-  transform: translateY(0);
-  animation: boot-float 6s ease-in-out infinite;
-}
-
-@keyframes boot-float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
+  backdrop-filter: blur(22px);
+  box-shadow: var(--bevel-panel);
 }
 
 .boot-logo {
-  width: 130px;
-  height: 130px;
+  width: 120px;
+  height: 120px;
   object-fit: contain;
   margin-bottom: 24px;
-  filter: drop-shadow(0 0 20px rgba(0, 255, 136, 0.25));
+  filter: drop-shadow(0 0 18px rgba(16, 185, 129, 0.3));
   animation: logo-pulse 3s ease-in-out infinite alternate;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 8px;
-  border: 1px solid rgba(0, 255, 136, 0.15);
+  background: #060608;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--well-recessed);
 }
 
 @keyframes logo-pulse {
-  0% { transform: scale(1); filter: drop-shadow(0 0 15px rgba(0, 255, 136, 0.2)); }
-  100% { transform: scale(1.04); filter: drop-shadow(0 0 30px rgba(147, 51, 234, 0.45)); }
+  0% { transform: scale(1); filter: drop-shadow(0 0 14px rgba(16, 185, 129, 0.22)); }
+  100% { transform: scale(1.03); filter: drop-shadow(0 0 24px rgba(245, 158, 11, 0.32)); }
 }
 
 .boot-text h2 {
+  font-family: var(--font-display);
   font-size: 20px;
   font-weight: 800;
   letter-spacing: 4px;
   text-transform: uppercase;
   margin: 0 0 16px 0;
-  background: linear-gradient(135deg, #ffffff 0%, #a855f7 50%, #00ff88 100%);
+  background: linear-gradient(90deg, #ffffff 0%, #34d399 55%, #fbbf24 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.5));
 }
 
 .boot-text p {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
   letter-spacing: 1px;
   margin: 0 0 20px 0;
   display: flex;
@@ -293,24 +261,24 @@
 .boot-text p::after {
   content: "";
   display: inline-block;
-  width: 4px;
-  height: 4px;
-  background: var(--accent, #00ff88);
+  width: 5px;
+  height: 5px;
+  background: #10b981;
   border-radius: 50%;
   animation: dot-pulse 1.2s infinite;
 }
 
 @keyframes dot-pulse {
-  0%, 100% { transform: scale(0.6); opacity: 0.3; }
-  50% { transform: scale(1.3); opacity: 1; }
+  0%, 100% { transform: scale(0.7); opacity: 0.35; }
+  50% { transform: scale(1.25); opacity: 1; }
 }
 
-/* Premium micro loader bar */
 .boot-loader-bar {
-  width: 180px;
-  height: 2px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 1px;
+  width: 200px;
+  height: 3px;
+  background: #050507;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
   overflow: hidden;
   margin: 0 auto 20px auto;
   position: relative;
@@ -319,9 +287,9 @@
 .boot-loader-progress {
   height: 100%;
   width: 50%;
-  background: linear-gradient(90deg, #a855f7, #00ff88);
-  border-radius: 1px;
-  animation: loader-slide 2s infinite ease-in-out;
+  background: linear-gradient(90deg, #10b981, #fbbf24);
+  border-radius: 2px;
+  animation: loader-slide 1.8s infinite ease-in-out;
   position: absolute;
   left: 0;
   top: 0;
@@ -329,30 +297,31 @@
 
 @keyframes loader-slide {
   0% { left: -50%; width: 30%; }
-  50% { width: 50%; }
+  50% { width: 55%; }
   100% { left: 120%; width: 30%; }
 }
 
 .boot-bypass-btn {
-  margin-top: 24px;
+  margin-top: 20px;
   padding: 8px 20px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--keycap-bg);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.45);
+  box-shadow: var(--keycap-shadow);
+  color: var(--text-secondary);
   border-radius: 6px;
   cursor: pointer;
+  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 1px;
   font-weight: 700;
   text-transform: uppercase;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .boot-bypass-btn:hover {
-  background: rgba(0, 255, 136, 0.08);
-  border-color: rgba(0, 255, 136, 0.3);
-  color: var(--accent, #00ff88);
-  box-shadow: 0 0 15px rgba(0, 255, 136, 0.15);
+  background: var(--keycap-bg-hover);
+  border-color: rgba(16, 185, 129, 0.45);
+  color: #34d399;
 }
 
 /* === Collage Resize Handle === */
@@ -363,12 +332,12 @@
 .collage-resize-handle:hover {
   transform: scale(1.35) !important;
   background-color: #ffffff !important;
-  border-color: #00ff88 !important;
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.5) !important;
+  border-color: #10b981 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5) !important;
 }
 
 /* ==========================================================================
-   COSMO WHISPER INTRO ANIMATION STYLE SYSTEM
+   ANALOG-DIGITAL CINEMA INTRO & SHUTDOWN OVERLAY (ZERO PURPLE / ZERO PINK)
    ========================================================================== */
 .cosmo-intro-overlay {
   position: fixed;
@@ -376,7 +345,7 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: #000;
+  background: #070709;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -396,27 +365,26 @@
   visibility: hidden;
 }
 
-/* Background nebula/glow that starts dark and expands */
 .intro-glow-bg {
   position: absolute;
-  width: 250px;
-  height: 250px;
+  width: 260px;
+  height: 260px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(0, 255, 136, 0.45) 0%, rgba(147, 51, 234, 0.4) 30%, rgba(59, 130, 246, 0.3) 60%, transparent 100%);
-  filter: blur(50px);
-  opacity: 0.15;
-  transform: scale(0.6);
-  transition: transform 1.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 1.5s ease-out, width 1.5s, height 1.5s;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.38) 0%, rgba(245, 158, 11, 0.25) 42%, transparent 100%);
+  filter: blur(55px);
+  opacity: 0.2;
+  transform: scale(0.65);
+  transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 1.4s ease-out, width 1.4s, height 1.4s;
   z-index: 1;
 }
 
 .intro-glow-bg.expanded {
-  width: 200%;
-  height: 200%;
-  transform: scale(1.5);
-  opacity: 0.65;
-  filter: blur(120px);
-  background: radial-gradient(circle, rgba(0, 255, 136, 0.35) 0%, rgba(147, 51, 234, 0.45) 25%, rgba(59, 130, 246, 0.35) 50%, rgba(0,0,0,1) 90%);
+  width: 180%;
+  height: 180%;
+  transform: scale(1.4);
+  opacity: 0.55;
+  filter: blur(110px);
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.28) 0%, rgba(45, 212, 191, 0.2) 30%, rgba(245, 158, 11, 0.18) 55%, rgba(7, 7, 9, 1) 90%);
 }
 
 .intro-logo-content {
@@ -426,115 +394,110 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: transform 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .intro-logo-content.expanded {
-  transform: scale(1.4);
+  transform: scale(1.35);
 }
 
-/* Cosmo Logo text with glowing shifting gradient colors */
 .intro-title-text {
-  font-family: 'Outfit', 'Inter', var(--font-sans), sans-serif;
+  font-family: var(--font-display);
   font-size: 52px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 28px;
   text-transform: uppercase;
   background: linear-gradient(
-    45deg, 
-    #00ff88 0%, 
-    #00bfff 25%, 
-    #9333ea 50%, 
-    #ff007f 75%,
-    #00ff88 100%
+    90deg,
+    #ffffff 0%,
+    #34d399 35%,
+    #fbbf24 70%,
+    #ffffff 100%
   );
-  background-size: 400% 400%;
+  background-size: 300% 300%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: intro-color-shift 6s ease infinite, intro-glowing-pulse 2.2s ease-in-out infinite alternate;
-  filter: drop-shadow(0 0 35px rgba(0, 255, 136, 0.65));
-  transition: all 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: intro-color-shift 5s ease infinite;
+  filter: drop-shadow(0 0 28px rgba(16, 185, 129, 0.45));
+  transition: all 1.4s cubic-bezier(0.16, 1, 0.3, 1);
   margin-left: 28px;
 }
 
 .intro-logo-content.expanded .intro-title-text {
   font-size: 20px;
   letter-spacing: 12px;
-  opacity: 0.4;
-  filter: drop-shadow(0 0 8px rgba(0, 255, 136, 0.2));
+  opacity: 0.5;
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.2));
   margin-left: 12px;
 }
 
 .intro-subtitle-text {
-  font-family: 'Outfit', 'Inter', var(--font-sans), sans-serif;
-  font-size: 16px;
+  font-family: var(--font-mono);
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 12px;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(244, 244, 245, 0.5);
   text-transform: uppercase;
   margin-top: 12px;
-  transition: all 1.5s cubic-bezier(0.16, 1, 0.3, 1);
-  animation: intro-fade-in 1.5s ease-out;
+  transition: all 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: intro-fade-in 1.2s ease-out;
   margin-left: 12px;
 }
 
 .intro-logo-content.expanded .intro-subtitle-text {
-  font-size: 48px;
-  font-weight: 900;
-  letter-spacing: 24px;
-  color: #fff;
+  font-family: var(--font-display);
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: 22px;
   opacity: 1;
   background: linear-gradient(
-    45deg, 
-    #ff007f 0%,
-    #9333ea 25%,
-    #00bfff 50%,
-    #00ff88 75%,
-    #ff007f 100%
+    90deg,
+    #fbbf24 0%,
+    #ffffff 45%,
+    #34d399 100%
   );
-  background-size: 400% 400%;
+  background-size: 300% 300%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: intro-color-shift 6s ease infinite;
-  filter: drop-shadow(0 0 35px rgba(147, 51, 234, 0.65));
-  margin-left: 24px;
-  margin-top: 24px;
+  animation: intro-color-shift 5s ease infinite;
+  filter: drop-shadow(0 0 28px rgba(245, 158, 11, 0.4));
+  margin-left: 22px;
+  margin-top: 20px;
 }
 
-/* Shutdown overlay styling */
 .cosmo-intro-overlay.shutdown {
-  background: rgba(0, 0, 0, 0.95);
-  animation: intro-fade-in 0.5s ease-out forwards;
+  background: rgba(7, 7, 9, 0.96);
+  animation: intro-fade-in 0.4s ease-out forwards;
 }
 
 .intro-glow-bg.expanded.shutdown {
-  background: radial-gradient(circle, rgba(255, 0, 127, 0.35) 0%, rgba(147, 51, 234, 0.45) 25%, rgba(59, 130, 246, 0.35) 50%, rgba(0,0,0,1) 90%);
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.25) 0%, rgba(16, 185, 129, 0.2) 35%, rgba(7, 7, 9, 1) 85%);
 }
 
 .intro-logo-content.expanded.shutdown .intro-title-text.shutdown {
   font-size: 32px;
   letter-spacing: 16px;
-  opacity: 0.6;
-  filter: drop-shadow(0 0 15px rgba(255, 0, 127, 0.3));
+  opacity: 0.7;
+  filter: drop-shadow(0 0 14px rgba(245, 158, 11, 0.3));
 }
 
 .intro-logo-content.expanded.shutdown .intro-subtitle-text.shutdown {
   font-size: 24px;
   letter-spacing: 14px;
-  opacity: 0.8;
-  filter: drop-shadow(0 0 15px rgba(147, 51, 234, 0.3));
+  opacity: 0.85;
+  filter: drop-shadow(0 0 14px rgba(16, 185, 129, 0.3));
   margin-top: 8px;
 }
 
 .shutdown-text {
-  font-family: 'Outfit', 'Inter', var(--font-sans), sans-serif;
-  font-size: 14px;
-  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: 4px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-secondary);
   text-transform: uppercase;
   margin-top: 40px;
-  animation: intro-fade-in 1.2s ease-out;
+  animation: intro-fade-in 1s ease-out;
 }
 
 @keyframes intro-color-shift {
@@ -543,36 +506,30 @@
   100% { background-position: 0% 50%; }
 }
 
-@keyframes intro-glowing-pulse {
-  0% { filter: drop-shadow(0 0 8px rgba(0, 255, 136, 0.25)); transform: scale(0.98); }
-  100% { filter: drop-shadow(0 0 20px rgba(147, 51, 234, 0.5)); transform: scale(1.02); }
-}
-
 @keyframes intro-fade-in {
   0% { opacity: 0; transform: translateY(5px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 
-
-/* === SELECTION INDICATOR CUSTOM POPOVER TOOLTIP === */
+/* === SELECTION INDICATOR CUSTOM POPOVER TOOLTIP (ZERO PURPLE) === */
 .select-badge-popover {
   position: absolute;
   left: 0;
   top: calc(100% + 6px);
-  transform: scale(0.95);
+  transform: scale(0.96);
   transform-origin: top left;
-  background: rgba(13, 8, 27, 0.95);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
+  background: linear-gradient(180deg, #1b1b20 0%, #111115 100%);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
   padding: 6px 10px;
   display: flex;
   flex-direction: column;
   gap: 3px;
   opacity: 0;
   pointer-events: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 28px rgba(0, 0, 0, 0.8);
   white-space: nowrap;
   z-index: 1000;
 }
@@ -586,22 +543,21 @@
   font-size: 10px;
   font-weight: 700;
   color: #ffffff;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
 }
 
 .select-badge-popover .popover-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.09);
   margin: 2px 0;
 }
 
 .select-badge-popover .secondary-desc {
+  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
-  color: var(--accent, #00ff88);
+  color: var(--accent-bright, #34d399);
   display: flex;
   align-items: center;
   gap: 3px;
 }
-
-

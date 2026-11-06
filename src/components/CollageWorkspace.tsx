@@ -26,14 +26,14 @@ interface CollageWorkspaceProps {
 }
 
 const BACKGROUND_PRESETS = [
-  { name: 'Void Black',      value: '#09090e',                                                            type: 'color' },
-  { name: 'Sleek Charcoal',  value: '#1e1e26',                                                            type: 'color' },
-  { name: 'Neon Cyberpunk',  value: 'linear-gradient(135deg, #0d081b 0%, #2a0845 50%, #05020c 100%)',      type: 'gradient' },
-  { name: 'Electric Cobalt', value: 'linear-gradient(135deg, #04082a 0%, #071840 100%)',                      type: 'gradient' },
-  { name: 'Crimson Night',   value: 'linear-gradient(135deg, #1f0408 0%, #3b0a10 100%)',                      type: 'gradient' },
-  { name: 'Acid Emerald',    value: 'linear-gradient(135deg, #031208 0%, #062a12 100%)',                      type: 'gradient' },
-  { name: 'Sunset Gold',     value: 'linear-gradient(135deg, #1a0e00 0%, #2e1800 100%)',                      type: 'gradient' },
-  { name: 'Arctic White',    value: 'linear-gradient(135deg, #d0daf0 0%, #eef3ff 100%)',                      type: 'gradient' },
+  { name: 'Obsidian Carbon', value: '#09090b',                                                            type: 'color' },
+  { name: 'Anodized Zinc',   value: '#18181c',                                                            type: 'color' },
+  { name: 'Studio Deck',     value: 'linear-gradient(135deg, #09090b 0%, #18181c 50%, #050507 100%)',     type: 'gradient' },
+  { name: 'Surgical Teal',   value: 'linear-gradient(135deg, #041618 0%, #082f32 100%)',                  type: 'gradient' },
+  { name: 'Crimson Darkroom',value: 'linear-gradient(135deg, #1f0408 0%, #3b0a10 100%)',                  type: 'gradient' },
+  { name: 'Phosphor Emerald',value: 'linear-gradient(135deg, #031208 0%, #062a12 100%)',                  type: 'gradient' },
+  { name: 'Tungsten Amber',  value: 'linear-gradient(135deg, #1a0e00 0%, #2e1800 100%)',                  type: 'gradient' },
+  { name: 'Platinum Light',  value: 'linear-gradient(135deg, #e4e4e7 0%, #fafafa 100%)',                  type: 'gradient' },
 ];
 
 export function CollageWorkspace({

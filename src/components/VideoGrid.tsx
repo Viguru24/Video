@@ -267,95 +267,98 @@ export function VideoGrid({
             alignItems: 'center',
             justifyContent: 'center',
             minHeight: '80vh',
-            color: '#fff',
+            color: '#f4f4f5',
             padding: '24px',
-            fontFamily: 'system-ui, sans-serif'
+            fontFamily: 'var(--font)'
           }}>
-            {/* Onboarding Dashboard */}
+            {/* 3D Machined Studio Onboarding Console */}
             <div style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              backdropFilter: 'blur(16px)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '16px',
-              padding: '30px 40px',
-              maxWidth: '800px',
+              background: 'var(--glass-bg, linear-gradient(180deg, rgba(26, 26, 32, 0.96) 0%, rgba(14, 14, 18, 0.98) 100%))',
+              backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(255, 255, 255, 0.11)',
+              borderRadius: '18px',
+              padding: '32px 40px',
+              maxWidth: '840px',
               width: '100%',
-              boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+              boxShadow: 'var(--bevel-panel)',
               display: 'flex',
               flexDirection: 'column',
-              gap: '24px'
+              gap: '22px'
             }}>
               {/* Header */}
-              <div style={{ textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <img src="/logo.png" style={{ height: '24px', objectFit: 'contain' }} alt="Cosmo" />
-                  <h1 style={{ fontSize: '20px', fontWeight: 900, letterSpacing: '2px', margin: 0, background: 'linear-gradient(90deg, #fff 0%, #a855f7 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+              <div style={{ textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '8px' }}>
+                  <img src="/logo.png" style={{ height: '26px', objectFit: 'contain', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.8))' }} alt="Cosmo" />
+                  <h1 style={{ fontSize: '21px', fontFamily: 'var(--font-display)', fontWeight: 800, letterSpacing: '2.5px', margin: 0, background: 'linear-gradient(90deg, #ffffff 0%, var(--accent-bright, #34d399) 62%, #fbbf24 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                     COSMO SYMPHONY
                   </h1>
+                  <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '1.2px', color: '#fbbf24', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.35)', borderRadius: '5px', padding: '2px 7px' }}>
+                    STUDIO DECK
+                  </span>
                 </div>
-                <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.5px', margin: 0 }}>
-                  A professional multi-video & image orchestration workspace.
+                <p style={{ fontSize: '11.5px', color: '#a1a1aa', letterSpacing: '0.4px', margin: 0 }}>
+                  Precision multi-stream cinema reference monitor & optical AI workspace.
                 </p>
               </div>
 
               {/* Feature Cards Grid */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: '16px',
-                marginTop: '8px'
+                gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                gap: '14px',
+                marginTop: '4px'
               }}>
-                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
-                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>📂</span> BUILT-IN FILE BROWSER
+                <div style={{ padding: '15px', background: 'var(--bg-well, #060608)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: 'var(--well-recessed)', borderRadius: '11px' }}>
+                  <h3 style={{ fontSize: '11.5px', fontFamily: 'var(--font-display)', letterSpacing: '0.6px', color: 'var(--accent-bright, #34d399)', margin: '0 0 6px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>📂</span> BUILT-IN RACK BROWSER
                   </h3>
-                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
-                    Skip Windows Explorer! Drag & drop folder directories or individual media files directly from our fast, integrated Side Browser.
+                  <p style={{ fontSize: '10.5px', color: '#a1a1aa', lineHeight: '1.45', margin: 0 }}>
+                    Skip Explorer. Drag & drop directories or individual clips directly from the integrated left-hand media bay.
                   </p>
                 </div>
 
-                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
-                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>🔍</span> INTERACTIVE POINTER ZOOM
+                <div style={{ padding: '15px', background: 'var(--bg-well, #060608)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: 'var(--well-recessed)', borderRadius: '11px' }}>
+                  <h3 style={{ fontSize: '11.5px', fontFamily: 'var(--font-display)', letterSpacing: '0.6px', color: 'var(--accent-bright, #34d399)', margin: '0 0 6px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🔍</span> OPTICAL CURSOR ZOOM
                   </h3>
-                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
-                    Hover your mouse over any image or video tile, and scroll your wheel to zoom directly into where your cursor is pointing!
+                  <p style={{ fontSize: '10.5px', color: '#a1a1aa', lineHeight: '1.45', margin: 0 }}>
+                    Hover over any monitor bezel and scroll to inspect pixel grain right under your pointer at up to 8x magnification.
                   </p>
                 </div>
 
-                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
-                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>⚡</span> AI ENHANCE & RESCALE
+                <div style={{ padding: '15px', background: 'var(--bg-well, #060608)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: 'var(--well-recessed)', borderRadius: '11px' }}>
+                  <h3 style={{ fontSize: '11.5px', fontFamily: 'var(--font-display)', letterSpacing: '0.6px', color: '#fbbf24', margin: '0 0 6px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>⚡</span> AI UPSCALE & COLOR GRADE
                   </h3>
-                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
-                    Right-click tiles to upscale low-res content using local AI models, crop-resize, adjust temperature, contrast, RGB color balances, or flip media on the fly.
+                  <p style={{ fontSize: '10.5px', color: '#a1a1aa', lineHeight: '1.45', margin: 0 }}>
+                    Right-click any monitor for local GPU AI upscaling, 60fps optical flow, split-diff inspection, or RGB color grading.
                   </p>
                 </div>
 
-                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
-                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>🎹</span> PRO KEYBOARD SHORTCUTS
+                <div style={{ padding: '15px', background: 'var(--bg-well, #060608)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: 'var(--well-recessed)', borderRadius: '11px' }}>
+                  <h3 style={{ fontSize: '11.5px', fontFamily: 'var(--font-display)', letterSpacing: '0.6px', color: 'var(--accent-bright, #34d399)', margin: '0 0 6px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🎹</span> TACTILE DECK HOTKEYS
                   </h3>
-                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
-                    Use quick shortcuts: <kbd style={{ background: '#333', padding: '1px 4px', borderRadius: '3px', fontSize: '9px' }}>L</kbd> to cycle Loop modes, <kbd style={{ background: '#333', padding: '1px 4px', borderRadius: '3px', fontSize: '9px' }}>Space</kbd> for master play/pause, and <kbd style={{ background: '#333', padding: '1px 4px', borderRadius: '3px', fontSize: '9px' }}>F</kbd> for Fullscreen.
+                  <p style={{ fontSize: '10.5px', color: '#a1a1aa', lineHeight: '1.45', margin: 0 }}>
+                    Press <kbd style={{ background: '#18181c', color: '#fbbf24', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 2px 0 #050507', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontFamily: 'var(--font-mono)' }}>Space</kbd> for master transport, <kbd style={{ background: '#18181c', color: '#fbbf24', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 2px 0 #050507', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontFamily: 'var(--font-mono)' }}>L</kbd> to loop, and <kbd style={{ background: '#18181c', color: '#fbbf24', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 2px 0 #050507', padding: '1px 5px', borderRadius: '4px', fontSize: '9px', fontFamily: 'var(--font-mono)' }}>F</kbd> for fullscreen.
                   </p>
                 </div>
 
-                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
-                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>🌐</span> WI-FI SHARE PROTOCOL
+                <div style={{ padding: '15px', background: 'var(--bg-well, #060608)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: 'var(--well-recessed)', borderRadius: '11px' }}>
+                  <h3 style={{ fontSize: '11.5px', fontFamily: 'var(--font-display)', letterSpacing: '0.6px', color: 'var(--accent-bright, #34d399)', margin: '0 0 6px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🌐</span> LOCAL WI-FI BRIDGE
                   </h3>
-                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
-                    Scan the layout QR code or link your phone. Instantly share files between devices or upload media back to your PC over local Wi-Fi!
+                  <p style={{ fontSize: '10.5px', color: '#a1a1aa', lineHeight: '1.45', margin: 0 }}>
+                    Scan the studio QR link to beam clips or stills between mobile devices and your workstation at full LAN speed.
                   </p>
                 </div>
 
-                <div style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px' }}>
-                  <h3 style={{ fontSize: '12px', color: 'var(--accent, #00ff88)', margin: '0 0 6px 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>🖥️</span> MULTI-MONITOR SPANNING
+                <div style={{ padding: '15px', background: 'var(--bg-well, #060608)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: 'var(--well-recessed)', borderRadius: '11px' }}>
+                  <h3 style={{ fontSize: '11.5px', fontFamily: 'var(--font-display)', letterSpacing: '0.6px', color: '#fbbf24', margin: '0 0 6px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🖥️</span> MULTI-DISPLAY WALL
                   </h3>
-                  <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4', margin: 0 }}>
-                    Instantly expand your video workspace across all connected monitors or TVs with a single click, or return to single-window view dynamically.
+                  <p style={{ fontSize: '10.5px', color: '#a1a1aa', lineHeight: '1.45', margin: 0 }}>
+                    Span your synchronized monitor wall across dual or triple displays in a single click from the window deck.
                   </p>
                 </div>
               </div>
@@ -365,49 +368,53 @@ export function VideoGrid({
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '12px',
-                marginTop: '10px',
-                borderTop: '1px solid rgba(255,255,255,0.06)',
+                gap: '14px',
+                marginTop: '6px',
+                borderTop: '1px solid rgba(255,255,255,0.07)',
                 paddingTop: '20px'
               }}>
                 <button
                   onClick={onLoadDemos}
                   style={{
-                    background: 'rgba(0, 255, 136, 0.08)',
-                    border: '1px solid var(--accent, #00ff88)',
-                    boxShadow: '0 0 15px rgba(0, 255, 136, 0.15)',
-                    borderRadius: '8px',
-                    color: 'var(--accent, #00ff88)',
-                    padding: '10px 24px',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    letterSpacing: '1px',
+                    background: 'linear-gradient(180deg, var(--accent-bright, #34d399) 0%, var(--accent, #10b981) 100%)',
+                    border: '1px solid rgba(255, 255, 255, 0.35)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.5), 0 6px 20px rgba(16, 185, 129, 0.28), 0 2px 4px rgba(0,0,0,0.85)',
+                    borderRadius: '9px',
+                    color: '#050505',
+                    padding: '11px 28px',
+                    fontSize: '11.5px',
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 800,
+                    letterSpacing: '1.2px',
                     cursor: 'pointer',
                     textTransform: 'uppercase',
-                    transition: 'all 0.2s ease',
+                    transition: 'all 0.16s ease',
                   }}
                   onMouseEnter={e => {
-                    e.currentTarget.style.background = 'var(--accent, #00ff88)';
-                    e.currentTarget.style.color = '#000';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.filter = 'brightness(1.08)';
                   }}
                   onMouseLeave={e => {
-                    e.currentTarget.style.background = 'rgba(0, 255, 136, 0.08)';
-                    e.currentTarget.style.color = 'var(--accent, #00ff88)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.filter = 'brightness(1)';
                   }}
                 >
-                  🌟 Load Demo Workspace
+                  Load Reference Demo Reel
                 </button>
                 <div style={{
-                  border: '1.5px dashed rgba(255, 255, 255, 0.15)',
-                  borderRadius: '10px',
+                  background: 'var(--bg-well, #060608)',
+                  border: '1.5px dashed rgba(255, 255, 255, 0.14)',
+                  boxShadow: 'var(--well-recessed)',
+                  borderRadius: '11px',
                   width: '100%',
-                  padding: '24px',
+                  padding: '22px',
                   textAlign: 'center',
-                  color: 'rgba(255, 255, 255, 0.4)',
+                  color: '#71717a',
                   fontSize: '11px',
-                  fontWeight: 600
+                  fontWeight: 600,
+                  letterSpacing: '0.3px'
                 }}>
-                  Or drag and drop your media files directly here to start!
+                  Drop video streams, RAW stills, or media folders onto this bay to mount them
                 </div>
               </div>
             </div>

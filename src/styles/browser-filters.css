@@ -1,10 +1,10 @@
-
-/* In-App Browser Media Filters, Selection & Tools */
+/* === IN-APP BROWSER MEDIA FILTERS, SELECTION & TOOLS === */
 .browser-filter-row {
   display: flex;
   align-items: center;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--bg-well, #060608);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: var(--well-recessed);
   border-radius: 8px;
   padding: 2px;
   gap: 2px;
@@ -20,12 +20,12 @@
   border-radius: 6px;
   background: transparent;
   border: 1px solid transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-secondary);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.4px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
   min-width: 0;
   white-space: nowrap;
@@ -37,25 +37,26 @@
 }
 
 .browser-filter-btn.active {
-  background: rgba(0, 255, 136, 0.14);
-  color: var(--accent, #00ff88);
-  border-color: rgba(0, 255, 136, 0.3);
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.15);
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--accent-bright);
+  border-color: rgba(var(--accent-rgb), 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .browser-filter-btn .filter-count-badge {
+  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 800;
   padding: 1px 4px;
-  border-radius: 8px;
+  border-radius: 6px;
   background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-secondary);
   transition: all 0.2s ease;
 }
 
 .browser-filter-btn.active .filter-count-badge {
-  background: rgba(0, 255, 136, 0.25);
-  color: var(--accent, #00ff88);
+  background: rgba(var(--accent-rgb), 0.25);
+  color: var(--accent-bright);
 }
 
 .browser-add-btn-group {
@@ -74,21 +75,21 @@
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
   border-left: none;
-  background: rgba(0, 255, 136, 0.1);
-  border-color: rgba(0, 255, 136, 0.2);
-  color: var(--accent, #00ff88);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.3);
+  color: var(--accent-bright);
 }
 
 .browser-nav-btn.add-all-dropdown-btn:hover {
-  background: var(--accent, #00ff88);
-  color: #000;
+  background: var(--accent);
+  color: #050505;
 }
 
 .browser-dropdown-menu {
   position: absolute;
   top: calc(100% + 4px);
-  background: rgba(15, 15, 23, 0.96);
-  backdrop-filter: blur(20px);
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   padding: 4px;
@@ -97,8 +98,7 @@
   gap: 2px;
   min-width: 175px;
   z-index: 1000;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
-  animation: browser-fade-in 0.15s ease-out;
+  box-shadow: var(--bevel-panel);
 }
 
 .browser-dropdown-menu.add-menu {
@@ -117,7 +117,7 @@
   border-radius: 6px;
   background: transparent;
   border: none;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
   font-size: 11px;
   font-weight: 600;
   text-align: left;
@@ -127,8 +127,8 @@
 }
 
 .browser-dropdown-item:hover:not(:disabled) {
-  background: rgba(0, 255, 136, 0.12);
-  color: var(--accent, #00ff88);
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--accent-bright);
 }
 
 .browser-dropdown-item:disabled {
@@ -137,8 +137,8 @@
 }
 
 .browser-dropdown-item.text-danger:hover {
-  background: rgba(255, 77, 77, 0.15);
-  color: #ff4d4d;
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
 }
 
 .browser-dropdown-divider {
@@ -153,23 +153,23 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-well, #060608);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: var(--well-recessed);
   border-radius: 6px;
   padding: 2px 7px;
-  height: 24px;
+  height: 25px;
   min-width: 80px;
   transition: all 0.2s ease;
 }
 
 .browser-search-box:focus-within {
-  border-color: rgba(0, 255, 136, 0.4);
-  background: rgba(0, 0, 0, 0.5);
-  box-shadow: 0 0 8px rgba(0, 255, 136, 0.15);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: #040405;
 }
 
 .browser-search-icon {
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -178,20 +178,21 @@
   background: transparent;
   border: none;
   outline: none;
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: #fff;
+  color: var(--text-primary);
   width: 100%;
   min-width: 0;
 }
 
 .browser-search-input::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--text-muted);
 }
 
 .browser-search-clear-btn {
   background: transparent;
   border: none;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -209,24 +210,18 @@
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px;
-  background: rgba(14, 28, 20, 0.95);
+  background: rgba(16, 28, 22, 0.96);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 255, 136, 0.35);
+  border: 1px solid rgba(var(--accent-rgb), 0.38);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 255, 136, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
   margin-bottom: 8px;
   animation: browser-slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes browser-slide-down {
-  from {
-    transform: translateY(-8px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 .browser-selection-info {
@@ -258,31 +253,30 @@
 }
 
 .browser-selection-btn.add {
-  background: var(--accent, #00ff88);
-  color: #000;
-  box-shadow: 0 0 8px rgba(0, 255, 136, 0.4);
+  background: linear-gradient(180deg, var(--accent-bright) 0%, var(--accent) 100%);
+  color: #050505;
 }
 
 .browser-selection-btn.add:hover {
-  filter: brightness(1.15);
+  filter: brightness(1.1);
   transform: translateY(-1px);
 }
 
 .browser-selection-btn.clear {
   background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--text-secondary);
 }
 
 .browser-selection-btn.clear:hover {
-  background: rgba(255, 77, 77, 0.2);
-  color: #ff4d4d;
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
 }
 
 /* Card Selection State & Badges */
 .browser-item-card.is-selected {
-  border-color: var(--accent, #00ff88) !important;
-  background: rgba(0, 255, 136, 0.07) !important;
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.25) !important;
+  border-color: var(--accent-bright) !important;
+  background: rgba(var(--accent-rgb), 0.08) !important;
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.25) !important;
 }
 
 .browser-item-checkbox {
@@ -292,7 +286,7 @@
   width: 17px;
   height: 17px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(9, 9, 11, 0.72);
   backdrop-filter: blur(4px);
   border: 1px solid rgba(255, 255, 255, 0.35);
   display: flex;
@@ -303,7 +297,7 @@
   transition: all 0.15s ease;
   opacity: 0;
   padding: 0;
-  color: #000;
+  color: #050505;
 }
 
 .browser-item-card:hover .browser-item-checkbox,
@@ -313,14 +307,13 @@
 }
 
 .browser-item-checkbox.selected {
-  background: var(--accent, #00ff88);
-  border-color: var(--accent, #00ff88);
-  color: #000;
-  box-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
+  color: #050505;
 }
 
 .browser-item-checkbox:hover {
-  border-color: var(--accent, #00ff88);
+  border-color: var(--accent-bright);
   transform: scale(1.1);
 }
 
@@ -339,7 +332,7 @@
   margin-right: 4px;
   transition: all 0.15s ease;
   opacity: 0.3;
-  color: #000;
+  color: #050505;
 }
 
 .browser-item-card.layout-list:hover .browser-item-checkbox-list,
@@ -349,9 +342,9 @@
 }
 
 .browser-item-checkbox-list.selected {
-  background: var(--accent, #00ff88);
-  border-color: var(--accent, #00ff88);
-  color: #000;
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
+  color: #050505;
 }
 
 .browser-item-type-badge {
@@ -361,7 +354,7 @@
   width: 16px;
   height: 16px;
   border-radius: 3px;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(9, 9, 11, 0.78);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -371,18 +364,18 @@
 }
 
 .browser-item-type-badge.badge-video {
-  color: var(--accent, #00ff88);
+  color: var(--accent-bright);
 }
 
 .browser-item-type-badge.badge-picture {
-  color: #38bdf8;
+  color: #fbbf24;
 }
 
 .browser-collapsed-filter-badge {
+  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 800;
-  color: var(--accent, #00ff88);
+  color: var(--accent-bright);
   margin-left: 6px;
   letter-spacing: 0.5px;
 }
-

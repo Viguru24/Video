@@ -403,7 +403,7 @@ export function MusicPlayerWidget({ videos, setVideos }: MusicPlayerWidgetProps)
                                       color: 'rgba(255,255,255,0.4)' 
                                     }} 
                                   />
-                                  <Disc size={11} style={{ color: '#a78bfa' }} />
+                                  <Disc size={11} style={{ color: '#fbbf24' }} />
                                   <span style={{ color: '#ccc', fontSize: '10px', fontWeight: 600 }}>{albumName}</span>
                                   <span style={{ fontSize: '8px', color: '#555', marginLeft: 'auto' }}>{songList.length} tracks</span>
                                 </div>
