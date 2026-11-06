@@ -1,6 +1,6 @@
 [package]
 name = "cosmovideo"
-version = "1.4.11"
+version = "1.4.14"
 description = "A Tauri App"
 authors = ["you"]
 license = ""

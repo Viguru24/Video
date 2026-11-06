@@ -35,7 +35,7 @@ export function Sidebar({
 
   return (
     <aside className={`app-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
-      <div className="sidebar-brand-container">
+      <div className="sidebar-brand-container" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"} style={{ cursor: "pointer" }}>
         <img src="/logo.png" className="sidebar-logo" alt="Logo" />
         <div className="sidebar-brand-text">
           <span className="sidebar-brand-main">COSMO</span>
