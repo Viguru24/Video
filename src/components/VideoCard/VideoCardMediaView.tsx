@@ -58,9 +58,8 @@ export function VideoCardMediaView({
               src={state.effectiveImgSrc}
               alt={props.video.title}
               draggable="false"
-              decoding="auto"
-              loading="eager"
-              fetchPriority="high"
+              decoding="async"
+              loading="lazy"
               onLoad={state.handleMediaSuccess}
               onError={() => state.handleMediaError('image')}
               style={{ 

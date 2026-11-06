@@ -34,7 +34,8 @@ export function useLayoutOrchestration({
       try {
         const items = document.querySelectorAll('.grid-item-wrap');
         if (items.length === 0) {
-          setRowOffsets([]);
+          setRowOffsets(prev => prev.length === 0 ? prev : []);
+          setIdToRow(prev => Object.keys(prev).length === 0 ? prev : {});
           return;
         }
 
@@ -59,8 +60,21 @@ export function useLayoutOrchestration({
           }
         });
 
-        setIdToRow(tempIdToRow);
-        setRowOffsets(distinctRows);
+        setIdToRow(prev => {
+          const prevKeys = Object.keys(prev);
+          const nextKeys = Object.keys(tempIdToRow);
+          if (prevKeys.length === nextKeys.length && nextKeys.every(k => prev[k] === tempIdToRow[k])) {
+            return prev;
+          }
+          return tempIdToRow;
+        });
+
+        setRowOffsets(prev => {
+          if (prev.length === distinctRows.length && prev.every((v, i) => v === distinctRows[i])) {
+            return prev;
+          }
+          return distinctRows;
+        });
       } catch (err) { 
         console.error("[Layout] Calculation Error:", err); 
       }
@@ -69,13 +83,18 @@ export function useLayoutOrchestration({
     // Calculate after a short delay to allow DOM to settle
     const timer = setTimeout(calculateRows, LAYOUT_CALC_DELAY);
     
-    // Watch for window/container resizing
-    const observer = new ResizeObserver(() => calculateRows());
+    // Watch for window/container resizing with debouncing to prevent infinite render loops
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new ResizeObserver(() => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(calculateRows, 250);
+    });
     const grid = document.querySelector('.video-grid');
     if (grid) observer.observe(grid);
     
     return () => {
       clearTimeout(timer);
+      if (resizeTimer) clearTimeout(resizeTimer);
       observer.disconnect();
     };
   }, [videos.length, zoom, immersive, filteredCount, isPopout]);

@@ -14,6 +14,22 @@ export function useWorkspaceControls(addLog: (m: string) => void) {
   const [rowOffsets, setRowOffsets] = useState<number[]>([]);
   const [rotIdx, setRotIdx] = useState(0);
 
+  const setStableIdToRow = useCallback((val: Record<string, number>) => {
+    setIdToRow(prev => {
+      const prevKeys = Object.keys(prev);
+      const nextKeys = Object.keys(val);
+      if (prevKeys.length === nextKeys.length && nextKeys.every(k => prev[k] === val[k])) return prev;
+      return val;
+    });
+  }, []);
+
+  const setStableRowOffsets = useCallback((val: number[]) => {
+    setRowOffsets(prev => {
+      if (prev.length === val.length && prev.every((v, i) => v === val[i])) return prev;
+      return val;
+    });
+  }, []);
+
   const onToggleFocus = useCallback((id: string | null) => {
     setFocusedId(id);
     if (id) addLog(`Entering Focus Mode: Unit ${id.split('-')[0]}`);
@@ -39,8 +55,8 @@ export function useWorkspaceControls(addLog: (m: string) => void) {
     focusedId, setFocusedId,
     rotating, setRotating,
     menu, setMenu,
-    idToRow, setIdToRow,
-    rowOffsets, setRowOffsets,
+    idToRow, setIdToRow: setStableIdToRow,
+    rowOffsets, setRowOffsets: setStableRowOffsets,
     rotIdx, setRotIdx,
     onToggleFocus,
     jumpToUnit

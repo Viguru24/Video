@@ -95,7 +95,7 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
       }, { 
         root: null, // Check intersection relative to the viewport (window) for bulletproof reliability
         threshold: 0.01,
-        rootMargin: isImage ? '800px' : '300px' // Generous buffer for images; tighter buffer for videos to conserve GPU VRAM
+        rootMargin: isImage ? '400px' : '200px' // Pre-render buffer for smooth scrolling while conserving GPU/CPU
       });
       observerRef.current.observe(node);
     }

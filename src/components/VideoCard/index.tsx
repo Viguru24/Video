@@ -82,7 +82,7 @@ function VideoCardInternal(props: VideoCardProps) {
       ref={state.cardRef}
       className={`video-card ${props.isFocused ? 'focused' : ''} ${props.isSelected ? 'selected' : ''} ${state.showControls ? 'ui-visible' : ''} ${props.video.borderWidth ? `border-w-${props.video.borderWidth}` : ''}`}
       data-id={props.video.id}
-      layout="position"
+      layout={props.isFocused ? "position" : false}
       {...state.dragProps}
       transition={{ type: "spring", stiffness: 350, damping: 28 }}
       onContextMenu={(e) => {
