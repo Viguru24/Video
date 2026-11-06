@@ -631,16 +631,11 @@ export function useWorkspacePersistence(
               ]);
             }
           } catch (saveErr) {
-            console.error('Save-on-close error (will still close):', saveErr);
-          } finally {
-            // ALWAYS close the window — no matter what happened above
-            try {
-              await appWindow.destroy();
-            } catch {
-              // Last resort if destroy() itself fails
-              window.close();
-            }
+            console.error('Save-on-close error:', saveErr);
           }
+          // Note: Do NOT call appWindow.destroy() here. Window teardown and exit
+          // is orchestrated by useAppLifecycle to ensure the shutdown animation and
+          // power-down audio finish cleanly without being cut off.
         });
       } catch (err) {
         console.error('Failed to register onCloseRequested:', err);

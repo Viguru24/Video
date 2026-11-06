@@ -1,8 +1,10 @@
-import React, { StrictMode } from 'react'
+import React from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { isTauri } from './utils/videoUtils'
 
 if (typeof window !== 'undefined') {
   window.addEventListener('error', (event) => {
@@ -59,10 +61,11 @@ if (typeof window !== 'undefined') {
 
   // Watchdog: Ensure window is revealed and responsive
   setTimeout(() => {
-    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-      const win = getCurrentWindow();
-      win.show().catch(() => {});
-    }).catch(() => {});
+    if (isTauri()) {
+      try {
+        getCurrentWindow().show().catch(() => {});
+      } catch {}
+    }
   }, 1500);
 }
 
@@ -71,9 +74,11 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}> {
   state = { hasError: false, error: null };
   static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
   componentDidCatch() {
-    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-      getCurrentWindow().show().catch(() => {});
-    }).catch(() => {});
+    if (isTauri()) {
+      try {
+        getCurrentWindow().show().catch(() => {});
+      } catch {}
+    }
   }
   render() {
     if ((this.state as any).hasError) {
@@ -116,56 +121,4 @@ if ('caches' in window) {
       });
     }
   });
-}
-
-// Universal scroll wheel range input handler
-document.addEventListener('wheel', (e) => {
-  const target = e.target as HTMLElement;
-  if (target && target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'range') {
-    e.preventDefault();
-    const input = target as HTMLInputElement;
-    const step = parseFloat(input.step) || 1;
-    const min = parseFloat(input.min) || 0;
-    const max = parseFloat(input.max) || 100;
-    const val = parseFloat(input.value);
-    
-    // deltaY < 0 is scroll up (increase), deltaY > 0 is scroll down (decrease)
-    const direction = e.deltaY < 0 ? 1 : -1;
-    const nextVal = Math.max(min, Math.min(max, val + direction * step));
-    
-    // Round to float precision based on step to avoid floating point representation issues (e.g. 0.05 + 0.1 = 0.15000000000000002)
-    const decimalPlaces = (step.toString().split('.')[1] || '').length;
-    const roundedVal = parseFloat(nextVal.toFixed(decimalPlaces));
-    
-    // Trigger React state change
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-    if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(input, roundedVal.toString());
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      input.value = roundedVal.toString();
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  }
-}, { passive: false });
-
-
-// Prevent Ctrl+Wheel zoom and double-tap zoom gestures globally to avoid magnification issues
-if (typeof window !== 'undefined') {
-  document.addEventListener('wheel', (e) => {
-    if (e.ctrlKey) {
-      e.preventDefault();
-    }
-  }, { passive: false });
-
-  // Disable double-tap-to-zoom on touchpad/touchscreen
-  let lastTouchEnd = 0;
-  document.addEventListener('touchend', (e) => {
-    const now = Date.now();
-    if (now - lastTouchEnd <= 300) {
-      e.preventDefault();
-    }
-    lastTouchEnd = now;
-  }, { passive: false });
 }

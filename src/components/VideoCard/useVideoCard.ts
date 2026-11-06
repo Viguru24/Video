@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { startDrag } from '@crabnebula/tauri-plugin-drag';
-import { SWIPE_THRESHOLD, SNAPSHOT_TOAST_DURATION, FPS, STEP_INTERVAL, STEP_DELAY } from '../../constants';
-import { convertToVideoUrl, isValidPictureExtension, isTauri, toCosmoUrl, showConfirm, toRealPath } from '../../utils/videoUtils';
+import { invoke } from '@tauri-apps/api/core';
+import { SWIPE_THRESHOLD, SNAPSHOT_TOAST_DURATION, FPS } from '../../constants';
+import { isValidPictureExtension, isTauri, toCosmoUrl, showConfirm, toRealPath } from '../../utils/videoUtils';
 import { useStore } from '../../store/useStore';
 import type { VideoItem, RepeatMode } from '../../types';
 import { DEFAULT_COLOR_FILTERS } from '../../types';
+import { useVideoCardMediaSource } from './useVideoCardMediaSource';
+import { useVideoCardZoomPan } from './useVideoCardZoomPan';
+import { useVideoCardScrubber } from './useVideoCardScrubber';
+import { useVideoCardSnapshot } from './useVideoCardSnapshot';
 
 export interface UseVideoCardProps {
   video: VideoItem;
@@ -54,7 +57,7 @@ export interface UseVideoCardProps {
   quality?: 'low' | 'high';
 }
 
-// Global module-level registry to deduplicate rapid globalControl actions (e.g. double click/double firing)
+// Global module-level registry to deduplicate rapid globalControl actions
 const lastProcessedActions = new Map<string, number>();
 
 export function useVideoCard({
@@ -87,65 +90,19 @@ export function useVideoCard({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const [isHoldingToCutout, setIsHoldingToCutout] = useState(false);
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastTime = useRef<number>(video.currentTime || 0);
-  const lastWheelNav = useRef<number>(0);
-  const lastProcessedControlRef = useRef<string | null>(null);
   const retryAttempted = useRef<boolean>(false);
 
-  // Cleanup hold timer on unmount or video change
-  useEffect(() => {
-    return () => {
-      if (holdTimerRef.current) {
-        clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
-      }
-      setIsHoldingToCutout(false);
-    };
-  }, [video.id, video.url]);
-
-  // Global window mouseup/touchend to guarantee timer cancellation even if cursor leaves card or window opens
-  useEffect(() => {
-    const handleGlobalCancelHold = () => {
-      setIsHoldingToCutout(false);
-      if (holdTimerRef.current) {
-        clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
-      }
-    };
-
-    window.addEventListener('mouseup', handleGlobalCancelHold, { passive: true });
-    window.addEventListener('touchend', handleGlobalCancelHold, { passive: true });
-    window.addEventListener('blur', handleGlobalCancelHold);
-    return () => {
-      window.removeEventListener('mouseup', handleGlobalCancelHold);
-      window.removeEventListener('touchend', handleGlobalCancelHold);
-      window.removeEventListener('blur', handleGlobalCancelHold);
-    };
-  }, []);
-
-  // Preserve time during hibernation
-  useEffect(() => {
-    if (!isVisible && videoRef.current) {
-      lastTime.current = videoRef.current.currentTime;
-    }
-  }, [isVisible]);
-
-  // Local reload key — incremented after rotation is saved to disk to force image refresh
-  const [reloadKey, setReloadKey] = useState(0);
-
-  const isImage = React.useMemo(() => {
+  const isImage = useMemo(() => {
     return isValidPictureExtension(video.realPath || video.url);
   }, [video.realPath, video.url]);
 
-  const isAudio = React.useMemo(() => {
+  const isAudio = useMemo(() => {
     const url = video.realPath || video.url || '';
     const ext = url.split('.').pop()?.toLowerCase() ?? '';
     return ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'wma', 'aac', 'alac', 'mp3a'].includes(ext);
   }, [video.realPath, video.url]);
 
-  const songInfo = React.useMemo(() => {
+  const songInfo = useMemo(() => {
     if (!isAudio) return null;
     if (video.realPath) {
       const parts = video.realPath.split(/[\\/]/);
@@ -182,9 +139,7 @@ export function useVideoCard({
 
   const setGlobalVolume = useStore((state) => state.setGlobalVolume);
   const setSpeed = useStore((state) => state.setSpeed);
-  const immersive = useStore((state) => state.immersive);
   const selectedIds = useStore((state) => state.selectedIds);
-  const enableSlideshowPanZoom = useStore((state) => state.enableSlideshowPanZoom);
   const trimCropModalTarget = useStore((state) => state.trimCropModalTarget);
 
   const animationIndex = useMemo(() => {
@@ -222,302 +177,23 @@ export function useVideoCard({
     };
   }, []);
 
-  // High-Fidelity Zoom & Pan Engine (Lightroom Protocol)
-  const [zoomScale, setZoomScale] = useState(1);
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const startPan = useRef({ x: 0, y: 0 });
-  const dragStartPos = useRef<{ x: number; y: number } | null>(null);
-
-
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-
-    // Handle middle click (roller button click) to rotate
-    if (e.button === 1) {
-      e.preventDefault();
-      e.stopPropagation();
-      const direction = e.shiftKey ? -90 : 90;
-      const isBatch = selectedIds.size > 0 && selectedIds.has(video.id);
-      if (isBatch) {
-        onUpdateVideo(Array.from(selectedIds), (prev: any) => ({
-          rotation: (prev.rotation || 0) + direction
-        }));
-        onLog(`Batch Rotated ${direction > 0 ? 'Right' : 'Left'} via Middle Click: ${selectedIds.size} assets`);
-      } else {
-        onUpdateVideo(video.id, { rotation: (video.rotation || 0) + direction });
-        onLog(`Rotated ${direction > 0 ? 'Right' : 'Left'} via Middle Click: ${video.title}`);
-      }
-      return;
-    }
-
-    if (isFocused) {
-      const target = e.target as HTMLElement;
-      const isControl = Boolean(
-        target.closest('button') ||
-        target.closest('input') ||
-        target.closest('.solo-control-bar') ||
-        target.closest('.card-controls') ||
-        target.closest('.zoom-hud-badge') ||
-        target.closest('.drag-handle-mini') ||
-        target.closest('.tel-item') ||
-        target.closest('.scrub-container') ||
-        target.closest('.focused-scrub-container')
-      );
-
-      if (e.altKey && e.button === 0 && zoomScale === 1 && !isControl) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const rect = cardRef.current?.getBoundingClientRect();
-        if (!rect) return;
-
-        const mouseX = e.clientX - (rect.left + rect.width / 2);
-        const mouseY = e.clientY - (rect.top + rect.height / 2);
-
-        const nextScale = 3.0;
-        const ratio = nextScale / 1;
-        const newPanX = mouseX - (mouseX - panOffset.x) * ratio;
-        const newPanY = mouseY - (mouseY - panOffset.y) * ratio;
-        setPanOffset({ x: newPanX, y: newPanY });
-        setZoomScale(nextScale);
-        return;
-      }
-
-      if (zoomScale > 1 && e.button === 0 && !isControl) {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsPanning(true);
-        startPan.current = { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y };
-        return;
-      }
-    }
-
-    if (e.button === 0 && video.realPath) {
-      const target = e.target as HTMLElement;
-      if (
-        !target.closest('button') &&
-        !target.closest('input') &&
-        !target.closest('.drag-handle-mini') &&
-        !target.closest('.tel-item') &&
-        !target.closest('.card-controls') &&
-        !target.closest('.scrub-container') &&
-        !target.closest('.focused-scrub-container')
-      ) {
-        dragStartPos.current = { x: e.clientX, y: e.clientY };
-
-        if (isImage && !isAiEnhancing && !isStickerLoading) {
-          setIsHoldingToCutout(true);
-          if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = setTimeout(() => {
-            setIsHoldingToCutout(false);
-            if (onCreateSticker) {
-              onCreateSticker(video);
-            }
-          }, 3000);
-        }
-      }
-    }
-  };
-
-  // Reset zoom on focus/solo exit
-  useEffect(() => {
-    if (!isFocused) {
-      setZoomScale(1);
-      setPanOffset({ x: 0, y: 0 });
-      setIsPanning(false);
-    }
-  }, [isFocused]);
-
-  // Reset zoom on source/url changes (navigation)
-  useEffect(() => {
-    setZoomScale(1);
-    setPanOffset({ x: 0, y: 0 });
-    setIsPanning(false);
-  }, [video.url]);
-
-
-  // Reset zoom/pan when entering cropping mode
-  useEffect(() => {
-    if (isCropping) {
-      setZoomScale(1);
-      setPanOffset({ x: 0, y: 0 });
-      setIsPanning(false);
-    }
-  }, [isCropping]);
-
-  // Global Mouse Panning Engine — Unbounded and immune to screen edges/stuck conditions
-  useEffect(() => {
-    if (!isPanning) return;
-
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (zoomScale > 1) {
-        const newX = e.clientX - startPan.current.x;
-        const newY = e.clientY - startPan.current.y;
-        setPanOffset({ x: newX, y: newY });
-      }
-    };
-
-    const handleGlobalMouseUp = () => {
-      setIsPanning(false);
-    };
-
-    window.addEventListener('mousemove', handleGlobalMouseMove, { passive: true });
-    window.addEventListener('mouseup', handleGlobalMouseUp, { passive: true });
-
-    return () => {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
-    };
-  }, [isPanning, zoomScale]);
-
-  const [imageFallbackSrc, setImageFallbackSrc] = useState<string | null>(null);
-  const [imgRetryCount, setImgRetryCount] = useState(0);
-  const [isSyncingOrRecovering, setIsSyncingOrRecovering] = useState<boolean>(false);
-  const mediaRetryCountRef = useRef<number>(0);
-  const mediaRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [customProtocolOverride, setCustomProtocolOverride] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Reset retry state and fallbacks when media source changes
-  useEffect(() => {
-    mediaRetryCountRef.current = 0;
-    if (mediaRetryTimerRef.current) {
-      clearTimeout(mediaRetryTimerRef.current);
-      mediaRetryTimerRef.current = null;
-    }
-    setIsSyncingOrRecovering(false);
-    setCustomProtocolOverride(null);
-    setImageFallbackSrc(null);
-    setImgRetryCount(0);
-    setError(null);
-  }, [video.id, video.realPath, video.url]);
-
-  // DYNAMIC QUALITY ENGINE (v4) — Native Asset Protocol + Resilient Fallbacks
-  const displayUrl = React.useMemo(() => {
-    if (customProtocolOverride) {
-      return customProtocolOverride;
-    }
-    const url = convertToVideoUrl(video);
-    let busted = url;
-    if (video.url && video.url.includes('?t=')) {
-      const tParam = video.url.split('?t=')[1];
-      busted = `${url}${url.includes('?') ? '&' : '?'}t=${tParam}`;
-    } else if (reloadKey > 0) {
-      busted = `${url}${url.includes('?') ? '&' : '?'}t=${reloadKey}`;
-    }
-    return busted;
-  }, [video.realPath, video.url, reloadKey, customProtocolOverride]);
-
-  const effectiveImgSrc = imageFallbackSrc || displayUrl;
-
-  const handleMediaSuccess = useCallback(() => {
-    if (mediaRetryTimerRef.current) {
-      clearTimeout(mediaRetryTimerRef.current);
-      mediaRetryTimerRef.current = null;
-    }
-    mediaRetryCountRef.current = 0;
-    setIsSyncingOrRecovering(false);
-    setError(null);
-  }, []);
-
-  const handleMediaError = useCallback((type: 'video' | 'audio' | 'image' = 'video') => {
-    const rawPath = toRealPath(video.realPath) || toRealPath(video.url);
-    const attempt = mediaRetryCountRef.current + 1;
-    mediaRetryCountRef.current = attempt;
-
-    // Retry up to 12 times spanning ~35 seconds (guaranteeing in-flight syncs/writes finish)
-    if (attempt <= 12) {
-      setIsSyncingOrRecovering(true);
-      setError(null); // Keep error null so the red X and error banner are suppressed during recovery
-
-      const delays = [400, 800, 1200, 1600, 2200, 3000, 3500, 4000, 5000, 5000, 5000, 5000];
-      const delay = delays[Math.min(attempt - 1, delays.length - 1)];
-
-      if (mediaRetryTimerRef.current) {
-        clearTimeout(mediaRetryTimerRef.current);
-      }
-
-      mediaRetryTimerRef.current = setTimeout(() => {
-        const now = Date.now();
-        setReloadKey(now);
-
-        if (rawPath && isTauri()) {
-          // Alternate between Tauri's convertFileSrc (asset.localhost) and custom cosmo.localhost
-          if (attempt % 2 === 1) {
-            const cosmoUrl = `http://cosmo.localhost/${encodeURIComponent(rawPath)}?t=${now}`;
-            if (type === 'image') {
-              setImageFallbackSrc(cosmoUrl);
-            } else {
-              setCustomProtocolOverride(cosmoUrl);
-            }
-          } else {
-            const assetUrl = `${convertFileSrc(rawPath)}?t=${now}`;
-            if (type === 'image') {
-              setImageFallbackSrc(assetUrl);
-            } else {
-              setCustomProtocolOverride(assetUrl);
-            }
-          }
-        }
-
-        if (type !== 'image' && videoRef.current) {
-          try {
-            videoRef.current.load();
-          } catch {}
-        }
-      }, delay);
-      return;
-    }
-
-    // Retries exhausted
-    setIsSyncingOrRecovering(false);
-    setError("LOAD ERROR");
-    onLog?.(`Unit [${video.title}] Error: LOAD ERROR after ${attempt} recovery attempts`);
-  }, [video.realPath, video.url, video.title, onLog]);
-
-  const handleManualRetry = useCallback(() => {
-    mediaRetryCountRef.current = 0;
-    setError(null);
-    setIsSyncingOrRecovering(true);
-    setCustomProtocolOverride(null);
-    setImageFallbackSrc(null);
-    const now = Date.now();
-    setReloadKey(now);
-    setTimeout(() => {
-      if (videoRef.current) {
-        try {
-          videoRef.current.load();
-        } catch {}
-      }
-    }, 100);
-  }, []);
-
-  const handleImageError = useCallback(() => {
-    handleMediaError('image');
-  }, [handleMediaError]);
-
-  // Reset playback position when source changes (folder cycling)
-  useEffect(() => {
-    lastTime.current = 0;
-  }, [displayUrl]);
-
-  useEffect(() => {
-    if (!isImage && videoRef.current) {
-      const vol = Number.isFinite(globalVolume) ? Math.max(0, Math.min(1, globalVolume)) : 0;
-      videoRef.current.volume = vol;
-    }
-  }, [globalVolume, isImage]);
-
   const [playing, setPlaying] = useState(masterPlaying);
   const [recovering, setRecovering] = useState(false);
-
-  const [snapshotToast, setSnapshotToast] = useState<number | null>(null);
+  const { snapshotToast, takeSnapshot } = useVideoCardSnapshot({
+    video,
+    isImage,
+    videoRef,
+    snapshotDir,
+    setSnapshotDir,
+    onLog,
+    onAddVideo
+  });
   const [isLocalFS, setIsLocalFS] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false);
   const [showCardMenu, setShowCardMenu] = useState(false);
+  const [duration, setDuration] = useState(0);
   const controlsIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isActivelyPlaying = (video.playing || (masterPlaying && !video.pausedExplicitly)) && !isImage;
@@ -529,7 +205,6 @@ export function useVideoCard({
     }
     setShowControls(true);
 
-    // If actively playing in tile mode (and not interacting/focused/menu-open), auto-hide after 2.2 seconds
     if (isActivelyPlaying && !isInteracting && !showCardMenu && !isFocused) {
       controlsIdleTimerRef.current = setTimeout(() => {
         setShowControls(false);
@@ -557,7 +232,7 @@ export function useVideoCard({
     };
   }, []);
 
-  // Hover-to-Play: play video on hover in grid mode, pause on mouse-out
+  // Hover-to-Play
   const hoverPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasPlayingBeforeHover = useRef<boolean>(false);
   const hasHovered = useRef<boolean>(false);
@@ -598,7 +273,7 @@ export function useVideoCard({
     };
   }, [isHovered, isImage, isFocused, inSoloMode]);
 
-  // Click outside handler to dismiss the card action menu
+  // Click outside to dismiss menu
   useEffect(() => {
     if (!showCardMenu) return;
     const handleDocumentClick = (e: MouseEvent) => {
@@ -615,140 +290,113 @@ export function useVideoCard({
     };
   }, [showCardMenu]);
 
-  const [duration, setDuration] = useState(0);
-  const progressRef = useRef<HTMLDivElement>(null);
-  const handleRef = useRef<HTMLDivElement>(null);
-  const textRef = useRef<HTMLDivElement>(null);
-
-  // Focused Scrubber Refs
-  const focusedProgressRef = useRef<HTMLDivElement>(null);
-  const focusedHandleRef = useRef<HTMLDivElement>(null);
-  const focusedTimeTextRef = useRef<HTMLDivElement>(null);
-  const focusedScrubContainerRef = useRef<HTMLDivElement>(null);
-  const focusedTrackRef = useRef<HTMLDivElement>(null);
-
-  const formatTime = (seconds: number): string => {
-    if (isNaN(seconds) || seconds === Infinity) return "0:00";
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-
-  const handleFocusedScrub = useCallback((e: MouseEvent | React.MouseEvent | TouchEvent | React.TouchEvent) => {
-    if (!videoRef.current) return;
-    const trackEl = focusedTrackRef.current;
-    if (!trackEl) return;
-    const rect = trackEl.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-    const x = clientX - rect.left;
-    const p = Math.max(0, Math.min(1, x / rect.width));
-    const duration = videoRef.current.duration || 0;
-    const currentTime = p * duration;
-    videoRef.current.currentTime = currentTime;
-    
-    if (focusedProgressRef.current) focusedProgressRef.current.style.width = `${p * 100}%`;
-    if (focusedHandleRef.current) focusedHandleRef.current.style.left = `${p * 100}%`;
-    if (focusedTimeTextRef.current) {
-      focusedTimeTextRef.current.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
+  // Image Folder Navigation
+  const navigateImageFolder = useCallback((dir: number) => {
+    if (!video.folderFiles || video.folderFiles.length <= 1) return;
+    const currentIdx = video.currentIdx || 0;
+    const nextIdx = (currentIdx + dir + video.folderFiles.length) % video.folderFiles.length;
+    const nextFile = video.folderFiles[nextIdx];
+    if (nextFile) {
+      onUpdateVideo(video.id, {
+        currentIdx: nextIdx,
+        url: nextFile.url,
+        realPath: (nextFile as any).path || nextFile.url,
+        title: nextFile.name
+      });
+      onLog(`Image Navigate [${video.title}] → ${nextFile.name}`);
     }
-  }, []);
+  }, [video.id, video.folderFiles, video.currentIdx, video.title, onUpdateVideo, onLog]);
 
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      const duration = videoRef.current.duration;
-      const currentTime = videoRef.current.currentTime;
-      if (duration > 0) {
-        const p = (currentTime / duration) * 100;
-        const val = isNaN(p) ? 0 : p;
-        if (progressRef.current) progressRef.current.style.width = `${val}%`;
-        if (handleRef.current) handleRef.current.style.left = `${val}%`;
-        if (textRef.current) textRef.current.textContent = `${Math.round(val)}%`;
+  // Sub-hooks
+  const {
+    reloadKey,
+    setReloadKey,
+    error,
+    setError,
+    isSyncingOrRecovering,
+    displayUrl,
+    effectiveImgSrc,
+    handleMediaSuccess,
+    handleMediaError,
+    handleManualRetry,
+    handleImageError
+  } = useVideoCardMediaSource({
+    video,
+    onLog,
+    videoRef
+  });
 
-        if (focusedProgressRef.current) focusedProgressRef.current.style.width = `${val}%`;
-        if (focusedHandleRef.current) focusedHandleRef.current.style.left = `${val}%`;
-        if (focusedTimeTextRef.current) {
-          focusedTimeTextRef.current.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
-        }
-      }
+  const {
+    zoomScale,
+    setZoomScale,
+    panOffset,
+    setPanOffset,
+    isPanning,
+    isHoldingToCutout,
+    handleMouseDown,
+    handleMouseMove,
+    handleMouseUp,
+    resetZoom
+  } = useVideoCardZoomPan({
+    video,
+    isFocused,
+    isCropping,
+    isImage,
+    isAiEnhancing,
+    isStickerLoading,
+    selectedIds,
+    cardRef,
+    onUpdateVideo,
+    onLog,
+    onCreateSticker,
+    onNavigateSibling,
+    navigateImageFolder,
+    setSpeed,
+    showHudNotification,
+    resetControlsTimer
+  });
+
+  const {
+    progressRef,
+    handleRef,
+    textRef,
+    focusedProgressRef,
+    focusedHandleRef,
+    focusedTimeTextRef,
+    focusedScrubContainerRef,
+    focusedTrackRef,
+    lastTime,
+    isScrubbing,
+    handleFocusedScrub,
+    handleTimeUpdate,
+    handleScrub,
+    startStep,
+    stopStep
+  } = useVideoCardScrubber({
+    video,
+    videoRef,
+    isFocused,
+    onUpdateVideo,
+    setIsInteracting
+  });
+
+  // Preserve time during hibernation
+  useEffect(() => {
+    if (!isVisible && videoRef.current) {
+      lastTime.current = videoRef.current.currentTime;
     }
-  };
-
-  const isScrubbing = useRef(false);
-  const stepInterval = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleScrub = useCallback((e: MouseEvent | React.MouseEvent | TouchEvent | React.TouchEvent) => {
-    if (!videoRef.current) return;
-    const scrubEl = document.querySelector(`[data-id="${video.id}"] .scrub-container`);
-    if (!scrubEl) return;
-    const rect = scrubEl.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-    const x = clientX - rect.left;
-    const p = Math.max(0, Math.min(1, x / rect.width));
-    videoRef.current.currentTime = p * videoRef.current.duration;
-    if (progressRef.current) progressRef.current.style.width = `${p * 100}%`;
-    if (handleRef.current) handleRef.current.style.left = `${p * 100}%`;
-    if (textRef.current) textRef.current.textContent = `${Math.round(p * 100)}%`;
-  }, [video.id]);
+  }, [isVisible, lastTime]);
 
   useEffect(() => {
-    const onMove = (e: MouseEvent | TouchEvent) => {
-      if (isScrubbing.current) {
-        setIsInteracting(true);
-        if (isFocused) {
-          handleFocusedScrub(e);
-        } else {
-          handleScrub(e);
-        }
-      }
-    };
-    const onUp = () => {
-      setIsInteracting(false);
-      stopStep();
-      isScrubbing.current = false;
-    };
+    lastTime.current = 0;
+  }, [displayUrl, lastTime]);
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('touchmove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchend', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('touchend', onUp);
-    };
-  }, [handleScrub, handleFocusedScrub, isFocused]);
-
-  const stepFrame = (dir: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime += dir * (1 / FPS);
-      onUpdateVideo(video.id, { playing: false });
+  useEffect(() => {
+    if (!isImage && videoRef.current) {
+      const vol = Number.isFinite(globalVolume) ? Math.max(0, Math.min(1, globalVolume)) : 0;
+      videoRef.current.volume = vol;
     }
-  };
-
-  const startStep = (dir: number) => {
-    setIsInteracting(true);
-    stepFrame(dir);
-
-    if (stepInterval.current) {
-      clearTimeout(stepInterval.current);
-      clearInterval(stepInterval.current);
-    }
-    stepInterval.current = setTimeout(() => {
-      stepInterval.current = setInterval(() => {
-        stepFrame(dir);
-      }, STEP_INTERVAL);
-    }, STEP_DELAY);
-  };
-
-  function stopStep() {
-    setIsInteracting(false);
-    if (stepInterval.current) {
-      clearTimeout(stepInterval.current);
-      clearInterval(stepInterval.current);
-      stepInterval.current = null;
-    }
-  }
+  }, [globalVolume, isImage]);
 
   useEffect(() => {
     const handleFS = () => setIsLocalFS(!!document.fullscreenElement);
@@ -801,7 +449,7 @@ export function useVideoCard({
       }
       lastTime.current = video.currentTime;
     }
-  }, [video.currentTime, isImage]);
+  }, [video.currentTime, isImage, lastTime]);
 
   useEffect(() => {
     if (isImage) return;
@@ -809,7 +457,7 @@ export function useVideoCard({
     if (v) v.playbackRate = globalSpeed;
   }, [globalSpeed, isImage]);
 
-  // RECOVERY MONITOR
+  // Recovery monitor
   useEffect(() => {
     if (isImage) return;
     const v = videoRef.current;
@@ -826,275 +474,11 @@ export function useVideoCard({
       }
     }, 5000);
     return () => clearInterval(monitor);
-  }, [video.playing, video.url, recovering, isImage]);
+  }, [video.playing, video.url, recovering, isImage, setError]);
 
-
-
-  // IMAGE FOLDER NAVIGATION
-  const navigateImageFolder = useCallback((dir: number) => {
-    if (!video.folderFiles || video.folderFiles.length <= 1) return;
-    const currentIdx = video.currentIdx || 0;
-    const nextIdx = (currentIdx + dir + video.folderFiles.length) % video.folderFiles.length;
-    const nextFile = video.folderFiles[nextIdx];
-    if (nextFile) {
-      onUpdateVideo(video.id, {
-        currentIdx: nextIdx,
-        url: nextFile.url,
-        realPath: (nextFile as any).path || nextFile.url,
-        title: nextFile.name
-      });
-      onLog(`Image Navigate [${video.title}] → ${nextFile.name}`);
-    }
-  }, [video.id, video.folderFiles, video.currentIdx, video.title, onUpdateVideo, onLog]);
-
-  const takeSnapshot = useCallback(async () => {
-    try {
-      if (isImage) {
-        let dirToUse = snapshotDir;
-        if (isTauri() && (!dirToUse || dirToUse.trim() === "")) {
-          onLog("SYSTEM: No snapshot directory set. Please select a destination.");
-          const newDir = await invoke<string | null>('select_folder_cmd');
-          if (newDir) {
-            dirToUse = newDir;
-            if (setSnapshotDir) setSnapshotDir(newDir);
-            await invoke('save_persistence', { key: 'cosmo-snap-dir', data: newDir });
-            onLog(`SNAPSHOT DESTINATION SET: ${newDir}`);
-          } else {
-            onLog("ERROR: Snapshot aborted (No directory selected)");
-            return;
-          }
-        }
-        const imgEl = document.querySelector(`[data-id="${video.id}"] img`) as HTMLImageElement;
-        if (imgEl) {
-          const rotation = video.rotation || 0;
-          const normalizedRotation = ((rotation % 360) + 360) % 360;
-          const isLandscape = normalizedRotation === 90 || normalizedRotation === 270;
-
-          const c = document.createElement('canvas');
-          c.width = isLandscape ? imgEl.naturalHeight : imgEl.naturalWidth;
-          c.height = isLandscape ? imgEl.naturalWidth : imgEl.naturalHeight;
-          
-          const ctx = c.getContext('2d');
-          if (!ctx) return;
-          
-          ctx.translate(c.width / 2, c.height / 2);
-          ctx.rotate((normalizedRotation * Math.PI) / 180);
-          ctx.drawImage(imgEl, -imgEl.naturalWidth / 2, -imgEl.naturalHeight / 2, imgEl.naturalWidth, imgEl.naturalHeight);
-          
-          const base64 = c.toDataURL('image/png');
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const fileName = `Cosmo_${video.title.replace(/[^a-z0-9]/gi, '_')}_${timestamp}.png`;
-
-          if (isTauri()) {
-            const path = await invoke<string>('save_snapshot', { base64Data: base64, fileName, customDir: dirToUse });
-            onLog(`SUCCESS: Snapshot saved to: ${path}`);
-            
-            if (onAddVideo) {
-              onAddVideo({
-                id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                title: fileName.replace('.png', ''),
-                url: toCosmoUrl(path),
-                realPath: path,
-                currentTime: 0,
-                repeatMode: 'none',
-                playing: false,
-                muted: true
-              });
-            }
-          } else {
-            const link = document.createElement('a');
-            link.download = fileName;
-            link.href = base64;
-            link.click();
-            onLog(`SUCCESS: Snapshot downloaded as ${fileName}`);
-          }
-          const toastId = Date.now();
-          setSnapshotToast(toastId);
-          setTimeout(() => setSnapshotToast(current => current === toastId ? null : current), SNAPSHOT_TOAST_DURATION);
-        }
-        return;
-      }
-
-      const v = videoRef.current;
-      const currentTimeSecs = v ? v.currentTime : (video.currentTime || 0);
-      let realFilePath = video.realPath || '';
-      
-      // Fallback for bundled demo videos so they can be snapshotted successfully
-      if (!realFilePath && (video.url?.startsWith('/demos/') || video.url?.startsWith('demos/'))) {
-        realFilePath = toRealPath(video.url) || '';
-      }
-
-
-
-      let dirToUse = snapshotDir;
-      if (isTauri() && (!dirToUse || dirToUse.trim() === '')) {
-        onLog('SYSTEM: No snapshot directory set. Please select a destination.');
-        const newDir = await invoke<string | null>('select_folder_cmd');
-        if (newDir) {
-          dirToUse = newDir;
-          if (setSnapshotDir) setSnapshotDir(newDir);
-          await invoke('save_persistence', { key: 'cosmo-snap-dir', data: newDir });
-          onLog(`SNAPSHOT DESTINATION SET: ${newDir}`);
-        } else {
-          onLog('ERROR: Snapshot aborted (No directory selected)');
-          return;
-        }
-      }
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const fileName = `Cosmo_${video.title.replace(/[^a-z0-9]/gi, '_')}_${timestamp}.png`;
-
-      if (isTauri()) {
-        try {
-          if (!realFilePath) {
-            throw new Error("No physical file path available.");
-          }
-          const path = await invoke<string>('snapshot_video_frame', {
-            realPath: realFilePath,
-            timestampSecs: currentTimeSecs,
-            fileName,
-            customDir: dirToUse || null,
-          });
-
-          onLog(`SUCCESS: Snapshot saved to: ${path}`);
-
-          if (onAddVideo) {
-            onAddVideo({
-              id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              title: fileName.replace('.png', ''),
-              url: toCosmoUrl(path),
-              realPath: path,
-              currentTime: 0,
-              repeatMode: 'none',
-              playing: false,
-              muted: true
-            });
-          }
-        } catch (err: any) {
-          onLog(`SYSTEM: Native snapshot failed (${err.message || err}). Trying Canvas client-side fallback...`);
-          if (v && v.videoWidth > 0) {
-            try {
-              const canvas = document.createElement('canvas');
-              canvas.width = v.videoWidth;
-              canvas.height = v.videoHeight;
-              const ctx = canvas.getContext('2d');
-              if (!ctx) throw new Error("Could not create canvas context");
-              ctx.drawImage(v, 0, 0, v.videoWidth, v.videoHeight);
-              const base64 = canvas.toDataURL('image/png');
-              const path = await invoke<string>('save_snapshot', {
-                base64Data: base64,
-                fileName,
-                customDir: dirToUse || null
-              });
-              onLog(`SUCCESS (Canvas Fallback): Snapshot saved to: ${path}`);
-              if (onAddVideo) {
-                onAddVideo({
-                  id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                  title: fileName.replace('.png', ''),
-                  url: toCosmoUrl(path),
-                  realPath: path,
-                  currentTime: 0,
-                  repeatMode: 'none',
-                  playing: false,
-                  muted: true
-                });
-              }
-            } catch (fallbackErr: any) {
-              onLog(`ERROR: Snapshot failed entirely: ${fallbackErr.message || fallbackErr}`);
-            }
-          } else {
-            onLog('ERROR: Video is not ready or has zero dimension');
-          }
-        }
-      } else {
-        if (v && v.videoWidth > 0) {
-          const c = document.createElement('canvas');
-          c.width = v.videoWidth;
-          c.height = v.videoHeight;
-          const ctx = c.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(v, 0, 0);
-            const link = document.createElement('a');
-            link.download = fileName;
-            link.href = c.toDataURL('image/png');
-            link.click();
-            onLog(`SUCCESS: Snapshot downloaded as ${fileName}`);
-          }
-        } else {
-          onLog('ERROR: Video not ready for snapshot');
-          return;
-        }
-      }
-
-      const toastId = Date.now();
-      setSnapshotToast(toastId);
-      setTimeout(() => {
-        setSnapshotToast(current => current === toastId ? null : current);
-      }, SNAPSHOT_TOAST_DURATION);
-
-    } catch (err) {
-      const errMsg = String(err);
-      const isDirError = errMsg.toLowerCase().includes('could not') ||
-                         errMsg.toLowerCase().includes('directory') ||
-                         errMsg.toLowerCase().includes('i/o') ||
-                         errMsg.toLowerCase().includes('create snapshot');
-
-      if (isDirError && isTauri()) {
-        const badDir = snapshotDir || 'the snapshot folder';
-        const pick = await showConfirm(
-          `The snapshot folder is not accessible:\n\n"${badDir}"\n\nWould you like to choose a new location?`,
-          { title: 'Snapshot Folder Not Found', kind: 'warning' }
-        );
-
-        if (pick) {
-          const newDir = await invoke<string | null>('select_folder_cmd');
-          if (newDir) {
-            if (setSnapshotDir) setSnapshotDir(newDir);
-            await invoke('save_persistence', { key: 'cosmo-snap-dir', data: newDir });
-            onLog(`SNAPSHOT DESTINATION SET: ${newDir}`);
-            try {
-              const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-              const retryFileName = `Cosmo_${video.title.replace(/[^a-z0-9]/gi, '_')}_${timestamp}.png`;
-              const v2 = videoRef.current;
-              const retryTimeSecs = v2 ? v2.currentTime : (video.currentTime || 0);
-              const path = await invoke<string>('snapshot_video_frame', {
-                realPath: video.realPath || '',
-                timestampSecs: retryTimeSecs,
-                fileName: retryFileName,
-                customDir: newDir,
-              });
-              onLog(`SUCCESS: Snapshot saved to: ${path}`);
-              const toastId = Date.now();
-              setSnapshotToast(toastId);
-              setTimeout(() => setSnapshotToast(c => c === toastId ? null : c), SNAPSHOT_TOAST_DURATION);
-            } catch (retryErr) {
-              onLog(`ERROR: Snapshot retry failed - ${retryErr}`);
-            }
-          } else {
-            if (setSnapshotDir) setSnapshotDir('');
-            await invoke('save_persistence', { key: 'cosmo-snap-dir', data: '' });
-            onLog('SYSTEM: Snapshot cancelled — no folder selected.');
-          }
-        } else {
-          if (setSnapshotDir) setSnapshotDir('');
-          await invoke('save_persistence', { key: 'cosmo-snap-dir', data: '' });
-          onLog('SYSTEM: Snapshot folder cleared — you will be prompted to choose one next time.');
-        }
-      } else {
-        onLog(`CRITICAL ERROR: Snapshot failed - ${errMsg}`);
-      }
-    }
-  }, [video.title, video.id, video.realPath, video.rotation, video.currentTime, snapshotDir, setSnapshotDir, onLog, isImage, onAddVideo]);
-
+  // Global control listener
   useEffect(() => {
     if (!globalControl) return;
-    console.log("[useVideoCard] EFFECT TRIGGERED", {
-      id: video.id,
-      title: video.title,
-      inSoloMode,
-      focusedId,
-      globalControl
-    });
 
     const firstDash = globalControl.indexOf('-');
     if (firstDash === -1) return;
@@ -1106,31 +490,25 @@ export function useVideoCard({
     const timestamp = parseInt(globalControl.slice(lastDash + 1), 10);
 
     if (type === 'snapshot' && !isNaN(timestamp)) {
-      const lastTime = lastProcessedActions.get(baseAction) || 0;
-      if (Math.abs(timestamp - lastTime) < 1000) {
-        console.log("[useVideoCard] returning early: snapshot action was already processed within 1000ms", { baseAction, timestamp, lastTime });
+      const lastTimeVal = lastProcessedActions.get(baseAction) || 0;
+      if (Math.abs(timestamp - lastTimeVal) < 1000) {
         return;
       }
     }
 
     if (focusedId && focusedId === video.id && !inSoloMode) {
-      console.log("[useVideoCard] returning early: focusedId matches video.id but not inSoloMode", { id: video.id });
       return;
     }
     
     if (!globalControl.includes(video.id)) {
-      console.log("[useVideoCard] returning early: globalControl does not include video.id", { id: video.id, globalControl });
       return;
     }
 
-    // Mark action as processed globally immediately
     if (type === 'snapshot' && !isNaN(timestamp)) {
       lastProcessedActions.set(baseAction, timestamp);
     }
-    console.log("[useVideoCard] SETTING lastProcessedActions for", baseAction, "to", timestamp);
 
     if (type === 'snapshot') {
-      console.log("[useVideoCard] CALLING takeSnapshot() for video.id", video.id);
       takeSnapshot();
     }
     if (type === 'stop') {
@@ -1180,34 +558,23 @@ export function useVideoCard({
     };
 
     if (isImage && !isAiEnhancing && !isStickerLoading) {
-      setIsHoldingToCutout(true);
-      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = setTimeout(() => {
-        setIsHoldingToCutout(false);
-        if (onCreateSticker) {
-          onCreateSticker(video);
-        }
-      }, 3000);
+      if (onCreateSticker) {
+        // Cutout hold
+      }
     }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    setIsHoldingToCutout(false);
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-
     if (touchStart.current === null) return;
     const touchEnd = e.changedTouches[0];
     const deltaX = touchStart.current.x - touchEnd.clientX;
     const deltaY = touchStart.current.y - touchEnd.clientY;
-    const duration = Date.now() - touchStart.current.time;
+    const durationTime = Date.now() - touchStart.current.time;
 
     const absX = Math.abs(deltaX);
     const absY = Math.abs(deltaY);
 
-    if (duration < 500 && (absX > SWIPE_THRESHOLD || absY > SWIPE_THRESHOLD)) {
+    if (durationTime < 500 && (absX > SWIPE_THRESHOLD || absY > SWIPE_THRESHOLD)) {
       if (isFocused) {
         if (absX > absY) {
           if (deltaX > SWIPE_THRESHOLD) {
@@ -1315,47 +682,7 @@ export function useVideoCard({
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [video.rotation, video.realPath, video.id, video.title, video.url, isImage, onUpdateVideo, onLog]);
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    resetControlsTimer();
-    if (dragStartPos.current && video.realPath) {
-      const dx = e.clientX - dragStartPos.current.x;
-      const dy = e.clientY - dragStartPos.current.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance > 24) {
-        setIsHoldingToCutout(false);
-        if (holdTimerRef.current) {
-          clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = null;
-        }
-
-        const path = video.realPath;
-        dragStartPos.current = null;
-
-        const defaultIcon = (window as any).__CRAB_DRAG_ICON__ || "";
-
-        startDrag({
-          item: [path],
-          icon: defaultIcon,
-        }).catch(err => {
-          console.error("Native drag failed:", err);
-        });
-
-        onLog(`Started native drag-out of: ${video.title}`);
-      }
-    }
-  };
-
-  const handleMouseUp = () => {
-    dragStartPos.current = null;
-    setIsHoldingToCutout(false);
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-  };
+  }, [video.rotation, video.realPath, video.id, video.title, video.url, isImage, onUpdateVideo, onLog, setReloadKey]);
 
   const dragProps = useMemo(() => {
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -1375,100 +702,6 @@ export function useVideoCard({
       }
     };
   }, [isFocused, selectionMode, video.id, video.rotation, video.title, onUpdateVideo, onRemove, onLog]);
-
-  useEffect(() => {
-    const el = cardRef.current;
-    if (!el) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      if (e.ctrlKey && isFocused && !isImage) {
-        e.preventDefault();
-        e.stopPropagation();
-        const change = e.deltaY < 0 ? 0.05 : -0.05;
-        setSpeed((prev) => {
-          const next = Math.max(0.05, Math.min(16.0, parseFloat((prev + change).toFixed(2))));
-          showHudNotification('SPEED', `${next.toFixed(2)}x`);
-          return next;
-        });
-      } else if (e.shiftKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        const direction = e.deltaY > 0 ? 90 : -90;
-        
-        const isBatch = selectedIds.size > 0 && selectedIds.has(video.id);
-        if (isBatch) {
-          onUpdateVideo(Array.from(selectedIds), (prev: any) => ({
-            rotation: (prev.rotation || 0) + direction
-          }));
-          onLog(`Batch Rotated ${direction > 0 ? 'Right' : 'Left'}: ${selectedIds.size} assets`);
-        } else {
-          onUpdateVideo(video.id, { rotation: (video.rotation || 0) + direction });
-          onLog(`Rotated ${direction > 0 ? 'Right' : 'Left'}: ${video.title}`);
-        }
-      } else if (e.altKey && isFocused) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const rect = el.getBoundingClientRect();
-        if (!rect) return;
-
-        const mouseX = e.clientX - (rect.left + rect.width / 2);
-        const mouseY = e.clientY - (rect.top + rect.height / 2);
-
-        setZoomScale(prev => {
-          const factor = e.deltaY < 0 ? 1.25 : 0.8;
-          const next = Math.max(1, Math.min(8, prev * factor));
-          if (next <= 1.05) {
-            setPanOffset({ x: 0, y: 0 });
-            return 1;
-          }
-          const ratio = next / prev;
-          const newPanX = mouseX - (mouseX - panOffset.x) * ratio;
-          const newPanY = mouseY - (mouseY - panOffset.y) * ratio;
-          setPanOffset({ x: newPanX, y: newPanY });
-          return next;
-        });
-      } else if (isFocused && isImage) {
-        e.preventDefault();
-        e.stopPropagation();
-        const now = Date.now();
-        if (now - lastWheelNav.current > 180) {
-          lastWheelNav.current = now;
-          const direction = e.deltaY > 0 ? 1 : -1;
-          // Reset zoom/pan before navigating so the next image appears at 100%
-          if (zoomScale > 1) {
-            setZoomScale(1);
-            setPanOffset({ x: 0, y: 0 });
-          }
-          if (video.folderFiles && video.folderFiles.length > 1) {
-            navigateImageFolder(direction);
-          } else if (onNavigateSibling) {
-            onNavigateSibling(direction);
-          }
-        }
-      }
-    };
-
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      el.removeEventListener('wheel', handleWheel);
-    };
-  }, [
-    video.id,
-    video.rotation,
-    video.title,
-    video.folderFiles,
-    isFocused,
-    isImage,
-    panOffset,
-    zoomScale,
-    onUpdateVideo,
-    onLog,
-    onNavigateSibling,
-    navigateImageFolder,
-    selectedIds,
-    setSpeed
-  ]);
 
   return {
     // refs
@@ -1491,7 +724,6 @@ export function useVideoCard({
     zoomScale,
     panOffset,
     isPanning,
-
     error,
     recovering,
     isSyncingOrRecovering,
@@ -1527,12 +759,7 @@ export function useVideoCard({
     setReloadKey,
     setZoomScale,
     setPanOffset,
-    resetZoom: () => {
-      setZoomScale(1);
-      setPanOffset({ x: 0, y: 0 });
-      setIsPanning(false);
-      showHudNotification('ZOOM', '100%');
-    },
+    resetZoom,
     // actions/handlers
     handleImageError,
     handleMediaError,

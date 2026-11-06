@@ -553,6 +553,93 @@ export function useVideoOperations({
     }
   };
 
+  const handleInterpolate60Fps = useCallback(async (v: any) => {
+    const rawPath = (v.folderFiles && v.currentIdx !== undefined)
+      ? (v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url)
+      : (v.realPath || v.url);
+    const effectiveRealPath = toRealPath(rawPath) || rawPath;
+
+    if (!effectiveRealPath) {
+      addLog("Interpolate 60 FPS Error: Native path missing.");
+      setToast("Error: Native file path required for 60 FPS motion synthesis.");
+      setTimeout(() => setToast(null), 3500);
+      return;
+    }
+
+    setUpscaleStatus('enhancing');
+    setEnhancingVideoId(v.id);
+    setUpscaleStage('Synthesizing 60 FPS Motion Flow...');
+    setUpscaleProgressPercent(null);
+    setLastEnhancedTitle(v.title);
+    addLog(`Interpolating "${v.title}" to 60 FPS via optical flow...`);
+    setToast(`Processing: Interpolating "${v.title}" to 60 FPS...`);
+
+    try {
+      const response = await fetch('http://127.0.0.1:12000/interpolate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: effectiveRealPath,
+          target_fps: 60,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`AI Engine returned HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.status === 'success' && data.output_path) {
+        const outPath = data.output_path;
+        const separator = outPath.includes('\\') ? '\\' : '/';
+        const fileName = outPath.substring(outPath.lastIndexOf(separator) + 1);
+        const cleanTitle = fileName.replace(/\.[^/.]+$/, "");
+
+        const newUnit: VideoItem = {
+          id: generateUUID(),
+          url: toCosmoUrl(outPath),
+          realPath: outPath,
+          title: cleanTitle,
+          currentTime: 0,
+          repeatMode: 'always',
+          repeatCount: 0,
+          cols: 1,
+          playing: true,
+          muted: false,
+          colorTag: 'green',
+        };
+
+        setVideos((prev: VideoItem[]) => {
+          const idx = prev.findIndex(item => item.id === v.id);
+          const next = [...prev];
+          if (idx !== -1) next.splice(idx + 1, 0, newUnit);
+          else next.push(newUnit);
+          return next;
+        });
+
+        setFocusedId(newUnit.id);
+        setUpscaleStatus('success');
+        addLog(`60 FPS Interpolation complete: ${fileName} (${data.final_fps} FPS in ${data.elapsed_sec}s)`);
+        setToast(`60 FPS motion synthesized: ${fileName}`);
+        setToastPath(outPath);
+      } else {
+        throw new Error(data.error || 'Interpolation failed');
+      }
+    } catch (err: any) {
+      console.error('Interpolation failed:', err);
+      setUpscaleStatus('failed');
+      addLog(`Interpolation error: ${err.message || err}`);
+      setToast(`60 FPS synthesis failed: ${err.message || err}`);
+    } finally {
+      setEnhancingVideoId(null);
+      setTimeout(() => {
+        setUpscaleStatus(cur => cur === 'enhancing' ? 'idle' : cur);
+        setToast(null);
+        setToastPath(null);
+      }, 5000);
+    }
+  }, [addLog, setToast, setToastPath, setVideos, setFocusedId]);
+
   const cancelEnhancement = useCallback(() => {
     enhancementCancelled.current = true;
     setUpscaleStatus('idle');
@@ -595,6 +682,10 @@ export function useVideoOperations({
     handleResize,
     handleResizeSuccess,
     executeUpscale,
+    handleInterpolate60Fps,
     cancelEnhancement
   };
 }
+
+
+export type UseVideoOperationsReturn = ReturnType<typeof useVideoOperations>;

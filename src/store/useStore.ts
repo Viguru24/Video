@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { RepeatMode, SortOption } from '../types';
+import type { RepeatMode, SortOption, ColorTag, LayoutPreset } from '../types';
 
 interface GlobalState {
   // Application State
@@ -116,6 +116,20 @@ interface GlobalState {
   setMusicPlayerExpanded: (val: boolean) => void;
   currentPlayingSongId: string | null;
   setCurrentPlayingSongId: (id: string | null) => void;
+
+  // Color Tag Filter State
+  colorTagFilter: ColorTag | 'all' | 'untagged' | null;
+  setColorTagFilter: (filter: ColorTag | 'all' | 'untagged' | null) => void;
+
+  // Diff Comparison Modal State
+  diffCompareTargets: { left: any; right: any } | null;
+  setDiffCompareTargets: (targets: { left: any; right: any } | null) => void;
+
+  // Layout Presets State
+  layoutPresets: LayoutPreset[];
+  setLayoutPresets: (presets: LayoutPreset[]) => void;
+  activeLayoutPresetId: string | null;
+  setActiveLayoutPresetId: (id: string | null) => void;
 
   // Grid Sorting State
   sortOrder: SortOption;
@@ -327,6 +341,41 @@ export const useStore = create<GlobalState>((set) => ({
   setMusicPlayerExpanded: (val) => set({ musicPlayerExpanded: val }),
   currentPlayingSongId: null,
   setCurrentPlayingSongId: (id) => set({ currentPlayingSongId: id }),
+
+
+  // Color Tag Filter State
+  colorTagFilter: 'all',
+  setColorTagFilter: (filter) => set({ colorTagFilter: filter }),
+
+  // Diff Comparison Modal State
+  diffCompareTargets: null,
+  setDiffCompareTargets: (targets) => set({ diffCompareTargets: targets }),
+
+  // Layout Presets State
+  layoutPresets: (() => {
+    const saved = localStorage.getItem('cosmo-layout-presets');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.error('Failed to parse layout presets:', e);
+      }
+    }
+    return [
+      { id: 'hero-6', name: 'Hero + 6', cols: 3, zoom: 3, description: '1 large focus tile with peripheral monitoring' },
+      { id: 'quad-2x2', name: 'Quad 2x2', cols: 2, zoom: 2, description: '4 balanced studio monitor panes' },
+      { id: 'studio-3x3', name: 'Studio 3x3', cols: 3, zoom: 3, description: '9 balanced production control panes' },
+      { id: 'dense-4x4', name: 'Mosaic 4-Col', cols: 4, zoom: 4, description: '16 compact surveillance / review panes' },
+      { id: 'ultra-wide', name: 'Wide 5-Col', cols: 5, zoom: 5, description: 'Ultra-wide multi-aspect matrix' },
+    ];
+  })(),
+  setLayoutPresets: (presets) => {
+    localStorage.setItem('cosmo-layout-presets', JSON.stringify(presets));
+    set({ layoutPresets: presets });
+  },
+  activeLayoutPresetId: null,
+  setActiveLayoutPresetId: (id) => set({ activeLayoutPresetId: id }),
 
   // Grid Sorting State
   sortOrder: (localStorage.getItem('cosmo-sort-order') as SortOption) || 'custom',

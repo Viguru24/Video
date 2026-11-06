@@ -50,3 +50,10 @@ __pycache__/
 *.apk
 !src-tauri/resources/CosmoShare.apk
 !src-tauri/resources/wifi-share-web/CosmoShare.apk
+
+# Test & Scratch Artifacts
+test_models/
+gfpgan/
+test_*.jpg
+proof_*.jpg
+*.partial

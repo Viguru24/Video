@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { isValidPictureExtension, isTauri } from '../utils/videoUtils';
+import { ContextMenuColorTags } from './contextmenu/ContextMenuColorTags';
+import { Zap } from 'lucide-react';
 
 interface ContextMenuProps {
   x: number;
@@ -339,6 +341,12 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
         </>
       )}
 
+            <ContextMenuColorTags
+        currentColorTag={video.colorTag}
+        onSelectTag={onAction}
+        selectedCount={selectedCount > 1 && isSelected ? selectedCount : 1}
+      />
+      <div className="context-menu-separator"></div>
       {isFocused ? (
         /* MAXIMISED WINDOW / SOLO MODE CONTEXT MENU */
         <>
@@ -367,6 +375,15 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Sparkles size={14} />
                     <span>AI Upscale</span>
                   </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
+                    <Zap size={14} style={{ color: '#38bdf8' }} />
+                    <span>Interpolate 60 FPS (Smooth Motion)...</span>
+                  </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('compare_diff')}>
+                    <Sliders size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Compare in Split Diff View...</span>
+                  </div>
+
                   {isTauri() && (
                     <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
                       <FileCode2 size={14} style={{ color: '#c084fc' }} />
@@ -406,6 +423,15 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Sparkles size={14} />
                     <span>AI Upscale</span>
                   </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
+                    <Zap size={14} style={{ color: '#38bdf8' }} />
+                    <span>Interpolate 60 FPS (Smooth Motion)...</span>
+                  </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('compare_diff')}>
+                    <Sliders size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Compare in Split Diff View...</span>
+                  </div>
+
                   <div className="context-menu-item accent-text" onClick={() => onAction('create_sticker')} style={{ fontWeight: 'bold' }}>
                     <Sparkles size={14} style={{ color: 'var(--accent, #00ff88)' }} />
                     <span>Create Sticker (Cutout)</span>
@@ -569,6 +595,15 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Sparkles size={14} />
                     <span>AI Upscale</span>
                   </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
+                    <Zap size={14} style={{ color: '#38bdf8' }} />
+                    <span>Interpolate 60 FPS (Smooth Motion)...</span>
+                  </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('compare_diff')}>
+                    <Sliders size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Compare in Split Diff View...</span>
+                  </div>
+
                   {isTauri() && (
                     <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
                       <FileCode2 size={14} style={{ color: '#c084fc' }} />
@@ -608,6 +643,15 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
                     <Sparkles size={14} />
                     <span>AI Upscale</span>
                   </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
+                    <Zap size={14} style={{ color: '#38bdf8' }} />
+                    <span>Interpolate 60 FPS (Smooth Motion)...</span>
+                  </div>
+                  <div className="context-menu-item accent-text" onClick={() => onAction('compare_diff')}>
+                    <Sliders size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+                    <span>Compare in Split Diff View...</span>
+                  </div>
+
                   <div className="context-menu-item accent-text" onClick={() => onAction('create_sticker')} style={{ fontWeight: 'bold' }}>
                     <Sparkles size={14} style={{ color: 'var(--accent, #00ff88)' }} />
                     <span>Create Sticker (Cutout)</span>

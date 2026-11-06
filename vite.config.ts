@@ -10,6 +10,32 @@ export default defineConfig({
   css: {
     postcss: {},
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('framer-motion')) {
+              return 'vendor-framer-motion';
+            }
+            if (id.includes('hls.js')) {
+              return 'vendor-hls';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-lucide';
+            }
+            if (id.includes('@dnd-kit')) {
+              return 'vendor-dnd-kit';
+            }
+            if (id.includes('react-virtuoso')) {
+              return 'vendor-virtuoso';
+            }
+          }
+        },
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: 55174,

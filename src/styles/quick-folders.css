@@ -1,0 +1,195 @@
+/* ==========================================================================
+   QUICK ACCESS FOLDERS DROPDOWN & IN-APP FILE BROWSER
+   ========================================================================== */
+
+.quick-folders-container {
+  position: relative;
+  display: inline-block;
+}
+
+.quick-folders-dropdown {
+  position: absolute;
+  top: 36px;
+  left: 0;
+  width: 290px;
+  max-height: calc(100vh - 44px);
+  background: rgba(20, 20, 28, 0.96);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0, 255, 136, 0.05);
+  padding: 10px;
+  z-index: 20002;
+  animation: qf-slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+@keyframes qf-slide-down {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.quick-folders-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.quick-folders-title {
+  font-size: 10px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.quick-folders-add-btn {
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid rgba(0, 255, 136, 0.25);
+  color: var(--accent, #00ff88);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-folders-add-btn:hover {
+  background: var(--accent, #00ff88);
+  color: #000;
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+}
+
+.quick-folders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: calc(100vh - 86px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Custom scrollbar for quick folders list */
+.quick-folders-list::-webkit-scrollbar {
+  width: 6px;
+}
+.quick-folders-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 3px;
+}
+.quick-folders-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+.quick-folders-list::-webkit-scrollbar-thumb:hover {
+  background: var(--accent, #00ff88);
+}
+
+.quick-folders-empty {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  padding: 16px 0;
+  font-style: italic;
+}
+
+.quick-folder-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 4px 6px;
+  transition: all 0.2s ease;
+}
+
+.quick-folder-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.quick-folder-link {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  overflow: hidden;
+  padding: 4px 0;
+  min-width: 0;
+}
+
+.quick-folder-link:hover {
+  color: var(--accent, #00ff88);
+}
+
+.folder-item-icon {
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.quick-folder-link:hover .folder-item-icon {
+  color: var(--accent, #00ff88);
+}
+
+.folder-item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-folder-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.quick-folder-action-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quick-folder-action-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.quick-folder-action-btn.delete:hover {
+  color: #ff4d4d;
+  background: rgba(255, 77, 77, 0.1);
+}
+

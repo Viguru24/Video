@@ -22,6 +22,7 @@ const RenameProtocolModal = lazy(() => import('./RenameProtocolModal').then(m =>
 const VolumeRepeatModal = lazy(() => import('../VolumeRepeatModal').then(m => ({ default: m.VolumeRepeatModal })));
 const BatchRenameModal = lazy(() => import('./BatchRenameModal').then(m => ({ default: m.BatchRenameModal })));
 const MetadataStudioModal = lazy(() => import('./MetadataStudioModal').then(m => ({ default: m.MetadataStudioModal })));
+const DualCompareModal = lazy(() => import('./DualCompareModal').then(m => ({ default: m.DualCompareModal })));
 
 interface ModalOrchestratorProps {
   // Help Modal
@@ -183,6 +184,14 @@ export function ModalOrchestrator({
     <>
       <Suspense fallback={null}>
         {showHelp && <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />}
+        {diffCompareTargets && (
+          <DualCompareModal
+            leftItem={diffCompareTargets.left}
+            rightItem={diffCompareTargets.right}
+            allVideos={videos}
+            onClose={() => setDiffCompareTargets(null)}
+          />
+        )}
       </Suspense>
 
       <Suspense fallback={null}>
