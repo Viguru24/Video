@@ -14,13 +14,14 @@ import { isValidMediaExtension } from '../utils/videoUtils';
 
 interface InAppBrowserProps {
   onAddFile: (path: string) => void;
+  onOpenFile?: (path: string) => void;
   onAddMultipleFiles: (paths: string[]) => void;
   addLog: (msg: string) => void;
 }
 
 type ResizeDirection = 'left' | 'bottom' | 'bottom-left' | 'top' | 'top-left';
 
-export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBrowserProps) {
+export function InAppBrowser({ onAddFile, onOpenFile, onAddMultipleFiles, addLog }: InAppBrowserProps) {
   const {
     showInAppBrowser,
     setShowInAppBrowser,
@@ -602,7 +603,11 @@ export function InAppBrowser({ onAddFile, onAddMultipleFiles, addLog }: InAppBro
                     if (item.is_dir) {
                       setInAppBrowserPath(item.path);
                     } else {
-                      onAddFile(item.path);
+                      if (onOpenFile) {
+                        onOpenFile(item.path);
+                      } else {
+                        onAddFile(item.path);
+                      }
                     }
                   }}
                 />

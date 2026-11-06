@@ -306,6 +306,7 @@ export function BrowserItemCard({
               e.stopPropagation();
               onAddFile(item.path);
             }}
+            onDoubleClick={(e) => e.stopPropagation()}
             title="Add to grid workspace"
           >
             <Plus size={10} />
@@ -322,6 +323,7 @@ export function BrowserItemCard({
                 e.stopPropagation();
                 onToggleSelect?.(item.path, e);
               }}
+              onDoubleClick={(e) => e.stopPropagation()}
               title={isSelected ? "Deselect item" : "Select item"}
             >
               {isSelected && <Check size={10} strokeWidth={3} />}
@@ -338,13 +340,17 @@ export function BrowserItemCard({
               <ImageThumbnail path={item.path} name={item.name} />
             )}
             
-            <div className="thumb-hover-overlay">
+            <div 
+              className="thumb-hover-overlay"
+              title={`${item.name} (Double-click to expand)`}
+            >
               <button 
                 className="add-item-badge-btn" 
                 onClick={(e) => {
                   e.stopPropagation();
                   onAddFile(item.path);
                 }}
+                onDoubleClick={(e) => e.stopPropagation()}
                 title="Add to grid workspace"
               >
                 <Plus size={12} />
