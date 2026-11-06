@@ -1,14 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { 
   Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, CheckSquare, Volume2, VolumeX, 
-  ExternalLink, Info, Edit2, ChevronLeft, ChevronRight, 
-  Minimize2, Repeat, Repeat1, Crop, Sparkles, Save, Sliders, Copy, ShieldAlert,
-  ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, MessageSquare, Wifi, FileCode2
+  ExternalLink, Edit2, ChevronLeft, ChevronRight, 
+  Minimize2, Repeat, Crop, Sparkles, Sliders, Copy, ShieldAlert,
+  ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, Wifi, FileCode2, Zap
 } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { isValidPictureExtension, isTauri } from '../utils/videoUtils';
 import { ContextMenuColorTags } from './contextmenu/ContextMenuColorTags';
-import { Zap } from 'lucide-react';
 
 interface ContextMenuProps {
   x: number;
@@ -22,8 +21,29 @@ interface ContextMenuProps {
   isSelected?: boolean;
 }
 
-export function ContextMenu({ x, y, onClose, onAction, video, metadata, selectedCount = 0, isFocused = false, isSelected = false }: ContextMenuProps) {
+export function ContextMenu({
+  x,
+  y,
+  onClose,
+  onAction,
+  video,
+  metadata,
+  selectedCount = 0,
+  isFocused = false,
+  isSelected = false
+}: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const aiTriggerRef = useRef<HTMLDivElement>(null);
+  const metadataTriggerRef = useRef<HTMLDivElement>(null);
+  const fileTriggerRef = useRef<HTMLDivElement>(null);
+  const viewTriggerRef = useRef<HTMLDivElement>(null);
+  const deleteTriggerRef = useRef<HTMLDivElement>(null);
+  const closeSubmenuTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
+  const [submenuPos, setSubmenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [showMoreInfo, setShowMoreInfo] = useState(false);
+
   const effectivePath = video 
     ? (video.folderFiles && video.currentIdx !== undefined) 
       ? (video.folderFiles[video.currentIdx]?.path || video.folderFiles[video.currentIdx]?.url) 
@@ -31,6 +51,7 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
     : '';
   const isImage = effectivePath ? isValidPictureExtension(effectivePath) : false;
   const isDemo = false;
+
   const [positionState, setPositionState] = useState<{
     top: number;
     left: number;
@@ -43,36 +64,44 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
     isReady: false
   });
   const hasPositionedRef = useRef(false);
-  const [showMoreInfo, setShowMoreInfo] = useState(false);
 
+  // Close menu on outside click or escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    setTimeout(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+
+    const timer = setTimeout(() => {
       window.addEventListener('click', handleClickOutside);
       window.addEventListener('contextmenu', handleClickOutside);
+      window.addEventListener('keydown', handleKeyDown);
     }, 10);
+
     return () => {
+      clearTimeout(timer);
+      if (closeSubmenuTimerRef.current) clearTimeout(closeSubmenuTimerRef.current);
       window.removeEventListener('click', handleClickOutside);
       window.removeEventListener('contextmenu', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [onClose]);
 
+  // Viewport-aware positioning
   useLayoutEffect(() => {
     if (!menuRef.current || hasPositionedRef.current) return;
 
     const el = menuRef.current;
-    const menuW = el.offsetWidth || 220;
-    const menuH = el.offsetHeight || 380;
+    const menuW = el.offsetWidth || 210;
+    const menuH = el.offsetHeight || 300;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const PAD = 8;
 
-    // Determine direction before opening:
-    // If opening downwards would clip below the viewport, or cursor is in bottom half:
     const spaceBelow = vh - y - PAD;
     const spaceAbove = y - PAD;
     const goUp = (menuH > spaceBelow) && (spaceAbove >= menuH || spaceAbove > spaceBelow);
@@ -81,21 +110,58 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
     const top = goUp ? Math.max(PAD, y - menuH) : Math.min(y, vh - menuH - PAD);
     const left = goLeft ? Math.max(PAD, x - menuW) : Math.min(x, vw - menuW - PAD);
 
-    const originY = goUp ? 'bottom' : 'top';
-    const originX = goLeft ? 'right' : 'left';
-
     setPositionState({
       top,
       left,
-      transformOrigin: `${originY} ${originX}`,
+      transformOrigin: `${goUp ? 'bottom' : 'top'} ${goLeft ? 'right' : 'left'}`,
       isReady: true
     });
     hasPositionedRef.current = true;
   }, [x, y]);
 
+  // Submenu positioning & buffering
+  const openSubmenu = (name: string, elem: HTMLElement | null) => {
+    if (closeSubmenuTimerRef.current) {
+      clearTimeout(closeSubmenuTimerRef.current);
+      closeSubmenuTimerRef.current = null;
+    }
+    if (!elem) return;
+    const rect = elem.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const SUBMENU_W = 215;
+
+    const left = rect.right + SUBMENU_W + 8 <= vw 
+      ? rect.right - 2 
+      : Math.max(8, rect.left - SUBMENU_W + 2);
+    const top = Math.min(Math.max(8, rect.top - 4), vh - 260);
+
+    setSubmenuPos({ top, left });
+    setActiveSubmenu(name);
+  };
+
+  const scheduleCloseSubmenu = () => {
+    if (closeSubmenuTimerRef.current) clearTimeout(closeSubmenuTimerRef.current);
+    closeSubmenuTimerRef.current = setTimeout(() => {
+      setActiveSubmenu(null);
+    }, 150);
+  };
+
+  const cancelCloseSubmenu = () => {
+    if (closeSubmenuTimerRef.current) {
+      clearTimeout(closeSubmenuTimerRef.current);
+      closeSubmenuTimerRef.current = null;
+    }
+  };
+
+  const executeAction = (action: string) => {
+    onAction(action);
+    onClose();
+  };
+
   if (!video) return null;
 
-  const style: React.CSSProperties = {
+  const menuStyle: React.CSSProperties = {
     position: 'fixed',
     top: positionState.top,
     left: positionState.left,
@@ -103,699 +169,535 @@ export function ContextMenu({ x, y, onClose, onAction, video, metadata, selected
     zIndex: 1000000,
     opacity: positionState.isReady ? 1 : 0,
     visibility: positionState.isReady ? 'visible' : 'hidden',
-    animation: positionState.isReady ? 'menuPop 140ms cubic-bezier(0.16, 1, 0.3, 1) forwards' : 'none',
+    animation: positionState.isReady ? 'menuPop 130ms cubic-bezier(0.16, 1, 0.3, 1) forwards' : 'none',
   };
 
-  const isVideoLooping = video.repeatMode === 'always';
+  const submenuStyle: React.CSSProperties = {
+    position: 'fixed',
+    top: submenuPos.top,
+    left: submenuPos.left,
+    zIndex: 1000001,
+    background: 'var(--glass-bg, #0d0d10)',
+    backdropFilter: 'blur(22px)',
+    border: '1px solid rgba(255, 255, 255, 0.12)',
+    borderRadius: '8px',
+    padding: '4px',
+    minWidth: '200px',
+    maxWidth: '240px',
+    boxShadow: 'var(--bevel-panel, 0 18px 40px rgba(0,0,0,0.85))',
+    animation: 'menuPop 120ms cubic-bezier(0.16, 1, 0.3, 1) forwards',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1px',
+    boxSizing: 'border-box'
+  };
+
+  const isMulti = selectedCount > 1 && isSelected;
 
   return (
-    <div className="context-menu" ref={menuRef} style={style}>
-      {metadata && (
-        <div style={{ padding: '6px 8px 5px', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '3px', width: '100%', boxSizing: 'border-box' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
-            <Info size={10} style={{ color: 'var(--accent, #00ff88)', flexShrink: 0 }} />
-            <span style={{ fontSize: '9px', fontWeight: 800, color: 'var(--accent, #00ff88)', letterSpacing: '1px', textTransform: 'uppercase' }}>
-              {isImage ? 'Picture Details' : 'Video Details'}
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-              <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Name</span>
-              <strong style={{ fontSize: '9.5px', maxWidth: '160px', wordBreak: 'break-word', whiteSpace: 'normal', textAlign: 'right', color: '#fff', lineHeight: '1.3' }}>{metadata.name || 'Unknown'}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-              <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Format</span>
-              <strong style={{ fontSize: '9.5px', color: '#fff' }}>{metadata.format}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-              <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Size</span>
-              <strong style={{ fontSize: '9.5px', color: '#fff' }}>{metadata.size}</strong>
-            </div>
-            {(metadata.has_comfyui !== undefined || metadata.has_exif !== undefined) && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: '1px' }}>
-                <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Metadata</span>
-                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                  {metadata.has_comfyui && (
-                    <span style={{ fontSize: '8.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.18)', color: '#fcd34d', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
-                      COMFYUI
-                    </span>
-                  )}
-                  {metadata.has_exif && (
-                    <span style={{ fontSize: '8.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(56, 189, 248, 0.18)', color: '#7dd3fc', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
-                      EXIF{metadata.has_gps ? '+GPS' : ''}
-                    </span>
-                  )}
-                  {!metadata.has_comfyui && !metadata.has_exif && (
-                    <span style={{ fontSize: '8.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(0, 255, 136, 0.12)', color: 'var(--accent, #00ff88)' }}>
-                      CLEAN
-                    </span>
-                  )}
-                </div>
+    <>
+      <div 
+        className="context-menu" 
+        ref={menuRef} 
+        style={menuStyle}
+        onClick={(e) => e.stopPropagation()}
+        onMouseLeave={scheduleCloseSubmenu}
+      >
+        {/* COMPACT METADATA HEADER */}
+        {metadata && (
+          <div style={{
+            padding: '6px 8px 5px',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            marginBottom: '3px',
+            background: 'rgba(255,255,255,0.02)',
+            borderRadius: '6px 6px 0 0',
+            boxSizing: 'border-box'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginBottom: '3px' }}>
+              <span 
+                title={metadata.name || 'Unknown'} 
+                style={{
+                  fontSize: '10.5px',
+                  fontWeight: 700,
+                  color: '#fff',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: '135px'
+                }}
+              >
+                {metadata.name || 'Unknown'}
+              </span>
+              <div style={{ display: 'flex', gap: '3px', alignItems: 'center', flexShrink: 0 }}>
+                {metadata.has_comfyui && (
+                  <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(245, 158, 11, 0.18)', color: '#fcd34d', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
+                    COMFYUI
+                  </span>
+                )}
+                {metadata.has_exif && (
+                  <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(56, 189, 248, 0.18)', color: '#7dd3fc', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
+                    EXIF{metadata.has_gps ? '+GPS' : ''}
+                  </span>
+                )}
+                {!metadata.has_comfyui && !metadata.has_exif && (
+                  <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(0, 255, 136, 0.12)', color: 'var(--accent, #00ff88)' }}>
+                    CLEAN
+                  </span>
+                )}
               </div>
-            )}
-            <div style={{ display: 'none' }}>
-            </div>
-            {metadata.width && metadata.height && metadata.width > 0 && metadata.height > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Dimensions</span>
-                <strong style={{ fontSize: '9.5px', color: '#fff' }}>{metadata.width} x {metadata.height}</strong>
-              </div>
-            )}
-
-            {/* Exploding Toggle Button */}
-            <div 
-              onClick={(e) => { e.stopPropagation(); setShowMoreInfo(!showMoreInfo); }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                marginTop: '4px',
-                paddingTop: '4px',
-                borderTop: '1px solid rgba(255,255,255,0.06)',
-                color: 'var(--accent, #00ff88)',
-                fontSize: '9px',
-                fontWeight: 'bold',
-                letterSpacing: '0.5px'
-              }}
-            >
-              <span>{showMoreInfo ? 'HIDE EXTRA INFO' : 'EXPLODE / SHOW MORE INFO'}</span>
-              {showMoreInfo ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
             </div>
 
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '9px', color: 'rgba(255,255,255,0.48)' }}>
+              <span>
+                {[metadata.format, metadata.size, metadata.width && metadata.height ? `${metadata.width}×${metadata.height}` : null].filter(Boolean).join(' • ')}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowMoreInfo(!showMoreInfo); }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--accent, #00ff88)',
+                  cursor: 'pointer',
+                  fontSize: '8.5px',
+                  fontWeight: 700,
+                  padding: '1px 2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '2px'
+                }}
+              >
+                {showMoreInfo ? 'Less' : 'More'}
+                {showMoreInfo ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
+              </button>
+            </div>
+
+            {/* EXPANDABLE EXTRA METADATA */}
             {showMoreInfo && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5px', marginTop: '4px', padding: '6px 8px', background: 'rgba(0,0,0,0.15)', borderRadius: '6px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '5px', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 {metadata.width && metadata.height && (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Aspect Ratio</span>
-                      <strong style={{ fontSize: '9px', color: '#fff' }}>
-                        {(() => {
-                          const w = metadata.width;
-                          const h = metadata.height;
-                          const r = w / h;
-                          if (Math.abs(r - 16/9) < 0.05) return '16:9 (Widescreen)';
-                          if (Math.abs(r - 4/3) < 0.05) return '4:3 (Standard)';
-                          if (Math.abs(r - 1) < 0.05) return '1:1 (Square)';
-                          if (Math.abs(r - 9/16) < 0.05) return '9:16 (Vertical)';
-                          return `${r.toFixed(2)}:1`;
-                        })()}
-                      </strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Total Pixels</span>
-                      <strong style={{ fontSize: '9px', color: '#fff' }}>
-                        {((metadata.width * metadata.height) / 1000000).toFixed(2)} Megapixels
-                      </strong>
-                    </div>
-                    {metadata.duration !== undefined && metadata.duration !== null && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                        <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Play Time</span>
-                        <strong style={{ fontSize: '9px', color: '#fff' }}>
-                          {(() => {
-                            const seconds = Number(metadata.duration);
-                            if (isNaN(seconds) || seconds <= 0) return '0:00';
-                            const mins = Math.floor(seconds / 60);
-                            const secs = Math.floor(seconds % 60);
-                            return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-                          })()}
-                        </strong>
-                      </div>
-                    )}
-                  </>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Ratio</span>
+                    <strong style={{ color: '#fff' }}>
+                      {(() => {
+                        const r = metadata.width / metadata.height;
+                        if (Math.abs(r - 16/9) < 0.05) return '16:9';
+                        if (Math.abs(r - 4/3) < 0.05) return '4:3';
+                        if (Math.abs(r - 1) < 0.05) return '1:1';
+                        if (Math.abs(r - 9/16) < 0.05) return '9:16';
+                        return `${r.toFixed(2)}:1`;
+                      })()}
+                    </strong>
+                  </div>
+                )}
+                {metadata.duration !== undefined && metadata.duration !== null && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Play Time</span>
+                    <strong style={{ color: '#fff' }}>
+                      {(() => {
+                        const seconds = Number(metadata.duration);
+                        if (isNaN(seconds) || seconds <= 0) return '0:00';
+                        const mins = Math.floor(seconds / 60);
+                        const secs = Math.floor(seconds % 60);
+                        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+                      })()}
+                    </strong>
+                  </div>
                 )}
                 {metadata.created && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Created</span>
-                    <strong style={{ fontSize: '8.5px', color: '#fff' }}>{metadata.created}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Created</span>
+                    <strong style={{ color: '#fff' }}>{metadata.created}</strong>
                   </div>
                 )}
                 {metadata.upscaled_by && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>Enhancement</span>
-                    <strong style={{ fontSize: '8.5px', color: '#fde68a', textAlign: 'right' }}>{metadata.upscaled_by}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Enhanced</span>
+                    <strong style={{ color: '#fde68a' }}>{metadata.upscaled_by}</strong>
                   </div>
                 )}
-              </div>
-            )}
-
-            {(() => {
-              let cleanPath = '';
-              if (metadata.path) {
-                try {
-                  cleanPath = decodeURIComponent(metadata.path.replace(/^local:\/\//, '').split('?')[0]).replace(/\//g, '\\');
-                } catch {
-                  cleanPath = metadata.path.replace(/^local:\/\//, '').split('?')[0].replace(/\//g, '\\');
-                }
-              }
-              return cleanPath ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px', paddingTop: '3px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                    <span style={{ fontSize: '9.5px', color: 'rgba(255,255,255,0.4)' }}>Location</span>
-                    <span 
-                      title={cleanPath} 
-                      style={{ 
-                        fontSize: '9px', 
-                        color: 'rgba(255,255,255,0.6)', 
-                        maxWidth: '160px', 
-                        wordBreak: 'break-all', 
-                        whiteSpace: 'normal', 
-                        textAlign: 'right',
-                        cursor: 'text',
-                        userSelect: 'text',
-                        lineHeight: '1.3'
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {cleanPath}
-                    </span>
-                  </div>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAction('folder');
-                    }}
+                {isTauri() && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); executeAction('folder'); }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '4px',
-                      marginTop: '4px',
-                      width: '100%',
-                      padding: '4px 6px',
-                      background: 'rgba(255,255,255,0.05)',
+                      marginTop: '3px',
+                      padding: '3px 6px',
+                      background: 'rgba(255,255,255,0.06)',
                       border: '1px solid rgba(255,255,255,0.1)',
                       borderRadius: '4px',
                       color: 'var(--accent, #00ff88)',
-                      fontSize: '9px',
+                      fontSize: '8.5px',
                       fontWeight: 600,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(0, 255, 136, 0.1)';
-                      e.currentTarget.style.borderColor = 'rgba(0, 255, 136, 0.3)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                      cursor: 'pointer'
                     }}
                   >
                     <FolderOpen size={10} />
                     Open Folder
                   </button>
-                </div>
-              ) : null;
-            })()}
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* COLOR TAGS BAR */}
+        <ContextMenuColorTags
+          currentColorTag={video.colorTag}
+          onSelectTag={onAction}
+          selectedCount={isMulti ? selectedCount : 1}
+        />
+
+        <div className="context-menu-separator"></div>
+
+        {/* PRIMARY QUICK ACTIONS */}
+        {!isImage ? (
+          <>
+            <div className="context-menu-item" onClick={() => executeAction('play')}>
+              {video.playing ? <Pause size={13} /> : <Play size={13} />}
+              <span>{video.playing ? 'Pause Video' : 'Play Video'}</span>
+            </div>
+            <div className="context-menu-item" onClick={() => executeAction('mute')}>
+              {video.muted ? <Volume2 size={13} /> : <VolumeX size={13} />}
+              <span>{video.muted ? 'Unmute Audio' : 'Mute Audio'}</span>
+            </div>
+            <div className="context-menu-item" onClick={() => executeAction('color-adjust')}>
+              <Sliders size={13} />
+              <span>Color Adjustment</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="context-menu-item" onClick={() => executeAction('color-adjust')}>
+              <Sliders size={13} />
+              <span>Color Adjustment</span>
+            </div>
+            <div className="context-menu-item" onClick={() => executeAction('crop')}>
+              <Crop size={13} />
+              <span>Crop Image</span>
+            </div>
+            <div className="context-menu-item" onClick={() => executeAction('resize')}>
+              <Minimize2 size={13} />
+              <span>Rescale / Resize</span>
+            </div>
+          </>
+        )}
+
+        {/* QUICK MULTI-RENAME IF SELECTED */}
+        {isMulti && (
+          <div className="context-menu-item accent-text" onClick={() => executeAction('rename_selected')} style={{ fontWeight: 600 }}>
+            <Edit2 size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+            <span>Rename Selected ({selectedCount})</span>
+          </div>
+        )}
+
+        <div className="context-menu-separator"></div>
+
+        {/* SUBMENU TRIGGER: AI & CREATIVE STUDIO */}
+        <div
+          ref={aiTriggerRef}
+          className={`context-menu-item submenu-trigger ${activeSubmenu === 'ai' ? 'submenu-active' : ''}`}
+          onMouseEnter={() => openSubmenu('ai', aiTriggerRef.current)}
+          onClick={(e) => { e.stopPropagation(); openSubmenu('ai', aiTriggerRef.current); }}
+        >
+          <Sparkles size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+          <span style={{ fontWeight: 600 }}>AI & Studio Tools</span>
+          <ChevronRight size={10} style={{ marginLeft: 'auto', opacity: 0.6 }} />
+        </div>
+
+        {/* SUBMENU TRIGGER: METADATA & EXIF */}
+        {isTauri() && (
+          <div
+            ref={metadataTriggerRef}
+            className={`context-menu-item submenu-trigger ${activeSubmenu === 'metadata' ? 'submenu-active' : ''}`}
+            onMouseEnter={() => openSubmenu('metadata', metadataTriggerRef.current)}
+            onClick={(e) => { e.stopPropagation(); openSubmenu('metadata', metadataTriggerRef.current); }}
+          >
+            <FileCode2 size={13} style={{ color: '#fbbf24' }} />
+            <span>EXIF & Metadata {isMulti ? `(${selectedCount})` : ''}</span>
+            <ChevronRight size={10} style={{ marginLeft: 'auto', opacity: 0.6 }} />
+          </div>
+        )}
+
+        {/* SUBMENU TRIGGER: FILE & SHARE */}
+        {isTauri() && (
+          <div
+            ref={fileTriggerRef}
+            className={`context-menu-item submenu-trigger ${activeSubmenu === 'file' ? 'submenu-active' : ''}`}
+            onMouseEnter={() => openSubmenu('file', fileTriggerRef.current)}
+            onClick={(e) => { e.stopPropagation(); openSubmenu('file', fileTriggerRef.current); }}
+          >
+            <FolderOpen size={13} />
+            <span>File & Share</span>
+            <ChevronRight size={10} style={{ marginLeft: 'auto', opacity: 0.6 }} />
+          </div>
+        )}
+
+        {/* SUBMENU TRIGGER: VIEW & SELECTION */}
+        <div
+          ref={viewTriggerRef}
+          className={`context-menu-item submenu-trigger ${activeSubmenu === 'view' ? 'submenu-active' : ''}`}
+          onMouseEnter={() => openSubmenu('view', viewTriggerRef.current)}
+          onClick={(e) => { e.stopPropagation(); openSubmenu('view', viewTriggerRef.current); }}
+        >
+          <ExternalLink size={13} />
+          <span>View & Selection</span>
+          <ChevronRight size={10} style={{ marginLeft: 'auto', opacity: 0.6 }} />
+        </div>
+
+        <div className="context-menu-separator"></div>
+
+        {/* REMOVE FROM GRID */}
+        <div className="context-menu-item" onClick={() => executeAction('decommission')}>
+          <Trash2 size={13} />
+          <span>Remove from Grid</span>
+        </div>
+
+        {/* DIRECT DELETE ITEMS (OR TRIGGER) */}
+        {isTauri() && (!video.url || !video.url.includes('/demos/')) && (
+          <div
+            ref={deleteTriggerRef}
+            className={`context-menu-item danger submenu-trigger ${activeSubmenu === 'delete' ? 'submenu-active' : ''}`}
+            onMouseEnter={() => openSubmenu('delete', deleteTriggerRef.current)}
+            onClick={(e) => { e.stopPropagation(); openSubmenu('delete', deleteTriggerRef.current); }}
+          >
+            <Trash2 size={13} />
+            <span>Delete File...</span>
+            <ChevronRight size={10} style={{ marginLeft: 'auto', opacity: 0.6 }} />
+          </div>
+        )}
+
+        {/* EXIT FOCUS MODE IF FOCUSED */}
+        {isFocused && (
+          <>
+            <div className="context-menu-separator"></div>
+            <div className="context-menu-item" onClick={() => executeAction('exit-focus')} style={{ fontWeight: 'bold' }}>
+              <Minimize2 size={13} />
+              <span>Exit Focus Mode</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* =========================================================================
+          FLYOUT SUBMENUS (PORTAL SIBLINGS)
+          ========================================================================= */}
+
+      {/* 1. AI & CREATIVE STUDIO SUBMENU */}
+      {activeSubmenu === 'ai' && (
+        <div
+          className="context-menu"
+          style={submenuStyle}
+          onMouseEnter={cancelCloseSubmenu}
+          onMouseLeave={scheduleCloseSubmenu}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="context-menu-section-header">Creative AI Tools</div>
+          <div className="context-menu-item accent-text" onClick={() => executeAction('upscale')} style={{ fontWeight: 'bold' }}>
+            <Sparkles size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+            <span>AI Upscale</span>
+          </div>
+          <div className="context-menu-item accent-text" onClick={() => executeAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
+            <Zap size={13} style={{ color: '#38bdf8' }} />
+            <span>Interpolate 60 FPS...</span>
+          </div>
+
+          {!isImage ? (
+            <>
+              <div className="context-menu-item accent-text" onClick={() => executeAction('trim_crop')} style={{ fontWeight: 'bold' }}>
+                <Scissors size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+                <span>Trim & Crop Studio...</span>
+              </div>
+              <div className="context-menu-item" onClick={() => executeAction('snapshot')}>
+                <Camera size={13} />
+                <span>Save Snapshot</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="context-menu-item accent-text" onClick={() => executeAction('create_sticker')} style={{ fontWeight: 'bold' }}>
+                <Sparkles size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+                <span>Create Sticker (Cutout)</span>
+              </div>
+              <div className="context-menu-item" onClick={() => executeAction('mirror-horizontal')}>
+                <Repeat size={13} />
+                <span>Mirror Horizontally</span>
+              </div>
+              <div className="context-menu-item accent-text" onClick={() => executeAction('paste_image')} style={{ fontWeight: 'bold' }}>
+                <Copy size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+                <span>Paste Image into Tile</span>
+              </div>
+            </>
+          )}
+
+          <div className="context-menu-item" onClick={() => executeAction('compare_diff')}>
+            <Sliders size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+            <span>Split Diff View...</span>
           </div>
         </div>
       )}
 
-      {selectedCount > 1 && !isFocused && (
-        <>
-          {isTauri() && (
-            <>
-              <div className="context-menu-item accent-text" onClick={() => onAction('metadata_studio_selected')} style={{ fontWeight: 'bold' }}>
-                <FileCode2 size={14} style={{ color: '#fbbf24' }} />
-                <span style={{ color: '#fde68a' }}>Edit / Strip EXIF & ComfyUI ({selectedCount})...</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('quick_strip_comfyui_selected')}>
-                <Sparkles size={14} style={{ color: '#fbbf24' }} />
-                <span>Remove ComfyUI Info ({selectedCount})</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('quick_strip_exif_selected')}>
-                <Camera size={14} style={{ color: '#38bdf8' }} />
-                <span>Delete EXIF Info ({selectedCount})</span>
-              </div>
-              <div className="context-menu-item danger" onClick={() => onAction('quick_strip_all_selected')}>
-                <ShieldAlert size={14} />
-                <span>Strip ALL Metadata & EXIF ({selectedCount})</span>
-              </div>
-            </>
-          )}
-          <div className="context-menu-item accent-text" onClick={() => onAction('rename_selected')}>
-            <Edit2 size={14} />
-            <span>Rename Selected {isImage ? 'Images' : 'Videos'} ({selectedCount})</span>
-          </div>
-          <div className="context-menu-separator"></div>
-        </>
-      )}
-
-            <ContextMenuColorTags
-        currentColorTag={video.colorTag}
-        onSelectTag={onAction}
-        selectedCount={selectedCount > 1 && isSelected ? selectedCount : 1}
-      />
-      <div className="context-menu-separator"></div>
-      {isFocused ? (
-        /* MAXIMISED WINDOW / SOLO MODE CONTEXT MENU */
-        <>
-          {!isImage && (
-            <>
-              <div className="context-menu-section-header">Playback & Frame</div>
-              <div className="context-menu-item" onClick={() => onAction('play')}>
-                {video.playing ? <Pause size={14} /> : <Play size={14} />}
-                <span>{video.playing ? 'Pause Video' : 'Play Video'}</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('mute')}>
-                {video.muted ? <Volume2 size={14} /> : <VolumeX size={14} />}
-                <span>{video.muted ? 'Unmute' : 'Mute'}</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
-                <Sliders size={14} />
-                <span>Color adjustment</span>
-              </div>
-              {!isDemo ? (
-                <>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('trim_crop')} style={{ fontWeight: 'bold' }}>
-                    <Scissors size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Trim & Crop Studio...</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-                    <Sparkles size={14} />
-                    <span>AI Upscale</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
-                    <Zap size={14} style={{ color: '#38bdf8' }} />
-                    <span>Interpolate 60 FPS (Smooth Motion)...</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('compare_diff')}>
-                    <Sliders size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Compare in Split Diff View...</span>
-                  </div>
-
-                  {isTauri() && (
-                    <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
-                      <FileCode2 size={14} style={{ color: '#fbbf24' }} />
-                      <span style={{ color: '#fde68a' }}>
-                        {selectedCount > 1 && isSelected
-                          ? `Edit / Strip Metadata (${selectedCount})...`
-                          : 'Edit / Strip Metadata & EXIF...'}
-                      </span>
-                    </div>
-                  )}
-                  <div className="context-menu-item" onClick={() => onAction('snapshot')}>
-                    <Camera size={14} />
-                    <span>Save Snapshot</span>
-                  </div>
-                </>
-              ) : (
-                <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
-                  <ShieldAlert size={12} />
-                  <span>Demo video — upscale/snapshot disabled</span>
-                </div>
-              )}
-              <div className="context-menu-separator"></div>
-            </>
-          )}
-
-          {isImage && (
-            <>
-              <div className="context-menu-section-header">Image Editing</div>
-              {isDemo ? (
-                <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
-                  <ShieldAlert size={12} />
-                  <span>Demo file — drag in your own image to edit</span>
-                </div>
-              ) : (
-                <>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-                    <Sparkles size={14} />
-                    <span>AI Upscale</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
-                    <Zap size={14} style={{ color: '#38bdf8' }} />
-                    <span>Interpolate 60 FPS (Smooth Motion)...</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('compare_diff')}>
-                    <Sliders size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Compare in Split Diff View...</span>
-                  </div>
-
-                  <div className="context-menu-item accent-text" onClick={() => onAction('create_sticker')} style={{ fontWeight: 'bold' }}>
-                    <Sparkles size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Create Sticker (Cutout)</span>
-                  </div>
-                  <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
-                    <Sliders size={14} />
-                    <span>Color adjustment</span>
-                  </div>
-                  <div className="context-menu-item" onClick={() => onAction('mirror-horizontal')}>
-                    <Repeat size={14} />
-                    <span>Mirror Horizontally</span>
-                  </div>
-
-                  <div className="context-menu-item accent-text" onClick={() => onAction('paste_image')} style={{ fontWeight: 'bold' }}>
-                    <Copy size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Paste Screenshot / Image into Tile</span>
-                  </div>
-                  <div className="context-menu-item" onClick={() => onAction('crop')}>
-                    <Crop size={14} />
-                    <span>Crop Image</span>
-                  </div>
-                  {isTauri() && (
-                    <>
-                      <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
-                        <FileCode2 size={14} style={{ color: '#fbbf24' }} />
-                        <span style={{ color: '#fde68a' }}>
-                          {selectedCount > 1 && isSelected
-                            ? `Edit / Strip EXIF & ComfyUI (${selectedCount})...`
-                            : 'Edit / Strip EXIF & ComfyUI...'}
-                        </span>
-                      </div>
-                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_comfyui_selected' : 'quick_strip_comfyui')}>
-                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
-                        <span>{selectedCount > 1 && isSelected ? `Remove ComfyUI Info (${selectedCount})` : 'Remove ComfyUI Info'}</span>
-                      </div>
-                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_exif_selected' : 'quick_strip_exif')}>
-                        <Camera size={14} style={{ color: '#38bdf8' }} />
-                        <span>{selectedCount > 1 && isSelected ? `Delete EXIF Info (${selectedCount})` : 'Delete EXIF Info'}</span>
-                      </div>
-                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_all_selected' : 'quick_strip_all')}>
-                        <ShieldAlert size={14} style={{ color: '#f87171' }} />
-                        <span style={{ color: '#fca5a5' }}>{selectedCount > 1 && isSelected ? `Strip ALL (EXIF + ComfyUI) (${selectedCount})` : 'Strip ALL (EXIF + ComfyUI)'}</span>
-                      </div>
-                    </>
-                  )}
-                  <div className="context-menu-item" onClick={() => onAction('resize')}>
-                    <Minimize2 size={14} />
-                    <span>Rescale / Resize</span>
-                  </div>
-
-                </>
-              )}
-              <div className="context-menu-separator"></div>
-            </>
-          )}
-
-          <div className="context-menu-section-header">View & File</div>
-          {video.folderFiles && video.folderFiles.length > 1 && (
-            <>
-              <div className="context-menu-item" onClick={() => onAction('prev-file')}>
-                <ChevronLeft size={14} />
-                <span>Previous File</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('next-file')}>
-                <ChevronRight size={14} />
-                <span>Next File</span>
-              </div>
-            </>
-          )}
-          <div className="context-menu-item" onClick={() => onAction('pop_out')}>
-            <ExternalLink size={14} />
-            <span>Pop Out Player</span>
-          </div>
-          <div className="context-menu-item" onClick={() => onAction('refresh_tile')}>
-            <RefreshCw size={14} />
-            <span>Refresh Tile (Reload)</span>
-          </div>
-
-          {isTauri() && (
-            <>
-              <div className="context-menu-item" onClick={() => onAction('folder')}>
-                <FolderOpen size={14} />
-                <span>Open Folder</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('move_file')}>
-                <FolderOpen size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span style={{ color: 'var(--accent, #00ff88)' }}>Move to Folder...</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('copy_file')}>
-                <Copy size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span style={{ color: 'var(--accent, #00ff88)' }}>Copy to Folder...</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('share_file')}>
-                <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 600 }}>Wi-Fi Share to Mobile...</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('whatsapp_share')}>
-                <Share2 size={14} style={{ color: '#25D366' }} />
-                <span>Share {isImage ? 'Image' : 'Video'} to WhatsApp...</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('duplicate_file')}>
-                <Copy size={14} />
-                <span>Duplicate File</span>
-              </div>
-            </>
-          )}
-          <div className="context-menu-item" onClick={() => onAction('rename')}>
-            <Edit2 size={14} />
-            <span>Rename File</span>
-          </div>
-
-
-          <div className="context-menu-separator"></div>
-          <div className="context-menu-item" onClick={() => onAction('decommission')}>
-            <Trash2 size={14} />
-            <span>Remove from Grid</span>
-          </div>
-          {isTauri() && (!video.url || !video.url.includes('/demos/')) && (
-            <>
-              <div className="context-menu-item danger" onClick={() => onAction('annihilate')}>
-                <Trash2 size={14} />
-                <span style={{ fontWeight: 800 }}>Recycle Bin</span>
-              </div>
-              <div className="context-menu-item danger" onClick={() => onAction('secure_delete')}>
-                <ShieldAlert size={14} />
-                <span style={{ fontWeight: 800 }}>Secure Delete</span>
-              </div>
-            </>
-          )}
-          <div className="context-menu-separator"></div>
-          <div className="context-menu-item" onClick={() => onAction('exit-focus')} style={{ fontWeight: 'bold' }}>
-            <Minimize2 size={14} />
-            <span>Exit Focus Mode</span>
-          </div>
-        </>
-      ) : (
-        /* STANDARD SMALL WINDOW / GRID CARD CONTEXT MENU */
-        <>
-          {!isImage && (
-            <>
-              <div className="context-menu-section-header">Playback & Frame</div>
-              <div className="context-menu-item" onClick={() => onAction('play')}>
-                {video.playing ? <Pause size={14} /> : <Play size={14} />}
-                <span>{video.playing ? 'Pause Video' : 'Play Video'}</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('mute')}>
-                {video.muted ? <Volume2 size={14} /> : <VolumeX size={14} />}
-                <span>{video.muted ? 'Unmute' : 'Mute'}</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
-                <Sliders size={14} />
-                <span>Color adjustment</span>
-              </div>
-              {!isDemo ? (
-                <>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('trim_crop')} style={{ fontWeight: 'bold' }}>
-                    <Scissors size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Trim & Crop Studio...</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-                    <Sparkles size={14} />
-                    <span>AI Upscale</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
-                    <Zap size={14} style={{ color: '#38bdf8' }} />
-                    <span>Interpolate 60 FPS (Smooth Motion)...</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('compare_diff')}>
-                    <Sliders size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Compare in Split Diff View...</span>
-                  </div>
-
-                  {isTauri() && (
-                    <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
-                      <FileCode2 size={14} style={{ color: '#fbbf24' }} />
-                      <span style={{ color: '#fde68a' }}>
-                        {selectedCount > 1 && isSelected
-                          ? `Edit / Strip Metadata (${selectedCount})...`
-                          : 'Edit / Strip Metadata & EXIF...'}
-                      </span>
-                    </div>
-                  )}
-                  <div className="context-menu-item" onClick={() => onAction('snapshot')}>
-                    <Camera size={14} />
-                    <span>Save Snapshot</span>
-                  </div>
-                </>
-              ) : (
-                <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
-                  <ShieldAlert size={12} />
-                  <span>Demo video — upscale/snapshot disabled</span>
-                </div>
-              )}
-              <div className="context-menu-separator"></div>
-            </>
-          )}
-
-          {isImage && (
-            <>
-              <div className="context-menu-section-header">Image Editing</div>
-              {isDemo ? (
-                <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontStyle: 'italic' }}>
-                  <ShieldAlert size={12} />
-                  <span>Demo file — drag in your own image to edit</span>
-                </div>
-              ) : (
-                <>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('upscale')} style={{ fontWeight: 'bold' }}>
-                    <Sparkles size={14} />
-                    <span>AI Upscale</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('interpolate_60fps')} style={{ fontWeight: 'bold' }}>
-                    <Zap size={14} style={{ color: '#38bdf8' }} />
-                    <span>Interpolate 60 FPS (Smooth Motion)...</span>
-                  </div>
-                  <div className="context-menu-item accent-text" onClick={() => onAction('compare_diff')}>
-                    <Sliders size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Compare in Split Diff View...</span>
-                  </div>
-
-                  <div className="context-menu-item accent-text" onClick={() => onAction('create_sticker')} style={{ fontWeight: 'bold' }}>
-                    <Sparkles size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                    <span>Create Sticker (Cutout)</span>
-                  </div>
-                  <div className="context-menu-item" onClick={() => onAction('color-adjust')}>
-                    <Sliders size={14} />
-                    <span>Color adjustment</span>
-                  </div>
-                  <div className="context-menu-item" onClick={() => onAction('mirror-horizontal')}>
-                    <Repeat size={14} />
-                    <span>Mirror Horizontally</span>
-                  </div>
-
-                  <div className="context-menu-item" onClick={() => onAction('crop')}>
-                    <Crop size={14} />
-                    <span>Crop Image</span>
-                  </div>
-                  {isTauri() && (
-                    <>
-                      <div className="context-menu-item accent-text" onClick={() => onAction(selectedCount > 1 && isSelected ? 'metadata_studio_selected' : 'metadata_studio')} style={{ fontWeight: 'bold' }}>
-                        <FileCode2 size={14} style={{ color: '#fbbf24' }} />
-                        <span style={{ color: '#fde68a' }}>
-                          {selectedCount > 1 && isSelected
-                            ? `Edit / Strip EXIF & ComfyUI (${selectedCount})...`
-                            : 'Edit / Strip EXIF & ComfyUI...'}
-                        </span>
-                      </div>
-                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_comfyui_selected' : 'quick_strip_comfyui')}>
-                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
-                        <span>{selectedCount > 1 && isSelected ? `Remove ComfyUI Info (${selectedCount})` : 'Remove ComfyUI Info'}</span>
-                      </div>
-                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_exif_selected' : 'quick_strip_exif')}>
-                        <Camera size={14} style={{ color: '#38bdf8' }} />
-                        <span>{selectedCount > 1 && isSelected ? `Delete EXIF Info (${selectedCount})` : 'Delete EXIF Info'}</span>
-                      </div>
-                      <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'quick_strip_all_selected' : 'quick_strip_all')}>
-                        <ShieldAlert size={14} style={{ color: '#f87171' }} />
-                        <span style={{ color: '#fca5a5' }}>{selectedCount > 1 && isSelected ? `Strip ALL (EXIF + ComfyUI) (${selectedCount})` : 'Strip ALL (EXIF + ComfyUI)'}</span>
-                      </div>
-                    </>
-                  )}
-                  <div className="context-menu-item" onClick={() => onAction('resize')}>
-                    <Minimize2 size={14} />
-                    <span>Rescale / Resize</span>
-                  </div>
-
-                </>
-              )}
-              <div className="context-menu-separator"></div>
-            </>
-          )}
-
-
-
-          <div className="context-menu-section-header">View & File</div>
-          <div className="context-menu-item" onClick={() => onAction('select-all')}>
-            <CheckSquare size={14} />
-            <span>Select All Visible</span>
-          </div>
-          {selectedCount > 0 && (
-            <div className="context-menu-item" onClick={() => onAction('deselect-all')}>
-              <Square size={14} />
-              <span>Deselect All</span>
-            </div>
-          )}
-          {video.folderFiles && video.folderFiles.length > 1 && (
-            <>
-              <div className="context-menu-item" onClick={() => onAction('prev-file')}>
-                <ChevronLeft size={14} />
-                <span>Previous File</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('next-file')}>
-                <ChevronRight size={14} />
-                <span>Next File</span>
-              </div>
-            </>
-          )}
-          <div className="context-menu-item" onClick={() => onAction('pop_out')}>
-            <ExternalLink size={14} />
-            <span>Pop Out Player</span>
-          </div>
-          <div className="context-menu-item" onClick={() => onAction('refresh_tile')}>
-            <RefreshCw size={14} />
-            <span>Refresh Tile (Reload)</span>
-          </div>
-
-          {isTauri() && (
-            <>
-              <div className="context-menu-item" onClick={() => onAction('folder')}>
-                <FolderOpen size={14} />
-                <span>Open Folder</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'move_selected' : 'move_file')}>
-                <FolderOpen size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span style={{ color: 'var(--accent, #00ff88)' }}>{selectedCount > 1 && isSelected ? `Move Selected (${selectedCount})` : 'Move to Folder...'}</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'copy_selected' : 'copy_file')}>
-                <Copy size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span style={{ color: 'var(--accent, #00ff88)' }}>{selectedCount > 1 && isSelected ? `Copy Selected (${selectedCount})` : 'Copy to Folder...'}</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'share_selected' : 'share_file')}>
-                <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 600 }}>{selectedCount > 1 && isSelected ? `Wi-Fi Share Selected (${selectedCount})...` : 'Wi-Fi Share to Mobile...'}</span>
-              </div>
-              <div className="context-menu-item" onClick={() => onAction('whatsapp_share')}>
-                <Share2 size={14} style={{ color: '#25D366' }} />
-                <span>{selectedCount > 1 && isSelected ? `Share to WhatsApp...` : 'Share to WhatsApp...'}</span>
-              </div>
-            </>
-          )}
-          <div className="context-menu-item" onClick={() => onAction('duplicate_file')}>
-            <Copy size={14} />
-            <span>Duplicate {isImage ? 'Image' : 'Video'}</span>
-          </div>
-          <div className="context-menu-item" onClick={() => onAction(selectedCount > 1 && isSelected ? 'rename_selected' : 'rename')}>
-            <Edit2 size={14} style={selectedCount > 1 && isSelected ? { color: 'var(--accent, #00ff88)' } : undefined} />
-            <span style={selectedCount > 1 && isSelected ? { color: 'var(--accent, #00ff88)', fontWeight: 600 } : undefined}>
-              {selectedCount > 1 && isSelected
-                ? `Rename Selected ${isImage ? 'Images' : 'Videos'} (${selectedCount})`
-                : `Rename ${isImage ? 'Image' : 'Video'}`}
+      {/* 2. EXIF & METADATA SUBMENU */}
+      {activeSubmenu === 'metadata' && isTauri() && (
+        <div
+          className="context-menu"
+          style={submenuStyle}
+          onMouseEnter={cancelCloseSubmenu}
+          onMouseLeave={scheduleCloseSubmenu}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="context-menu-section-header">Metadata & Privacy</div>
+          <div 
+            className="context-menu-item accent-text" 
+            onClick={() => executeAction(isMulti ? 'metadata_studio_selected' : 'metadata_studio')} 
+            style={{ fontWeight: 'bold' }}
+          >
+            <FileCode2 size={13} style={{ color: '#fbbf24' }} />
+            <span style={{ color: '#fde68a' }}>
+              {isMulti ? `Metadata Studio (${selectedCount})...` : 'Metadata Studio...'}
             </span>
           </div>
-
-
-          <div className="context-menu-separator"></div>
-          <div className="context-menu-item" onClick={() => onAction('decommission')}>
-            <Trash2 size={14} />
-            <span>Remove from Grid</span>
+          <div 
+            className="context-menu-item" 
+            onClick={() => executeAction(isMulti ? 'quick_strip_comfyui_selected' : 'quick_strip_comfyui')}
+          >
+            <Sparkles size={13} style={{ color: '#fbbf24' }} />
+            <span>{isMulti ? `Remove ComfyUI (${selectedCount})` : 'Remove ComfyUI Info'}</span>
           </div>
-          {isTauri() && (!video.url || !video.url.includes('/demos/')) && (
+          <div 
+            className="context-menu-item" 
+            onClick={() => executeAction(isMulti ? 'quick_strip_exif_selected' : 'quick_strip_exif')}
+          >
+            <Camera size={13} style={{ color: '#38bdf8' }} />
+            <span>{isMulti ? `Delete EXIF (${selectedCount})` : 'Delete EXIF Info'}</span>
+          </div>
+          <div className="context-menu-separator"></div>
+          <div 
+            className="context-menu-item danger" 
+            onClick={() => executeAction(isMulti ? 'quick_strip_all_selected' : 'quick_strip_all')}
+          >
+            <ShieldAlert size={13} />
+            <span>{isMulti ? `Strip ALL Info (${selectedCount})` : 'Strip ALL (EXIF + ComfyUI)'}</span>
+          </div>
+        </div>
+      )}
+
+      {/* 3. FILE OPERATIONS & SHARE SUBMENU */}
+      {activeSubmenu === 'file' && isTauri() && (
+        <div
+          className="context-menu"
+          style={submenuStyle}
+          onMouseEnter={cancelCloseSubmenu}
+          onMouseLeave={scheduleCloseSubmenu}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="context-menu-section-header">File Operations</div>
+          <div className="context-menu-item" onClick={() => executeAction('folder')}>
+            <FolderOpen size={13} />
+            <span>Open Containing Folder</span>
+          </div>
+          <div className="context-menu-item" onClick={() => executeAction(isMulti ? 'move_selected' : 'move_file')}>
+            <FolderOpen size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+            <span style={{ color: 'var(--accent, #00ff88)' }}>{isMulti ? `Move Selected (${selectedCount})...` : 'Move to Folder...'}</span>
+          </div>
+          <div className="context-menu-item" onClick={() => executeAction(isMulti ? 'copy_selected' : 'copy_file')}>
+            <Copy size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+            <span style={{ color: 'var(--accent, #00ff88)' }}>{isMulti ? `Copy Selected (${selectedCount})...` : 'Copy to Folder...'}</span>
+          </div>
+          <div className="context-menu-item" onClick={() => executeAction(isMulti ? 'share_selected' : 'share_file')}>
+            <Wifi size={13} style={{ color: 'var(--accent, #00ff88)' }} />
+            <span style={{ color: 'var(--accent, #00ff88)', fontWeight: 600 }}>{isMulti ? `Wi-Fi Share Selected (${selectedCount})...` : 'Wi-Fi Share to Mobile...'}</span>
+          </div>
+          <div className="context-menu-item" onClick={() => executeAction('whatsapp_share')}>
+            <Share2 size={13} style={{ color: '#25D366' }} />
+            <span>Share to WhatsApp...</span>
+          </div>
+          <div className="context-menu-item" onClick={() => executeAction('duplicate_file')}>
+            <Copy size={13} />
+            <span>Duplicate File</span>
+          </div>
+          <div className="context-menu-item" onClick={() => executeAction(isMulti ? 'rename_selected' : 'rename')}>
+            <Edit2 size={13} />
+            <span>{isMulti ? `Rename Selected (${selectedCount})...` : 'Rename File...'}</span>
+          </div>
+        </div>
+      )}
+
+      {/* 4. VIEW & SELECTION SUBMENU */}
+      {activeSubmenu === 'view' && (
+        <div
+          className="context-menu"
+          style={submenuStyle}
+          onMouseEnter={cancelCloseSubmenu}
+          onMouseLeave={scheduleCloseSubmenu}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="context-menu-section-header">View & Selection</div>
+          <div className="context-menu-item" onClick={() => executeAction('pop_out')}>
+            <ExternalLink size={13} />
+            <span>Pop Out Player</span>
+          </div>
+          <div className="context-menu-item" onClick={() => executeAction('refresh_tile')}>
+            <RefreshCw size={13} />
+            <span>Refresh Tile (Reload)</span>
+          </div>
+
+          {video.folderFiles && video.folderFiles.length > 1 && (
             <>
-              <div className="context-menu-item danger" onClick={() => onAction('annihilate')}>
-                <Trash2 size={14} />
-                <span style={{ fontWeight: 800 }}>Recycle Bin</span>
+              <div className="context-menu-separator"></div>
+              <div className="context-menu-item" onClick={() => executeAction('prev-file')}>
+                <ChevronLeft size={13} />
+                <span>Previous File in Folder</span>
               </div>
-              <div className="context-menu-item danger" onClick={() => onAction('secure_delete')}>
-                <ShieldAlert size={14} />
-                <span style={{ fontWeight: 800 }}>Secure Delete</span>
+              <div className="context-menu-item" onClick={() => executeAction('next-file')}>
+                <ChevronRight size={13} />
+                <span>Next File in Folder</span>
               </div>
             </>
           )}
-        </>
+
+          {!isFocused && (
+            <>
+              <div className="context-menu-separator"></div>
+              <div className="context-menu-item" onClick={() => executeAction('select-all')}>
+                <CheckSquare size={13} />
+                <span>Select All Visible</span>
+              </div>
+              {selectedCount > 0 && (
+                <div className="context-menu-item" onClick={() => executeAction('deselect-all')}>
+                  <Square size={13} />
+                  <span>Deselect All</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
-    </div>
+
+      {/* 5. DELETE SUBMENU */}
+      {activeSubmenu === 'delete' && isTauri() && (
+        <div
+          className="context-menu"
+          style={submenuStyle}
+          onMouseEnter={cancelCloseSubmenu}
+          onMouseLeave={scheduleCloseSubmenu}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="context-menu-section-header">Disk Deletion</div>
+          <div className="context-menu-item danger" onClick={() => executeAction('annihilate')}>
+            <Trash2 size={13} />
+            <span style={{ fontWeight: 800 }}>Move to Recycle Bin</span>
+          </div>
+          <div className="context-menu-item danger" onClick={() => executeAction('secure_delete')}>
+            <ShieldAlert size={13} />
+            <span style={{ fontWeight: 800 }}>Secure Delete (Permanent)</span>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
-

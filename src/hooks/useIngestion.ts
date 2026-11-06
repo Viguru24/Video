@@ -133,13 +133,14 @@ export function useIngestion({
                 addLog(`Ingesting Folder: ${p} (${folderVids.length} items)`);
 
                 for (const v of folderVids) {
-                  const isVideo = isValidMediaExtension(v.url, 'video');
-                  const isPicture = isValidMediaExtension(v.url, 'picture');
+                  const filePath = (v as any).path || v.url || '';
+                  const isVideo = isValidMediaExtension(filePath, 'video');
+                  const isPicture = isValidMediaExtension(filePath, 'picture');
                   if (isVideo || isPicture) {
                     resolved.push({
-                      path: v.url,
+                      path: filePath,
                       name: v.name,
-                      url: toCosmoUrl(v.url),
+                      url: toCosmoUrl(filePath),
                       isVideo,
                       size: v.size,
                       modified: v.modified,

@@ -137,6 +137,7 @@ pub async fn get_folder_videos(path: String, mode: String) -> Result<Vec<serde_j
                 serde_json::json!({
                     "name": name,
                     "path": p.to_string_lossy().to_string(),
+                    "url": p.to_string_lossy().to_string(),
                     "size": size,
                     "modified": modified,
                     "created": created

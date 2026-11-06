@@ -38,16 +38,17 @@ export function useMediaImport({
 }: UseMediaImportProps) {
 
   const processFolderConversion = useCallback(async (
-    folderVids: { name: string; url: string; size?: number; modified?: number; created?: number }[],
+    folderVids: { name: string; url?: string; path?: string; size?: number; modified?: number; created?: number }[],
     mode: 'all' | 'video' | 'picture'
   ): Promise<{ name: string; url: string; size?: number; modified?: number; created?: number }[]> => {
     const resolved: { path: string; name: string; isVideo: boolean; size?: number; modified?: number; created?: number }[] = [];
     for (const v of folderVids) {
-      const isVideo = isValidMediaExtension(v.url, 'video');
-      const isPicture = isValidMediaExtension(v.url, 'picture');
+      const vPath = v.path || v.url || '';
+      const isVideo = isValidMediaExtension(vPath, 'video');
+      const isPicture = isValidMediaExtension(vPath, 'picture');
       if (isVideo || isPicture) {
         resolved.push({
-          path: v.url,
+          path: vPath,
           name: v.name,
           isVideo,
           size: v.size,
@@ -372,58 +373,19 @@ export function useMediaImport({
       try {
         const path = await invoke<string | null>('select_folder_cmd');
         if (path) {
-          const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path, mode: 'all' });
+          const folderVids = await invoke<{ name: string; url?: string; path?: string }[]>('get_folder_videos', { path, mode: 'all' });
           if (folderVids && folderVids.length > 0) {
-            const convertedVids = await processFolderConversion(folderVids, 'all');
-            if (convertedVids.length === 0) {
-              addLog(`System: No compatible native or converted files in folder.`);
+            const rawPaths = folderVids
+              .map(v => v.path || v.url || '')
+              .filter(p => p.length > 0);
+
+            if (rawPaths.length === 0) {
+              addLog(`System: No compatible media files found in folder.`);
               return;
             }
-            const folderWithUrls = convertedVids.map((v) => ({ 
-              name: v.name,
-              url: toCosmoUrl(v.url),
-              path: v.url,
-              size: v.size,
-              modified: v.modified,
-              created: v.created
-            }));
-
-            const folderVideos = convertedVids.filter(v => isValidMediaExtension(v.url, 'video')).length;
-            const folderPictures = convertedVids.filter(v => isValidMediaExtension(v.url, 'picture')).length;
-
-            let detectedMode: 'all' | 'video' | 'picture' = 'all';
-            if (folderVideos > 0 && folderPictures > 0) {
-              detectedMode = 'all';
-            } else if (folderPictures > 0) {
-              detectedMode = 'picture';
-            } else if (folderVideos > 0) {
-              detectedMode = 'video';
-            }
-
-            setVideos((p) => [
-              ...p,
-              {
-                id: generateUUID(),
-                url: toCosmoUrl(convertedVids[0].url),
-                realPath: convertedVids[0].url,
-                title: convertedVids[0].name,
-                repeatMode: 'folder',
-                repeatCount: 0,
-                cols: 1,
-                folderFiles: folderWithUrls,
-                folderPath: path,
-                folderMode: detectedMode,
-                currentIdx: 0,
-                playing: masterPlaying,
-                muted: masterMuted,
-                size: convertedVids[0].size,
-                modified: convertedVids[0].modified,
-                created: convertedVids[0].created
-              },
-            ]);
-
-            setMediaMode(detectedMode);
-            addLog(`Added folder: ${path} → Auto-switched to ${detectedMode === 'picture' ? 'Stills' : detectedMode === 'video' ? 'Video' : 'Both'} tab`);
+            await handleIngestPaths(rawPaths);
+          } else {
+            addLog(`System: No media files found in selected folder.`);
           }
         }
       } catch (e) {
@@ -432,7 +394,7 @@ export function useMediaImport({
     } else {
       addLog("Local Ingestion is optimized for Cosmo Symphony Native Desktop.");
     }
-  }, [mediaMode, setMediaMode, processFolderConversion, setVideos, masterPlaying, masterMuted, addLog]);
+  }, [handleIngestPaths, addLog]);
 
   const handleAddMediaFiles = useCallback(async () => {
     if (isTauri()) {
