@@ -426,7 +426,7 @@ export function ControlBar({
                 }}
                 data-no-drag
               >
-                <img src="/logo.png" style={{ height: '16px', objectFit: 'contain', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.85))' }} alt="Cosmo" />
+                <img src="/logo.png" style={{ height: '20px', width: '20px', objectFit: 'contain', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.85))' }} alt="Cosmo" />
                 <span style={{ 
                   fontSize: '11.5px', 
                   fontWeight: 800, 
