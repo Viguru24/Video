@@ -451,7 +451,8 @@ input[type="range"]:active::-webkit-slider-thumb {
 }
 
 .menu-item:hover,
-.context-menu-item:hover {
+.context-menu-item:hover,
+.context-menu-item.submenu-active {
   background: rgba(255, 255, 255, 0.075);
   color: #ffffff;
 }
