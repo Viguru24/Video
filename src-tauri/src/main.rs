@@ -25,8 +25,8 @@ pub static POPOUT_MEDIA_URL: std::sync::OnceLock<String> = std::sync::OnceLock::
 use commands::media::raw::{extract_embedded_jpeg_thumbnail, extract_raw_full_preview, is_raw_image_extension};
 
 fn main() {
-    // Set WebView2 environment variables to prevent sleep, background freezing, and white-screen issues:
-    let base_args = "--disable-features=msSleepingTabs,msEfficiencyMode,CalculateNativeWinOcclusion,ProcessPerSiteUpToLimit --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --disk-cache-size=1 --media-cache-size=1 --aggressive-cache-discard";
+    // Set WebView2 environment variables to allow background playback while preserving normal GPU caching and native occlusion culling:
+    let base_args = "--disable-features=msSleepingTabs,msEfficiencyMode --autoplay-policy=no-user-gesture-required";
     let browser_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
         Ok(existing) => format!("{} {}", existing, base_args),
         Err(_) => base_args.to_string(),
