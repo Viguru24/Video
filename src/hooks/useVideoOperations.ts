@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { VideoItem } from '../types';
-import { toCosmoUrl, toRealPath, isValidPictureExtension } from '../utils/videoUtils';
+import { toCosmoUrl, toRealPath, isValidPictureExtension, generateUUID } from '../utils/videoUtils';
 import { useStore } from '../store/useStore';
 
 interface UseVideoOperationsProps {
