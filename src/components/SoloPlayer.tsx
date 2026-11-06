@@ -181,7 +181,15 @@ export function SoloPlayer({
         }
       }}
     >
-      <div className="solo-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
+      <div 
+        className="solo-container" 
+        style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}
+        onDoubleClick={(e) => {
+          if (e.target === e.currentTarget) {
+            onExit();
+          }
+        }}
+      >
         <AnimatePresence mode="wait">
           {currentFocusedVideo && (
             <motion.div

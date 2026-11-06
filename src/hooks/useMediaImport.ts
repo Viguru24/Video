@@ -115,8 +115,8 @@ export function useMediaImport({
     return result;
   }, [addLog, setConvertingStatus]);
 
-  const handleIngestPaths = useCallback(async (paths: string[]) => {
-    if (!paths || paths.length === 0) return;
+  const handleIngestPaths = useCallback(async (paths: string[]): Promise<VideoItem[]> => {
+    if (!paths || paths.length === 0) return [];
     
     console.log("[useMediaImport] handleIngestPaths called with:", paths);
     addLog(`System: Ingesting ${paths.length} file(s)...`);
@@ -138,7 +138,7 @@ export function useMediaImport({
 
     if (resolved.length === 0) {
       console.warn("[useMediaImport] No files resolved as valid media.");
-      return;
+      return [];
     }
 
     // Phase 2: Check conversion
@@ -289,8 +289,10 @@ export function useMediaImport({
       }
 
       addLog(`System: Ingested ${newItems.length} file(s) into workspace.`);
+      return newItems;
     } else {
       console.warn("[useMediaImport] No items added to videos state (newItems is empty).");
+      return [];
     }
   }, [masterPlaying, masterMuted, setVideos, setMediaMode, addLog, setConvertingStatus]);
 

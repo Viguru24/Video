@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import type { VideoItem, RepeatMode, CollageItem, CollageConfig } from '../types';
 import type { UseVideoOperationsReturn } from '../hooks/useVideoOperations';
+import { normalizeMediaKey } from '../utils/videoUtils';
 import { ControlBar } from './ControlBar';
 import { VideoGrid } from './VideoGrid';
 import { TelemetrySystem } from './TelemetrySystem';
@@ -211,6 +212,23 @@ export const MainViewport: React.FC<MainViewportProps> = ({
   const effectiveSetCropBox = videoOps ? videoOps.setCropBox : setCropBox;
   const effectiveSetAspectRatio = videoOps ? videoOps.setAspectRatio : setAspectRatio;
 
+  const handleOpenFileAndExpand = React.useCallback(async (path: string) => {
+    const targetKey = normalizeMediaKey(path);
+    const existing = videos.find(v => 
+      (v.realPath && normalizeMediaKey(v.realPath) === targetKey) ||
+      (v.url && normalizeMediaKey(v.url) === targetKey)
+    );
+
+    if (existing) {
+      handleDeepFocus(existing.id);
+    } else {
+      const newItems = await handleIngestPaths([path]);
+      if (newItems && newItems.length > 0) {
+        handleDeepFocus(newItems[0].id);
+      }
+    }
+  }, [videos, handleDeepFocus, handleIngestPaths]);
+
   return (
     <div className="main-viewport-wrapper">
       <Suspense fallback={null}>
@@ -356,6 +374,7 @@ export const MainViewport: React.FC<MainViewportProps> = ({
 
             <InAppBrowser 
               onAddFile={(path) => handleIngestPaths([path])}
+              onOpenFile={handleOpenFileAndExpand}
               onAddMultipleFiles={handleIngestPaths}
               addLog={addLog}
             />

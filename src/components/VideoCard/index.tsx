@@ -45,6 +45,38 @@ function VideoCardInternal(props: VideoCardProps) {
     return isSingleVideo ? 'always' : 'folder';
   })();
 
+  const handleCardDoubleClick = React.useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('button') ||
+      target.closest('input') ||
+      target.closest('.drag-handle-mini') ||
+      target.closest('.scrub-container') ||
+      target.closest('.focused-scrub-container') ||
+      target.closest('.card-action-menu') ||
+      target.closest('.selection-indicator') ||
+      target.closest('.mini-controls') ||
+      target.closest('.zoom-hud-badge')
+    ) {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (props.isCropping) return;
+
+    if (!props.isFocused) {
+      props.onDeepFocus(state.videoRef.current ? state.videoRef.current.currentTime : undefined);
+    } else {
+      if (state.zoomScale > 1) {
+        state.resetZoom();
+      } else {
+        props.onCloseFocus();
+      }
+    }
+  }, [props.isCropping, props.isFocused, props.onDeepFocus, props.onCloseFocus, state.zoomScale, state.resetZoom, state.videoRef]);
+
   return (
     <motion.div
       ref={state.cardRef}
@@ -71,6 +103,7 @@ function VideoCardInternal(props: VideoCardProps) {
       onMouseDown={state.handleMouseDown}
       onTouchStart={state.handleTouchStart}
       onTouchEnd={state.handleTouchEnd}
+      onDoubleClick={handleCardDoubleClick}
       style={{
         borderColor: props.video.borderColor || undefined,
         touchAction: 'none'
@@ -371,13 +404,17 @@ function VideoCardInternal(props: VideoCardProps) {
           immersive={immersive}
         />
 
-        <div className="overlay-center" onClick={(e) => {
-          if ((props.selectionMode || e.shiftKey || e.ctrlKey || e.metaKey) && props.onToggleSelect) {
-            props.onToggleSelect(e.shiftKey, e.ctrlKey || e.metaKey);
-          } else if (!state.isImage) {
-            props.onUpdateVideo(props.video.id, { playing: !props.video.playing });
-          }
-        }}>
+        <div 
+          className="overlay-center" 
+          onClick={(e) => {
+            if ((props.selectionMode || e.shiftKey || e.ctrlKey || e.metaKey) && props.onToggleSelect) {
+              props.onToggleSelect(e.shiftKey, e.ctrlKey || e.metaKey);
+            } else if (!state.isImage) {
+              props.onUpdateVideo(props.video.id, { playing: !props.video.playing });
+            }
+          }}
+          onDoubleClick={handleCardDoubleClick}
+        >
           <div className="play-indicator-subtle" style={{ opacity: state.showControls ? 1 : 0 }}>
              {!props.selectionMode && !state.isImage && (props.video.playing ? <Pause size={24} fill="rgba(255,255,255,0.4)" color="transparent" /> : <Play size={24} fill="rgba(255,255,255,0.4)" color="transparent" />)}
           </div>
