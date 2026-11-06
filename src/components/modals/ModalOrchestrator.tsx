@@ -179,6 +179,8 @@ export function ModalOrchestrator({
   const setShowBatchRename = useStore((s) => s.setShowBatchRename);
   const metadataStudioTargets = useStore((s) => s.metadataStudioTargets);
   const setMetadataStudioTargets = useStore((s) => s.setMetadataStudioTargets);
+  const diffCompareTargets = useStore((s) => s.diffCompareTargets);
+  const setDiffCompareTargets = useStore((s) => s.setDiffCompareTargets);
 
   return (
     <>

@@ -73,20 +73,60 @@ if (typeof window !== 'undefined') {
 class ErrorBoundary extends React.Component<{children: React.ReactNode}> {
   state = { hasError: false, error: null };
   static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
-  componentDidCatch() {
+  componentDidCatch(error: any) {
+    console.error('[CRITICAL RUNTIME ERROR]', error);
+    try {
+      localStorage.setItem('cosmo_last_critical_error', JSON.stringify({
+        message: error?.message,
+        stack: error?.stack,
+        time: new Date().toISOString()
+      }));
+    } catch {}
     if (isTauri()) {
       try {
         getCurrentWindow().show().catch(() => {});
       } catch {}
     }
   }
+  handleClose = () => {
+    if (isTauri()) {
+      getCurrentWindow().close().catch(() => {});
+    } else {
+      window.close();
+    }
+  };
+  componentDidMount() {
+    window.addEventListener('keydown', this.handleKeyDown);
+  }
+  componentWillUnmount() {
+    window.removeEventListener('keydown', this.handleKeyDown);
+  }
+  handleKeyDown = (e: KeyboardEvent) => {
+    if ((this.state as any).hasError && (e.key === 'Escape' || (e.altKey && e.key === 'F4'))) {
+      this.handleClose();
+    }
+  };
   render() {
     if ((this.state as any).hasError) {
       return (
-        <div style={{ background: '#1a1a1a', color: '#ff4444', padding: '2rem', height: '100vh', fontFamily: 'monospace' }}>
-          <h1>SYSTEM CRITICAL ERROR</h1>
-          <pre>{(this.state as any).error?.stack || (this.state as any).error?.message}</pre>
-          <button onClick={() => window.location.reload()} style={{ background: '#ff4444', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer' }}>REBOOT SYSTEM</button>
+        <div style={{ background: '#09090b', color: '#ef4444', padding: '2.5rem', height: '100vh', boxSizing: 'border-box', fontFamily: 'monospace', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, letterSpacing: '0.05em' }}>SYSTEM CRITICAL ERROR</h1>
+            <button 
+              onClick={this.handleClose} 
+              style={{ background: 'rgba(255,255,255,0.08)', color: '#e4e4e7', border: '1px solid rgba(255,255,255,0.15)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              title="Close window"
+            >
+              ✕ Close
+            </button>
+          </div>
+          <pre style={{ flex: 1, overflow: 'auto', background: '#121215', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#fca5a5', fontSize: '13px', lineHeight: '1.5' }}>
+            {(this.state as any).error?.stack || (this.state as any).error?.message || 'Unknown error occurred'}
+          </pre>
+          <div style={{ display: 'flex', gap: '12px', marginTop: '1.5rem' }}>
+            <button onClick={() => window.location.reload()} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>REBOOT SYSTEM</button>
+            <button onClick={this.handleClose} style={{ background: '#27272a', color: '#e4e4e7', border: '1px solid rgba(255,255,255,0.1)', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>CLOSE APPLICATION</button>
+          </div>
         </div>
       );
     }
