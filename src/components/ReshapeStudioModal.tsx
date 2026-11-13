@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem } from '../types';
 import { convertToVideoUrl, toCosmoUrl } from '../utils/videoUtils';
@@ -55,6 +55,53 @@ export function ReshapeStudioModal({
 
   const originalImgRef = useRef<HTMLImageElement | null>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const renderCanvas = useCallback(() => {
+    const mainCanvas = canvasRef.current;
+    const offCanvas = offscreenCanvasRef.current;
+    if (!mainCanvas || !offCanvas) return;
+
+    mainCanvas.width = offCanvas.width;
+    mainCanvas.height = offCanvas.height;
+    const ctx = mainCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+    ctx.save();
+    const centerX = mainCanvas.width / 2;
+    const centerY = mainCanvas.height / 2;
+    ctx.translate(centerX, centerY);
+    ctx.scale(scaleX, scaleY);
+
+    if (showSplitView && originalImgRef.current) {
+      // 1. Draw edited canvas
+      ctx.drawImage(offCanvas, -centerX, -centerY);
+
+      // 2. Clip and draw original photo on left portion according to splitPos
+      const splitX = -centerX + mainCanvas.width * splitPos;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(-centerX, -centerY, mainCanvas.width * splitPos, mainCanvas.height);
+      ctx.clip();
+      ctx.drawImage(originalImgRef.current, -centerX, -centerY, mainCanvas.width, mainCanvas.height);
+      ctx.restore();
+
+      // 3. Draw vertical glowing divider line & handle
+      ctx.beginPath();
+      ctx.moveTo(splitX, -centerY);
+      ctx.lineTo(splitX, centerY);
+      ctx.strokeStyle = '#00ff88';
+      ctx.lineWidth = 4 / Math.max(scaleX, scaleY);
+      ctx.shadowColor = '#00ff88';
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+    } else {
+      ctx.drawImage(offCanvas, -centerX, -centerY);
+    }
+
+    ctx.restore();
+  }, [scaleX, scaleY, showSplitView, splitPos]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -264,56 +311,9 @@ export function ReshapeStudioModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, historyStep, historyStack, brushSize, showSplitView]);
 
-  const renderCanvas = () => {
-    const mainCanvas = canvasRef.current;
-    const offCanvas = offscreenCanvasRef.current;
-    if (!mainCanvas || !offCanvas) return;
-
-    mainCanvas.width = offCanvas.width;
-    mainCanvas.height = offCanvas.height;
-    const ctx = mainCanvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-
-    ctx.save();
-    const centerX = mainCanvas.width / 2;
-    const centerY = mainCanvas.height / 2;
-    ctx.translate(centerX, centerY);
-    ctx.scale(scaleX, scaleY);
-
-    if (showSplitView && originalImgRef.current) {
-      // 1. Draw edited canvas
-      ctx.drawImage(offCanvas, -centerX, -centerY);
-
-      // 2. Clip and draw original photo on left portion according to splitPos
-      const splitX = -centerX + mainCanvas.width * splitPos;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(-centerX, -centerY, mainCanvas.width * splitPos, mainCanvas.height);
-      ctx.clip();
-      ctx.drawImage(originalImgRef.current, -centerX, -centerY, mainCanvas.width, mainCanvas.height);
-      ctx.restore();
-
-      // 3. Draw vertical glowing divider line & handle
-      ctx.beginPath();
-      ctx.moveTo(splitX, -centerY);
-      ctx.lineTo(splitX, centerY);
-      ctx.strokeStyle = '#00ff88';
-      ctx.lineWidth = 4 / Math.max(scaleX, scaleY);
-      ctx.shadowColor = '#00ff88';
-      ctx.shadowBlur = 10;
-      ctx.stroke();
-    } else {
-      ctx.drawImage(offCanvas, -centerX, -centerY);
-    }
-
-    ctx.restore();
-  };
-
   useEffect(() => {
     if (isOpen) renderCanvas();
-  }, [scaleX, scaleY, showSplitView, splitPos, isOpen]);
+  }, [renderCanvas, isOpen]);
 
   // Professional 2D Vector Displacement Warp & Smooth Skin Brush
   const applySculptWarp = (cx: number, cy: number) => {

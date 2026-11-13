@@ -107,7 +107,7 @@ export function useLaunchArgs({
                 size = stats[0];
                 modified = stats[1];
                 created = stats[2];
-              } catch {}
+              } catch { /* ignore missing file stats */ }
               const newUnit = { 
                 id: generateUUID(), 
                 url: toCosmoUrl(finalPath), 

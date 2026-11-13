@@ -11,11 +11,12 @@ import { useBrowserDirectory } from './browser/useBrowserDirectory';
 import { BrowserToolbar } from './browser/BrowserToolbar';
 import { BrowserBatchBar } from './browser/BrowserBatchBar';
 import { isValidMediaExtension } from '../utils/videoUtils';
+import type { VideoItem } from '../types';
 
 interface InAppBrowserProps {
   onAddFile: (path: string) => void;
   onOpenFile?: (path: string) => void;
-  onAddMultipleFiles: (paths: string[]) => void;
+  onAddMultipleFiles: (paths: string[]) => Promise<VideoItem[] | void> | void;
   addLog: (msg: string) => void;
 }
 
@@ -52,7 +53,7 @@ export function InAppBrowser({ onAddFile, onOpenFile, onAddMultipleFiles, addLog
   const [isPinned, setIsPinned] = useState(() => {
     return localStorage.getItem('cosmo-inapp-browser-pinned') === 'true';
   });
-  const hoverLeaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [browserWidth, setBrowserWidth] = useState<number>(() => {
     const saved = localStorage.getItem('cosmo-inapp-browser-width');

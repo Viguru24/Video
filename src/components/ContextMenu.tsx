@@ -21,6 +21,14 @@ interface ContextMenuProps {
   isSelected?: boolean;
 }
 
+const SUBMENU_HEIGHTS: Record<string, number> = {
+  ai: 250,
+  metadata: 180,
+  file: 280,
+  view: 240,
+  delete: 95,
+};
+
 export function ContextMenu({
   x,
   y,
@@ -38,10 +46,12 @@ export function ContextMenu({
   const fileTriggerRef = useRef<HTMLDivElement>(null);
   const viewTriggerRef = useRef<HTMLDivElement>(null);
   const deleteTriggerRef = useRef<HTMLDivElement>(null);
-  const closeSubmenuTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const closeSubmenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openSubmenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const [submenuPos, setSubmenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [isSubmenuOnRight, setIsSubmenuOnRight] = useState<boolean>(true);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
 
   const effectivePath = video 
@@ -85,6 +95,7 @@ export function ContextMenu({
     return () => {
       clearTimeout(timer);
       if (closeSubmenuTimerRef.current) clearTimeout(closeSubmenuTimerRef.current);
+      if (openSubmenuTimerRef.current) clearTimeout(openSubmenuTimerRef.current);
       window.removeEventListener('click', handleClickOutside);
       window.removeEventListener('contextmenu', handleClickOutside);
       window.removeEventListener('keydown', handleKeyDown);
@@ -125,32 +136,87 @@ export function ContextMenu({
       clearTimeout(closeSubmenuTimerRef.current);
       closeSubmenuTimerRef.current = null;
     }
+    if (openSubmenuTimerRef.current) {
+      clearTimeout(openSubmenuTimerRef.current);
+      openSubmenuTimerRef.current = null;
+    }
     if (!elem) return;
     const rect = elem.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const SUBMENU_W = 215;
+    const subH = SUBMENU_HEIGHTS[name] || 220;
 
-    const left = rect.right + SUBMENU_W + 8 <= vw 
-      ? rect.right - 2 
-      : Math.max(8, rect.left - SUBMENU_W + 2);
-    const top = Math.min(Math.max(8, rect.top - 4), vh - 260);
+    const onRight = rect.right + SUBMENU_W + 8 <= vw;
+    setIsSubmenuOnRight(onRight);
+
+    // Provide 4px overlap between menu and submenu so there is zero physical gap
+    const left = onRight 
+      ? rect.right - 4 
+      : Math.max(8, rect.left - SUBMENU_W + 4);
+
+    // Start submenu aligned with the top of the trigger row
+    let top = rect.top - 4;
+    // If the submenu would exceed the bottom of the viewport, align with bottom of trigger or clamp
+    if (top + subH > vh - 8) {
+      top = Math.max(8, Math.min(rect.bottom - subH + 4, vh - subH - 8));
+    }
 
     setSubmenuPos({ top, left });
     setActiveSubmenu(name);
   };
 
+  const handleTriggerEnter = (name: string, elem: HTMLElement | null) => {
+    if (closeSubmenuTimerRef.current) {
+      clearTimeout(closeSubmenuTimerRef.current);
+      closeSubmenuTimerRef.current = null;
+    }
+    if (openSubmenuTimerRef.current) {
+      clearTimeout(openSubmenuTimerRef.current);
+      openSubmenuTimerRef.current = null;
+    }
+
+    if (activeSubmenu === name) return;
+
+    if (!activeSubmenu) {
+      openSubmenu(name, elem);
+    } else {
+      // Grace debounce before switching to avoid accidental triggers while moving diagonally
+      openSubmenuTimerRef.current = setTimeout(() => {
+        openSubmenu(name, elem);
+      }, 140);
+    }
+  };
+
+  const handleNonSubmenuItemEnter = () => {
+    if (openSubmenuTimerRef.current) {
+      clearTimeout(openSubmenuTimerRef.current);
+      openSubmenuTimerRef.current = null;
+    }
+    if (activeSubmenu) {
+      scheduleCloseSubmenu();
+    }
+  };
+
   const scheduleCloseSubmenu = () => {
+    if (openSubmenuTimerRef.current) {
+      clearTimeout(openSubmenuTimerRef.current);
+      openSubmenuTimerRef.current = null;
+    }
     if (closeSubmenuTimerRef.current) clearTimeout(closeSubmenuTimerRef.current);
     closeSubmenuTimerRef.current = setTimeout(() => {
       setActiveSubmenu(null);
-    }, 150);
+    }, 350);
   };
 
   const cancelCloseSubmenu = () => {
     if (closeSubmenuTimerRef.current) {
       clearTimeout(closeSubmenuTimerRef.current);
       closeSubmenuTimerRef.current = null;
+    }
+    if (openSubmenuTimerRef.current) {
+      clearTimeout(openSubmenuTimerRef.current);
+      openSubmenuTimerRef.current = null;
     }
   };
 
@@ -191,6 +257,22 @@ export function ContextMenu({
     gap: '1px',
     boxSizing: 'border-box'
   };
+
+  const renderSubmenuBridge = () => (
+    <div
+      style={{
+        position: 'absolute',
+        top: -10,
+        bottom: -10,
+        ...(isSubmenuOnRight ? { left: -24 } : { right: -24 }),
+        width: 28,
+        pointerEvents: 'auto',
+        background: 'transparent',
+        zIndex: 1000002,
+      }}
+      onMouseEnter={cancelCloseSubmenu}
+    />
+  );
 
   const isMulti = selectedCount > 1 && isSelected;
 
@@ -357,30 +439,30 @@ export function ContextMenu({
         {/* PRIMARY QUICK ACTIONS */}
         {!isImage ? (
           <>
-            <div className="context-menu-item" onClick={() => executeAction('play')}>
+            <div className="context-menu-item" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('play')}>
               {video.playing ? <Pause size={13} /> : <Play size={13} />}
               <span>{video.playing ? 'Pause Video' : 'Play Video'}</span>
             </div>
-            <div className="context-menu-item" onClick={() => executeAction('mute')}>
+            <div className="context-menu-item" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('mute')}>
               {video.muted ? <Volume2 size={13} /> : <VolumeX size={13} />}
               <span>{video.muted ? 'Unmute Audio' : 'Mute Audio'}</span>
             </div>
-            <div className="context-menu-item" onClick={() => executeAction('color-adjust')}>
+            <div className="context-menu-item" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('color-adjust')}>
               <Sliders size={13} />
               <span>Color Adjustment</span>
             </div>
           </>
         ) : (
           <>
-            <div className="context-menu-item" onClick={() => executeAction('color-adjust')}>
+            <div className="context-menu-item" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('color-adjust')}>
               <Sliders size={13} />
               <span>Color Adjustment</span>
             </div>
-            <div className="context-menu-item" onClick={() => executeAction('crop')}>
+            <div className="context-menu-item" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('crop')}>
               <Crop size={13} />
               <span>Crop Image</span>
             </div>
-            <div className="context-menu-item" onClick={() => executeAction('resize')}>
+            <div className="context-menu-item" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('resize')}>
               <Minimize2 size={13} />
               <span>Rescale / Resize</span>
             </div>
@@ -389,7 +471,7 @@ export function ContextMenu({
 
         {/* QUICK MULTI-RENAME IF SELECTED */}
         {isMulti && (
-          <div className="context-menu-item accent-text" onClick={() => executeAction('rename_selected')} style={{ fontWeight: 600 }}>
+          <div className="context-menu-item accent-text" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('rename_selected')} style={{ fontWeight: 600 }}>
             <Edit2 size={13} style={{ color: 'var(--accent, #00ff88)' }} />
             <span>Rename Selected ({selectedCount})</span>
           </div>
@@ -401,7 +483,7 @@ export function ContextMenu({
         <div
           ref={aiTriggerRef}
           className={`context-menu-item submenu-trigger ${activeSubmenu === 'ai' ? 'submenu-active' : ''}`}
-          onMouseEnter={() => openSubmenu('ai', aiTriggerRef.current)}
+          onMouseEnter={() => handleTriggerEnter('ai', aiTriggerRef.current)}
           onClick={(e) => { e.stopPropagation(); openSubmenu('ai', aiTriggerRef.current); }}
         >
           <Sparkles size={13} style={{ color: 'var(--accent, #00ff88)' }} />
@@ -414,7 +496,7 @@ export function ContextMenu({
           <div
             ref={metadataTriggerRef}
             className={`context-menu-item submenu-trigger ${activeSubmenu === 'metadata' ? 'submenu-active' : ''}`}
-            onMouseEnter={() => openSubmenu('metadata', metadataTriggerRef.current)}
+            onMouseEnter={() => handleTriggerEnter('metadata', metadataTriggerRef.current)}
             onClick={(e) => { e.stopPropagation(); openSubmenu('metadata', metadataTriggerRef.current); }}
           >
             <FileCode2 size={13} style={{ color: '#fbbf24' }} />
@@ -428,7 +510,7 @@ export function ContextMenu({
           <div
             ref={fileTriggerRef}
             className={`context-menu-item submenu-trigger ${activeSubmenu === 'file' ? 'submenu-active' : ''}`}
-            onMouseEnter={() => openSubmenu('file', fileTriggerRef.current)}
+            onMouseEnter={() => handleTriggerEnter('file', fileTriggerRef.current)}
             onClick={(e) => { e.stopPropagation(); openSubmenu('file', fileTriggerRef.current); }}
           >
             <FolderOpen size={13} />
@@ -441,7 +523,7 @@ export function ContextMenu({
         <div
           ref={viewTriggerRef}
           className={`context-menu-item submenu-trigger ${activeSubmenu === 'view' ? 'submenu-active' : ''}`}
-          onMouseEnter={() => openSubmenu('view', viewTriggerRef.current)}
+          onMouseEnter={() => handleTriggerEnter('view', viewTriggerRef.current)}
           onClick={(e) => { e.stopPropagation(); openSubmenu('view', viewTriggerRef.current); }}
         >
           <ExternalLink size={13} />
@@ -452,7 +534,7 @@ export function ContextMenu({
         <div className="context-menu-separator"></div>
 
         {/* REMOVE FROM GRID */}
-        <div className="context-menu-item" onClick={() => executeAction('decommission')}>
+        <div className="context-menu-item" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('decommission')}>
           <Trash2 size={13} />
           <span>Remove from Grid</span>
         </div>
@@ -462,7 +544,7 @@ export function ContextMenu({
           <div
             ref={deleteTriggerRef}
             className={`context-menu-item danger submenu-trigger ${activeSubmenu === 'delete' ? 'submenu-active' : ''}`}
-            onMouseEnter={() => openSubmenu('delete', deleteTriggerRef.current)}
+            onMouseEnter={() => handleTriggerEnter('delete', deleteTriggerRef.current)}
             onClick={(e) => { e.stopPropagation(); openSubmenu('delete', deleteTriggerRef.current); }}
           >
             <Trash2 size={13} />
@@ -475,7 +557,7 @@ export function ContextMenu({
         {isFocused && (
           <>
             <div className="context-menu-separator"></div>
-            <div className="context-menu-item" onClick={() => executeAction('exit-focus')} style={{ fontWeight: 'bold' }}>
+            <div className="context-menu-item" onMouseEnter={handleNonSubmenuItemEnter} onClick={() => executeAction('exit-focus')} style={{ fontWeight: 'bold' }}>
               <Minimize2 size={13} />
               <span>Exit Focus Mode</span>
             </div>
@@ -496,6 +578,7 @@ export function ContextMenu({
           onMouseLeave={scheduleCloseSubmenu}
           onClick={(e) => e.stopPropagation()}
         >
+          {renderSubmenuBridge()}
           <div className="context-menu-section-header">Creative AI Tools</div>
           <div className="context-menu-item accent-text" onClick={() => executeAction('upscale')} style={{ fontWeight: 'bold' }}>
             <Sparkles size={13} style={{ color: 'var(--accent, #00ff88)' }} />
@@ -550,6 +633,7 @@ export function ContextMenu({
           onMouseLeave={scheduleCloseSubmenu}
           onClick={(e) => e.stopPropagation()}
         >
+          {renderSubmenuBridge()}
           <div className="context-menu-section-header">Metadata & Privacy</div>
           <div 
             className="context-menu-item accent-text" 
@@ -595,6 +679,7 @@ export function ContextMenu({
           onMouseLeave={scheduleCloseSubmenu}
           onClick={(e) => e.stopPropagation()}
         >
+          {renderSubmenuBridge()}
           <div className="context-menu-section-header">File Operations</div>
           <div className="context-menu-item" onClick={() => executeAction('folder')}>
             <FolderOpen size={13} />
@@ -636,6 +721,7 @@ export function ContextMenu({
           onMouseLeave={scheduleCloseSubmenu}
           onClick={(e) => e.stopPropagation()}
         >
+          {renderSubmenuBridge()}
           <div className="context-menu-section-header">View & Selection</div>
           <div className="context-menu-item" onClick={() => executeAction('pop_out')}>
             <ExternalLink size={13} />
@@ -687,6 +773,7 @@ export function ContextMenu({
           onMouseLeave={scheduleCloseSubmenu}
           onClick={(e) => e.stopPropagation()}
         >
+          {renderSubmenuBridge()}
           <div className="context-menu-section-header">Disk Deletion</div>
           <div className="context-menu-item danger" onClick={() => executeAction('annihilate')}>
             <Trash2 size={13} />

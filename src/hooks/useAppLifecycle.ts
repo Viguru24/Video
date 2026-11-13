@@ -33,6 +33,33 @@ export function useAppLifecycle(isPopout: boolean) {
     };
   }, [isPopout]);
 
+  // Pause playing video elements when the window/tab is hidden/minimized and resume on return
+  useEffect(() => {
+    const pausedByHide = new Set<HTMLVideoElement>();
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        document.querySelectorAll('video').forEach((v) => {
+          if (!v.paused && !v.ended) {
+            pausedByHide.add(v);
+            v.pause();
+          }
+        });
+      } else if (pausedByHide.size > 0) {
+        pausedByHide.forEach((v) => {
+          if (v.isConnected) {
+            v.play().catch(() => {});
+          }
+        });
+        pausedByHide.clear();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      pausedByHide.clear();
+    };
+  }, []);
+
   useEffect(() => {
     if (!isTauri() || isPopout) return;
 

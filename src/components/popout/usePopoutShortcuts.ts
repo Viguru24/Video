@@ -118,7 +118,7 @@ export function usePopoutShortcuts({
         e.preventDefault();
         e.stopPropagation();
         const currentMode = activeVideo?.repeatMode || (localStorage.getItem('cosmo-repeat') || 'folder');
-        let nextMode: 'none' | 'always' | 'folder' = 'none';
+        let nextMode: 'none' | 'always' | 'folder';
         if (currentMode === 'none') nextMode = 'always';
         else if (currentMode === 'always') nextMode = 'folder';
         else nextMode = 'none';

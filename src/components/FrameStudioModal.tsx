@@ -286,7 +286,7 @@ export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos, onF
     ctx.drawImage(imgEl, x, y, w, h);
 
     // Physical Inset Shadow (makes the photo sit realistically recessed inside the wood molding)
-    if (framePreset !== 'none' && pad > 4) {
+    if (pad > 4) {
       const shadowSpread = Math.min(22 * scaleFactor, pad * 0.8);
       // Top-Left deep inner shadow
       const innerShadowTL = ctx.createLinearGradient(x, y, x + shadowSpread, y + shadowSpread);

@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'src-tauri/**', 'scratch/**', '.cosmo_models/**', 'gfpgan/**', 'companion-android/**', 'test_models/**']),
+  globalIgnores(['dist', 'src-tauri/**', 'scratch/**', '.cosmo_models/**', '.cosmo_cpu_venv/**', 'gfpgan/**', 'companion-android/**', 'test_models/**', 'pyinstaller_build/**', 'pyinstaller_build_cpu/**', 'backup/**', 'electron/**', 'CosmoSymphony-Package/**']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

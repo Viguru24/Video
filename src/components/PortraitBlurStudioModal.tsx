@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem } from '../types';
-import { convertToVideoUrl, toRealPath, toCosmoUrl } from '../utils/videoUtils';
+import { toRealPath, toCosmoUrl } from '../utils/videoUtils';
 import { useStore } from '../store/useStore';
 
 interface PortraitBlurStudioModalProps {
@@ -134,7 +134,7 @@ export function PortraitBlurStudioModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, showSplitView]);
 
-  const renderCanvas = () => {
+  const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const origImg = originalImgRef.current;
     const cutoutImg = cutoutImgRef.current;
@@ -214,11 +214,11 @@ export function PortraitBlurStudioModal({
       ctx.fillStyle = 'var(--accent, #00ff88)';
       ctx.fillText('AI PORTRAIT', splitX + 15, 34);
     }
-  };
+  }, [blurRadius, edgeTrim, antiHaloBleed, subjectBrightness, showSplitView, splitPos]);
 
   useEffect(() => {
     if (isOpen && !isLoadingAi) renderCanvas();
-  }, [blurRadius, edgeTrim, antiHaloBleed, subjectBrightness, showSplitView, splitPos, isLoadingAi, isOpen]);
+  }, [isOpen, isLoadingAi, renderCanvas]);
 
   const handleSavePortraitBlur = async (saveAsCopy: boolean = true) => {
     const canvas = canvasRef.current;

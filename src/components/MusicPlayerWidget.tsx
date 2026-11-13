@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import type { VideoItem, RepeatMode } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,65 +15,10 @@ import {
   ListMusic,
   Disc,
   Folder,
-  FolderOpen,
-  ChevronDown,
-  ChevronUp,
   ChevronRight,
-  X,
-  Layers
+  X
 } from 'lucide-react';
-import { toCosmoUrl } from '../utils/videoUtils';
-
-// Helper to determine if a video item is an audio file
-export function isAudioFile(path: string): boolean {
-  if (!path) return false;
-  const ext = path.split('.').pop()?.toLowerCase() ?? '';
-  return ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'wma', 'aac', 'alac', 'mp3a'].includes(ext);
-}
-
-// Struct to represent parsed song information
-export interface SongInfo {
-  band: string;
-  album: string;
-  title: string;
-}
-
-export function parseSongInfo(video: VideoItem): SongInfo {
-  if (video.realPath) {
-    const parts = video.realPath.split(/[\\/]/);
-    if (parts.length >= 3) {
-      const title = parts[parts.length - 1].replace(/\.[^/.]+$/, "");
-      const album = parts[parts.length - 2];
-      const band = parts[parts.length - 3];
-      
-      const genericFolders = ['music', 'download', 'downloads', 'documents', 'desktop', 'github', 'video', 'audios', 'assets', 'vocal', 'instrumental'];
-      if (!genericFolders.includes(band.toLowerCase())) {
-        return { band, album, title };
-      }
-    }
-  }
-
-  const titleParts = video.title.split(' - ');
-  if (titleParts.length >= 3) {
-    return {
-      band: titleParts[0].trim(),
-      album: titleParts[1].trim(),
-      title: titleParts.slice(2).join(' - ').replace(/\.[^/.]+$/, "").trim()
-    };
-  } else if (titleParts.length === 2) {
-    return {
-      band: titleParts[0].trim(),
-      album: "Single",
-      title: titleParts[1].replace(/\.[^/.]+$/, "").trim()
-    };
-  }
-
-  return {
-    band: "Unknown Artist",
-    album: "Unknown Album",
-    title: video.title.replace(/\.[^/.]+$/, "")
-  };
-}
+import { isAudioFile, parseSongInfo } from '../utils/audioUtils';
 
 interface MusicPlayerWidgetProps {
   videos: VideoItem[];
@@ -88,7 +33,6 @@ export function MusicPlayerWidget({ videos, setVideos }: MusicPlayerWidgetProps)
     setMusicPlayerExpanded,
     currentPlayingSongId,
     setCurrentPlayingSongId,
-    masterPlaying,
     setMasterPlaying,
     masterMuted,
     setMasterMuted,
@@ -251,11 +195,15 @@ export function MusicPlayerWidget({ videos, setVideos }: MusicPlayerWidgetProps)
 
     const findAudioElement = () => {
       // Find the html5 video/audio element inside the grid matching activeSong.id
-      const videoEl = document.querySelector(`[data-id="${activeSong.id}"] video`) as HTMLVideoElement;
-      return videoEl;
+      return document.querySelector(`[data-id="${activeSong.id}"] video`) as HTMLVideoElement | null;
     };
 
-    let intervalId: any;
+    const formatTime = (time: number) => {
+      const mins = Math.floor(time / 60);
+      const secs = Math.floor(time % 60).toString().padStart(2, '0');
+      return `${mins}:${secs}`;
+    };
+
     const updateProgress = () => {
       const audio = findAudioElement();
       if (audio) {
@@ -263,21 +211,33 @@ export function MusicPlayerWidget({ videos, setVideos }: MusicPlayerWidgetProps)
         const dur = audio.duration || 0;
         if (dur > 0) {
           setSongProgress((cur / dur) * 100);
-          
-          const formatTime = (time: number) => {
-            const mins = Math.floor(time / 60);
-            const secs = Math.floor(time % 60).toString().padStart(2, '0');
-            return `${mins}:${secs}`;
-          };
-          
           setCurrentTimeStr(formatTime(cur));
           setDurationStr(formatTime(dur));
         }
       }
     };
 
-    intervalId = setInterval(updateProgress, 300);
-    return () => clearInterval(intervalId);
+    updateProgress();
+    if (!activeSong.playing) return;
+
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const syncTimer = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      if (!document.hidden) {
+        updateProgress();
+        intervalId = setInterval(updateProgress, 500);
+      }
+    };
+
+    syncTimer();
+    document.addEventListener('visibilitychange', syncTimer);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', syncTimer);
+    };
   }, [activeSong]);
 
   const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -441,9 +401,9 @@ export function MusicPlayerWidget({ videos, setVideos }: MusicPlayerWidgetProps)
                                         >
                                           {isPlaying && song.playing ? (
                                             <span style={{ display: 'inline-flex', gap: '1px', marginRight: '6px', alignItems: 'flex-end', height: '8px' }}>
-                                              <span className="visualizer-bar" style={{ width: '2px', height: '8px', background: 'var(--accent, #00ff88)', animation: 'bounce-bar 0.6s infinite alternate' }} />
-                                              <span className="visualizer-bar" style={{ width: '2px', height: '5px', background: 'var(--accent, #00ff88)', animation: 'bounce-bar 0.6s infinite alternate 0.2s' }} />
-                                              <span className="visualizer-bar" style={{ width: '2px', height: '7px', background: 'var(--accent, #00ff88)', animation: 'bounce-bar 0.6s infinite alternate 0.4s' }} />
+                                              <span className="visualizer-bar" style={{ width: '2px', height: '8px', background: 'var(--accent, #00ff88)', animation: 'bounce-bar 0.6s infinite alternate', willChange: 'transform', transformOrigin: 'bottom' }} />
+                                              <span className="visualizer-bar" style={{ width: '2px', height: '5px', background: 'var(--accent, #00ff88)', animation: 'bounce-bar 0.6s infinite alternate 0.2s', willChange: 'transform', transformOrigin: 'bottom' }} />
+                                              <span className="visualizer-bar" style={{ width: '2px', height: '7px', background: 'var(--accent, #00ff88)', animation: 'bounce-bar 0.6s infinite alternate 0.4s', willChange: 'transform', transformOrigin: 'bottom' }} />
                                             </span>
                                           ) : (
                                             <Music size={9} style={{ marginRight: '6px', opacity: 0.5 }} />
@@ -488,7 +448,7 @@ export function MusicPlayerWidget({ videos, setVideos }: MusicPlayerWidgetProps)
           backdropFilter: 'blur(20px)',
           cursor: 'pointer'
         }}
-        onClick={(e) => {
+        onClick={() => {
           if (!musicPlayerExpanded) {
             setMusicPlayerExpanded(true);
           }

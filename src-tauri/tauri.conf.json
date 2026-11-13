@@ -22,12 +22,11 @@
         "transparent": false,
         "shadow": true,
         "visible": false,
-        "devtools": true,
         "backgroundColor": "#09090b"
       }
     ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' asset: cosmo: http://localhost:* http://127.0.0.1:* ws://localhost:*; img-src 'self' asset: cosmo: data: blob: https://asset.localhost http://asset.localhost https://cosmo.localhost http://cosmo.localhost; media-src 'self' asset: cosmo: blob: data: https://asset.localhost http://asset.localhost https://cosmo.localhost http://cosmo.localhost *; connect-src 'self' cosmo: http://localhost:* http://127.0.0.1:* ws://localhost:* ipc.localhost:* http://cosmo.localhost https://cosmo.localhost; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;",
+      "csp": "default-src 'self' 'unsafe-inline' asset: cosmo: http://localhost:* http://127.0.0.1:* ws://localhost:*; script-src 'self' 'unsafe-inline' http://localhost:* http://127.0.0.1:*; img-src 'self' asset: cosmo: data: blob: https://asset.localhost http://asset.localhost https://cosmo.localhost http://cosmo.localhost; media-src 'self' asset: cosmo: blob: data: https://asset.localhost http://asset.localhost https://cosmo.localhost http://cosmo.localhost; connect-src 'self' cosmo: http://localhost:* http://127.0.0.1:* ws://localhost:* ipc.localhost:* http://cosmo.localhost https://cosmo.localhost; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;",
       "assetProtocol": {
         "enable": true,
         "scope": [

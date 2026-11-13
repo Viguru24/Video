@@ -51,7 +51,11 @@ export function RenameProtocolModal({
       return;
     }
 
-    const targetPath = toRealPath(target.realPath) || target.realPath;
+    const targetPath = toRealPath(target.realPath) || target.realPath || '';
+    if (!targetPath) {
+      setNextSequenceNum(1);
+      return;
+    }
     const lastSlash = Math.max(targetPath.lastIndexOf('\\'), targetPath.lastIndexOf('/'));
     const parentDir = lastSlash !== -1 ? targetPath.substring(0, lastSlash) : '';
 
@@ -90,7 +94,8 @@ export function RenameProtocolModal({
     const prefix = singleRenameValue.trim();
     if (!prefix) return;
 
-    const targetPath = toRealPath(target.realPath) || target.realPath;
+    const targetPath = toRealPath(target.realPath) || target.realPath || '';
+    if (!targetPath) return;
     const seqNum = nextSequenceNum || 1;
     const newName = `${prefix}_${String(seqNum).padStart(3, '0')}`;
 

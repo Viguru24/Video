@@ -16,12 +16,12 @@ export function useCollagePersistence() {
   useEffect(() => {
     invoke<string | null>('load_persistence', { key: 'cosmo-collage' }).then(saved => {
       if (saved) {
-        try { const p = JSON.parse(saved); if (Array.isArray(p)) setCollageItems(p); } catch {}
+        try { const p = JSON.parse(saved); if (Array.isArray(p)) setCollageItems(p); } catch { /* ignore malformed saved collage JSON */ }
       }
     }).catch(() => {});
     invoke<string | null>('load_persistence', { key: 'cosmo-collage-cfg' }).then(saved => {
       if (saved) {
-        try { const p = JSON.parse(saved); if (p?.backgroundValue) { if (/0d081b|2a0845|150d2e/i.test(p.backgroundValue)) p.backgroundValue = 'linear-gradient(135deg, #09090b 0%, #141418 50%, #050507 100%)'; setCollageConfig(p); } } catch {}
+        try { const p = JSON.parse(saved); if (p?.backgroundValue) { if (/0d081b|2a0845|150d2e/i.test(p.backgroundValue)) p.backgroundValue = 'linear-gradient(135deg, #09090b 0%, #141418 50%, #050507 100%)'; setCollageConfig(p); } } catch { /* ignore malformed saved collage config JSON */ }
       }
     }).catch(() => {});
   }, []);

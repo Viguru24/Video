@@ -9,7 +9,7 @@ export interface UseVideoCardSnapshotProps {
   isImage: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   snapshotDir?: string;
-  setSnapshotDir?: (dir: string) => void;
+  setSnapshotDir?: React.Dispatch<React.SetStateAction<string>>;
   onLog: (msg: string) => void;
   onAddVideo?: (newVideo: VideoItem) => void;
 }
@@ -24,6 +24,22 @@ export function useVideoCardSnapshot({
   onAddVideo
 }: UseVideoCardSnapshotProps) {
   const [snapshotToast, setSnapshotToast] = useState<number | null>(null);
+
+  const emitSnapshotUnit = useCallback((path: string, fileName: string) => {
+    if (!onAddVideo) return;
+    onAddVideo({
+      id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      title: fileName.replace('.png', ''),
+      url: toCosmoUrl(path),
+      realPath: path,
+      currentTime: 0,
+      repeatMode: 'none',
+      repeatCount: 0,
+      cols: 1,
+      playing: false,
+      muted: true
+    });
+  }, [onAddVideo]);
 
   const takeSnapshot = useCallback(async () => {
     try {
@@ -66,19 +82,7 @@ export function useVideoCardSnapshot({
           if (isTauri()) {
             const path = await invoke<string>('save_snapshot', { base64Data: base64, fileName, customDir: dirToUse });
             onLog(`SUCCESS: Snapshot saved to: ${path}`);
-            
-            if (onAddVideo) {
-              onAddVideo({
-                id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                title: fileName.replace('.png', ''),
-                url: toCosmoUrl(path),
-                realPath: path,
-                currentTime: 0,
-                repeatMode: 'none',
-                playing: false,
-                muted: true
-              });
-            }
+            emitSnapshotUnit(path, fileName);
           } else {
             const link = document.createElement('a');
             link.download = fileName;
@@ -132,19 +136,7 @@ export function useVideoCardSnapshot({
           });
 
           onLog(`SUCCESS: Snapshot saved to: ${path}`);
-
-          if (onAddVideo) {
-            onAddVideo({
-              id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              title: fileName.replace('.png', ''),
-              url: toCosmoUrl(path),
-              realPath: path,
-              currentTime: 0,
-              repeatMode: 'none',
-              playing: false,
-              muted: true
-            });
-          }
+          emitSnapshotUnit(path, fileName);
         } catch (err: any) {
           onLog(`SYSTEM: Native snapshot failed (${err.message || err}). Trying Canvas client-side fallback...`);
           if (v && v.videoWidth > 0) {
@@ -153,7 +145,7 @@ export function useVideoCardSnapshot({
               canvas.width = v.videoWidth;
               canvas.height = v.videoHeight;
               const ctx = canvas.getContext('2d');
-              if (!ctx) throw new Error("Could not create canvas context");
+              if (!ctx) throw new Error("Could not create canvas context", { cause: err });
               ctx.drawImage(v, 0, 0, v.videoWidth, v.videoHeight);
               const base64 = canvas.toDataURL('image/png');
               const path = await invoke<string>('save_snapshot', {
@@ -162,18 +154,7 @@ export function useVideoCardSnapshot({
                 customDir: dirToUse || null
               });
               onLog(`SUCCESS (Canvas Fallback): Snapshot saved to: ${path}`);
-              if (onAddVideo) {
-                onAddVideo({
-                  id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                  title: fileName.replace('.png', ''),
-                  url: toCosmoUrl(path),
-                  realPath: path,
-                  currentTime: 0,
-                  repeatMode: 'none',
-                  playing: false,
-                  muted: true
-                });
-              }
+              emitSnapshotUnit(path, fileName);
             } catch (fallbackErr: any) {
               onLog(`ERROR: Snapshot failed entirely: ${fallbackErr.message || fallbackErr}`);
             }
@@ -259,7 +240,7 @@ export function useVideoCardSnapshot({
         onLog(`CRITICAL ERROR: Snapshot failed - ${errMsg}`);
       }
     }
-  }, [video.title, video.id, video.realPath, video.rotation, video.currentTime, video.url, snapshotDir, setSnapshotDir, onLog, isImage, onAddVideo, videoRef]);
+  }, [video.title, video.id, video.realPath, video.rotation, video.currentTime, video.url, snapshotDir, setSnapshotDir, onLog, isImage, emitSnapshotUnit, videoRef]);
 
   return {
     snapshotToast,

@@ -3,7 +3,7 @@ import {
   Rewind, FastForward, Play, Pause, RefreshCw, RotateCcw,
   ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { formatTime } from './TrimCropToolbar';
+import { formatTime } from './trimCropUtils';
 
 interface TrimCropTimelineProps {
   timelineRef: React.RefObject<HTMLDivElement | null>;

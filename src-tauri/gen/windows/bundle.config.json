@@ -14,8 +14,8 @@
     "protocolHandlers": []
   },
   "signing": {
-    "pfx": "src-tauri/certificates/dev.pfx",
-    "pfxPassword": "[REDACTED_PFX_PASSWORD]"
+    "pfx": null,
+    "pfxPassword": null
   },
   "resourceIndex": {
     "enabled": false,

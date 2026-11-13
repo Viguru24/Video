@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -28,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : ComponentActivity() {
 
@@ -37,6 +39,8 @@ class MainActivity : ComponentActivity() {
 
     private var uploadMessage: ValueCallback<Array<Uri>>? = null
     private var folderBtnView: TextView? = null
+    private var otaTopBarBtn: TextView? = null
+    private var availableUpdate: UpdateInfo? = null
 
     private val prefs by lazy { getSharedPreferences("cosmo_symphony_companion", Context.MODE_PRIVATE) }
     private val transferEngine by lazy { TransferEngine(this, { container }, prefs) }
@@ -119,8 +123,33 @@ class MainActivity : ComponentActivity() {
         transferEngine.downloadFilesDirectly(files)
     }
 
-    private val defaultStudioUrl = "http://192.168.1.55:48273"
+    private val currentWebOrigin = AtomicReference<String?>(null)
     private var loadingSpinner: LinearLayout? = null
+
+    private fun extractAndPersistToken(rawUrl: String): String {
+        return try {
+            val uri = Uri.parse(rawUrl)
+            val tok = uri.getQueryParameter("token")?.trim()
+            if (!tok.isNullOrBlank()) {
+                prefs.edit().putString("wifi_token", tok).apply()
+            }
+            val portPart = if (uri.port != -1) ":${uri.port}" else ":48273"
+            val host = uri.host
+            val scheme = uri.scheme
+            if (!scheme.isNullOrBlank() && !host.isNullOrBlank()) {
+                "$scheme://$host$portPart/"
+            } else {
+                rawUrl
+            }
+        } catch (_: Exception) {
+            rawUrl
+        }
+    }
+
+    private fun isTrustedWebOrigin(): Boolean {
+        val loaded = currentWebOrigin.get() ?: return false
+        return SafStorageHelper.isLocalLanUrl(loaded)
+    }
 
     // ── Lifecycle & App Structure ──────────────────────────────────────────
 
@@ -137,18 +166,20 @@ class MainActivity : ComponentActivity() {
         val intentUrl = intent?.dataString
         var targetUrl = when {
             !intentUrl.isNullOrBlank() && intentUrl.startsWith("http") -> intentUrl
-            else -> {
-                val saved = prefs.getString("last_url", defaultStudioUrl)
-                if (saved.isNullOrBlank() || saved.contains(":8765") || saved.contains("192.168.1.54")) defaultStudioUrl else saved
-            }
+            else -> prefs.getString("last_url", "") ?: ""
         }
 
         if (targetUrl.contains(":8765")) {
             targetUrl = targetUrl.replace(":8765", ":48273")
         }
 
-        prefs.edit().putString("last_url", targetUrl).apply()
-        openWebView(targetUrl)
+        if (targetUrl.isNotBlank() && SafStorageHelper.isLocalLanUrl(targetUrl)) {
+            val cleanBaseUrl = extractAndPersistToken(targetUrl)
+            prefs.edit().putString("last_url", cleanBaseUrl).apply()
+            openWebView(cleanBaseUrl)
+        } else {
+            buildConnectScreen()
+        }
         handleIncomingShareIntent(intent)
 
         // Check for OTA Updates in background
@@ -163,12 +194,33 @@ class MainActivity : ComponentActivity() {
                 }
                 val update = updateManager.checkForUpdates()
                 if (update != null) {
+                    availableUpdate = update
                     withContext(Dispatchers.Main) {
+                        otaTopBarBtn?.apply {
+                            text = "🚀 Update v${update.versionName}!"
+                            setTextColor(Color.parseColor("#ffaa00"))
+                            setTypeface(null, Typeface.BOLD)
+                        }
+                        try {
+                            val notesClean = update.releaseNotes.replace("'", "\\'").replace("\n", " ")
+                            webView.evaluateJavascript(
+                                "if (window.onOtaUpdateAvailable) { window.onOtaUpdateAvailable('${update.versionName}', ${update.versionCode}, '${notesClean}'); }",
+                                null
+                            )
+                        } catch (_: Exception) {}
                         showUpdateDialog(update)
                     }
-                } else if (!silent) {
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, "You have the latest version (v${updateManager.currentVersionName})", Toast.LENGTH_SHORT).show()
+                } else {
+                    availableUpdate = null
+                    withContext(Dispatchers.Main) {
+                        otaTopBarBtn?.apply {
+                            text = "🚀 OTA"
+                            setTextColor(Color.parseColor("#94a3b8"))
+                            setTypeface(null, Typeface.NORMAL)
+                        }
+                        if (!silent) {
+                            Toast.makeText(this@MainActivity, "You have the latest version (v${updateManager.currentVersionName})", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -219,11 +271,12 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val intentUrl = intent.dataString
-        if (!intentUrl.isNullOrBlank() && intentUrl.startsWith("http")) {
+        if (!intentUrl.isNullOrBlank() && intentUrl.startsWith("http") && SafStorageHelper.isLocalLanUrl(intentUrl)) {
             var url = intentUrl
             if (url.contains(":8765")) url = url.replace(":8765", ":48273")
-            prefs.edit().putString("last_url", url).apply()
-            openWebView(url)
+            val cleanUrl = extractAndPersistToken(url)
+            prefs.edit().putString("last_url", cleanUrl).apply()
+            openWebView(cleanUrl)
         }
         handleIncomingShareIntent(intent)
     }
@@ -356,11 +409,11 @@ class MainActivity : ComponentActivity() {
             root.addView(errorBox)
         }
 
-        val savedUrl = prefs.getString("last_url", defaultStudioUrl) ?: defaultStudioUrl
-        val displayUrl = if (savedUrl.contains("192.168.1.54") || savedUrl.contains(":8765")) defaultStudioUrl else savedUrl
+        val savedUrl = prefs.getString("last_url", "") ?: ""
+        val displayUrl = if (savedUrl.contains("192.168.1.54") || savedUrl.contains(":8765")) "" else savedUrl
 
         val input = EditText(this).apply {
-            hint = "http://192.168.1.55:48273"
+            hint = "Enter PC IP (e.g. http://192.168.x.x:48273)"
             setText(displayUrl)
             setHintTextColor(Color.parseColor("#475569"))
             setTextColor(Color.WHITE)
@@ -370,11 +423,27 @@ class MainActivity : ComponentActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 12.dp }
+            ).apply { bottomMargin = 10.dp }
             setSingleLine(true)
             inputType = InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_CLASS_TEXT
         }
         addressBar = input
+
+        val tokenInput = EditText(this).apply {
+            hint = "Pairing Token (from PC QR or Share window)"
+            setText(prefs.getString("wifi_token", "") ?: "")
+            setHintTextColor(Color.parseColor("#475569"))
+            setTextColor(Color.parseColor("#00ff88"))
+            textSize = 14f
+            setBackgroundColor(Color.parseColor("#141923"))
+            setPadding(16.dp, 14.dp, 16.dp, 14.dp)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 12.dp }
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        }
 
         val connectBtn = Button(this).apply {
             text = "CONNECT TO STUDIO"
@@ -389,6 +458,10 @@ class MainActivity : ComponentActivity() {
         }
         connectBtn.setOnClickListener {
             var raw = addressBar.text.toString().trim()
+            val manualToken = tokenInput.text.toString().trim()
+            if (manualToken.isNotBlank()) {
+                prefs.edit().putString("wifi_token", manualToken).apply()
+            }
             if (raw.isNotBlank()) {
                 if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
                     raw = "http://$raw"
@@ -399,10 +472,15 @@ class MainActivity : ComponentActivity() {
                 } else {
                     raw
                 }
-                prefs.edit().putString("last_url", url).apply()
-                openWebView(url)
+                val cleanUrl = extractAndPersistToken(url)
+                if (!SafStorageHelper.isLocalLanUrl(cleanUrl)) {
+                    Toast.makeText(this, "Only private LAN addresses are allowed.", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                prefs.edit().putString("last_url", cleanUrl).apply()
+                openWebView(cleanUrl)
             } else {
-                Toast.makeText(this, "Please enter your PC's IP (e.g. 192.168.1.55:48273) or tap Auto-Detect", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Please enter your PC's IP or tap Auto-Detect", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -418,6 +496,10 @@ class MainActivity : ComponentActivity() {
             ).apply { bottomMargin = 16.dp }
         }
         autoDetectBtn.setOnClickListener {
+            val manualToken = tokenInput.text.toString().trim()
+            if (manualToken.isNotBlank()) {
+                prefs.edit().putString("wifi_token", manualToken).apply()
+            }
             startAutoDetect()
         }
 
@@ -436,6 +518,7 @@ class MainActivity : ComponentActivity() {
         }
 
         root.addView(input)
+        root.addView(tokenInput)
         root.addView(connectBtn)
         root.addView(autoDetectBtn)
         root.addView(otaBtn)
@@ -449,7 +532,9 @@ class MainActivity : ComponentActivity() {
     private fun openWebView(url: String) {
         container.removeAllViews()
 
-        WebView.setWebContentsDebuggingEnabled(true)
+        val isDebuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        WebView.setWebContentsDebuggingEnabled(isDebuggable)
+        currentWebOrigin.set(url)
 
         webView = WebView(this).apply {
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -459,12 +544,11 @@ class MainActivity : ComponentActivity() {
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = true
-                allowFileAccess = true
+                allowFileAccess = false
                 allowContentAccess = true
                 loadsImagesAutomatically = true
                 cacheMode = WebSettings.LOAD_NO_CACHE
-                @Suppress("DEPRECATION")
-                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 userAgentString = "CosmoShareApp/1.0 Android"
                 setSupportZoom(false)
                 builtInZoomControls = false
@@ -475,12 +559,29 @@ class MainActivity : ComponentActivity() {
 
             addJavascriptInterface(object {
                 @JavascriptInterface
+                fun getPairingToken(): String {
+                    if (!isTrustedWebOrigin()) return ""
+                    return prefs.getString("wifi_token", "") ?: ""
+                }
+
+                @JavascriptInterface
+                fun setPairingToken(token: String) {
+                    if (!isTrustedWebOrigin()) return
+                    val clean = token.trim()
+                    if (clean.isNotBlank()) {
+                        prefs.edit().putString("wifi_token", clean).apply()
+                    }
+                }
+
+                @JavascriptInterface
                 fun downloadFile(url: String, fileName: String) {
+                    if (!isTrustedWebOrigin() || !SafStorageHelper.isLocalLanUrl(url)) return
                     downloadFilesDirectly(listOf(Pair(url, fileName)))
                 }
 
                 @JavascriptInterface
                 fun downloadBatch(jsonArrayStr: String) {
+                    if (!isTrustedWebOrigin()) return
                     try {
                         val arr = JSONArray(jsonArrayStr)
                         val items = mutableListOf<Pair<String, String>>()
@@ -488,7 +589,7 @@ class MainActivity : ComponentActivity() {
                             val obj = arr.getJSONObject(i)
                             val u = obj.optString("url")
                             val n = obj.optString("name")
-                            if (u.isNotBlank() && n.isNotBlank()) {
+                            if (u.isNotBlank() && n.isNotBlank() && SafStorageHelper.isLocalLanUrl(u)) {
                                 items.add(Pair(u, n))
                             }
                         }
@@ -501,7 +602,29 @@ class MainActivity : ComponentActivity() {
                 }
 
                 @JavascriptInterface
+                fun triggerOtaCheck() {
+                    if (!isTrustedWebOrigin()) return
+                    runOnUiThread {
+                        if (availableUpdate != null) {
+                            showUpdateDialog(availableUpdate!!)
+                        } else {
+                            checkOtaUpdates(silent = false)
+                        }
+                    }
+                }
+
+                @JavascriptInterface
+                fun getAppVersionName(): String = updateManager.currentVersionName
+
+                @JavascriptInterface
+                fun getAppVersionCode(): Int = updateManager.currentVersionCode
+
+                @JavascriptInterface
+                fun isOtaUpdateAvailable(): Boolean = (availableUpdate != null)
+
+                @JavascriptInterface
                 fun showToast(msg: String) {
+                    if (!isTrustedWebOrigin()) return
                     runOnUiThread {
                         Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                     }
@@ -509,6 +632,7 @@ class MainActivity : ComponentActivity() {
 
                 @JavascriptInterface
                 fun copyToClipboard(text: String) {
+                    if (!isTrustedWebOrigin()) return
                     runOnUiThread {
                         try {
                             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -569,8 +693,29 @@ class MainActivity : ComponentActivity() {
             }
 
             webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: WebResourceRequest
+                ): Boolean {
+                    val dest = request.url.toString()
+                    if (SafStorageHelper.isLocalLanUrl(dest)) {
+                        currentWebOrigin.set(dest)
+                        return false
+                    }
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                    } catch (_: Exception) {}
+                    return true
+                }
+
+                override fun onPageStarted(view: WebView?, startedUrl: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, startedUrl, favicon)
+                    currentWebOrigin.set(startedUrl)
+                }
+
                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                     super.onPageFinished(view, finishedUrl)
+                    currentWebOrigin.set(finishedUrl)
                     runOnUiThread {
                         loadingSpinner?.visibility = View.GONE
                     }
@@ -589,11 +734,7 @@ class MainActivity : ComponentActivity() {
                 override fun onReceivedSslError(
                     view: WebView, handler: SslErrorHandler, error: android.net.http.SslError
                 ) {
-                    if (SafStorageHelper.isLocalLanUrl(error.url)) {
-                        handler.proceed()
-                    } else {
-                        handler.cancel()
-                    }
+                    handler.cancel()
                 }
             }
 
@@ -782,8 +923,27 @@ class MainActivity : ComponentActivity() {
                 .show()
         }
 
+        val otaBtn = TextView(this).apply {
+            text = if (availableUpdate != null) "🚀 Update v${availableUpdate?.versionName}!" else "🚀 OTA"
+            textSize = 12f
+            setTextColor(if (availableUpdate != null) Color.parseColor("#ffaa00") else Color.parseColor("#94a3b8"))
+            if (availableUpdate != null) setTypeface(null, Typeface.BOLD)
+            setPadding(10.dp, 12.dp, 10.dp, 12.dp)
+            minHeight = 48.dp
+            gravity = Gravity.CENTER_VERTICAL
+            setOnClickListener {
+                if (availableUpdate != null) {
+                    showUpdateDialog(availableUpdate!!)
+                } else {
+                    checkOtaUpdates(silent = false)
+                }
+            }
+        }
+        otaTopBarBtn = otaBtn
+
         topBar.addView(backBtn)
         topBar.addView(titleView)
+        topBar.addView(otaBtn)
         topBar.addView(reloadBtn)
         topBar.addView(folderBtn)
 

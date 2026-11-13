@@ -16,7 +16,7 @@ export function VideoPreview({ path, src, isHovered }: { path: string; src?: str
     if (isTauri()) {
       try {
         return convertFileSrc(path);
-      } catch {}
+      } catch { /* fallback to cosmo URL */ }
     }
     return src || toCosmoUrl(path);
   });
@@ -53,7 +53,7 @@ export function VideoPreview({ path, src, isHovered }: { path: string; src?: str
         const targetTime = Math.min(1.0, (video.duration || 2) / 2);
         video.currentTime = targetTime;
       }
-    } catch {}
+    } catch { /* ignore preview seek failure */ }
   };
 
   const [retryCount, setRetryCount] = useState(0);
@@ -117,7 +117,7 @@ export function ImageThumbnail({ path, name }: { path: string; name: string }) {
     if (isTauri()) {
       try {
         return convertFileSrc(path);
-      } catch {}
+      } catch { /* fallback to cosmo URL */ }
     }
     return toCosmoUrl(path);
   };

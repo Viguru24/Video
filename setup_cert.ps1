@@ -1,8 +1,13 @@
 # Cosmo Symphony: Local Certificate Setup
 # Run this script as Administrator to trust the self-signed MSIX certificate.
 
-$certPath = "src-tauri\certificates\dev.pfx"
-$password = ConvertTo-SecureString "[REDACTED_PFX_PASSWORD]" -AsPlainText -Force
+$certPath = if ($env:COSMO_SIGN_CERT_PATH) { $env:COSMO_SIGN_CERT_PATH } else { "src-tauri\certificates\dev.pfx" }
+$plainPwd = $env:COSMO_SIGN_CERT_PASSWORD
+if ([string]::IsNullOrWhiteSpace($plainPwd)) {
+    $password = Read-Host -Prompt "Enter PFX certificate password (or set COSMO_SIGN_CERT_PASSWORD)" -AsSecureString
+} else {
+    $password = ConvertTo-SecureString $plainPwd -AsPlainText -Force
+}
 
 if (!(Test-Path $certPath)) {
     Write-Host "Error: Certificate not found at $certPath" -ForegroundColor Red

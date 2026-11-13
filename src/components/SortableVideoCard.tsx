@@ -38,6 +38,7 @@ interface SortableVideoCardProps {
   onNavigateSibling?: (direction: 1 | -1) => void;
   isAiEnhancing?: boolean;
   onSelectAll?: () => void;
+  isHero?: boolean;
   quality?: 'low' | 'high';
   isSlideshowActive?: boolean;
   setIsSlideshowActive?: (active: boolean) => void;
@@ -105,6 +106,8 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
     transform: CSS.Transform.toString(transform),
     transition: isDragging ? transition : undefined,
     gridColumn: `span ${props.video.cols || 1}`,
+    width: '100%',
+    height: props.isHero ? '100%' : undefined,
     zIndex: isDragging ? 100 : 1,
     opacity: isDragging ? 0.8 : 1,
     willChange: 'transform, opacity',
@@ -115,7 +118,7 @@ function SortableVideoCardInternal(props: SortableVideoCardProps) {
     <div 
       ref={handleRef} 
       style={style} 
-      className={`grid-item-wrap ${props.isFocused ? 'focused' : ''} ${isDragging ? 'dragging' : ''} ${props.focusedId && props.focusedId !== props.video.id ? 'dimmed' : ''} ${props.isSelected ? 'selected-card' : ''}`}
+      className={`grid-item-wrap ${props.isFocused ? 'focused' : ''} ${isDragging ? 'dragging' : ''} ${props.focusedId && props.focusedId !== props.video.id ? 'dimmed' : ''} ${props.isSelected ? 'selected-card' : ''} ${props.isHero ? 'hero-card' : ''}`}
       data-id={props.video.id}
     >
       <VideoCard 

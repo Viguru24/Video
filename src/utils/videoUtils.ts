@@ -56,7 +56,7 @@ export function toCosmoUrl(absolutePathOrUrl: string): string {
  * Handles: asset.localhost URLs, local://, cosmo://, http:// blob URLs, plain paths.
  * Returns null if a real path cannot be extracted (e.g. remote http URL).
  */
-export function toRealPath(urlOrPath: string): string | null {
+export function toRealPath(urlOrPath?: string | null): string | null {
   if (!urlOrPath) return null;
   const clean = urlOrPath.split('?')[0];
   if (clean.startsWith('/demos/') || clean.startsWith('demos/')) {
@@ -168,7 +168,7 @@ export function toRealPath(urlOrPath: string): string | null {
  * @returns Converted URL string
  */
 export function convertToVideoUrl(video: Pick<VideoItem, 'url' | 'realPath'>): string {
-  const path = toRealPath(video.realPath) || toRealPath(video.url);
+  const path = (video.realPath ? toRealPath(video.realPath) : null) || toRealPath(video.url);
   if (path) {
     return toCosmoUrl(path);
   }

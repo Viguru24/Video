@@ -25,8 +25,8 @@ pub static POPOUT_MEDIA_URL: std::sync::OnceLock<String> = std::sync::OnceLock::
 use commands::media::raw::{extract_embedded_jpeg_thumbnail, extract_raw_full_preview, is_raw_image_extension};
 
 fn main() {
-    // Set WebView2 environment variables to allow background playback while preserving normal GPU caching and native occlusion culling:
-    let base_args = "--disable-features=msSleepingTabs,msEfficiencyMode --autoplay-policy=no-user-gesture-required";
+    // Allow background playback without disabling WebView2 sleeping tabs or efficiency mode
+    let base_args = "--autoplay-policy=no-user-gesture-required";
     let browser_args = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
         Ok(existing) => format!("{} {}", existing, base_args),
         Err(_) => base_args.to_string(),
@@ -134,9 +134,7 @@ fn main() {
                 ])
                 .build(),
         )
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(
@@ -147,18 +145,39 @@ fn main() {
         )
         .register_uri_scheme_protocol("cosmo", |_app, request| {
             // HIGH-PERFORMANCE ASYNC DRIVE ENGINE (v4)
-            // This handler is optimized for 24-core parallel streaming
-            
+            let allowed_origin = request
+                .headers()
+                .get("origin")
+                .and_then(|v| v.to_str().ok())
+                .map(|o| o.trim().to_ascii_lowercase());
+
+            let verified_origin: Option<String> = match allowed_origin.as_deref() {
+                None => Some("http://tauri.localhost".to_string()),
+                Some("tauri://localhost")
+                | Some("http://tauri.localhost")
+                | Some("https://tauri.localhost") => allowed_origin.clone(),
+                Some(o) if o.starts_with("http://localhost:") || o.starts_with("http://127.0.0.1:") => {
+                    allowed_origin.clone()
+                }
+                Some(_) => {
+                    return tauri::http::Response::builder()
+                        .status(403)
+                        .body(Vec::new())
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+                }
+            };
+            let acao = verified_origin.as_deref().unwrap_or("http://tauri.localhost");
+
             // Handle CORS Preflight
             if request.method() == tauri::http::Method::OPTIONS {
                 return tauri::http::Response::builder()
                     .status(200)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, RANGE")
+                    .header("Access-Control-Allow-Origin", acao)
+                    .header("Access-Control-Allow-Methods", "GET, OPTIONS, RANGE")
                     .header("Access-Control-Allow-Headers", "Range, Content-Type")
                     .header("Access-Control-Max-Age", "86400")
                     .body(Vec::new())
-                    .unwrap();
+                    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
             }
 
             let uri_str = request.uri().to_string();
@@ -179,6 +198,13 @@ fn main() {
                 Err(_) => return tauri::http::Response::builder().status(400).body(Vec::new()).unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
             };
 
+            if path_decoded.contains('\0') {
+                return tauri::http::Response::builder()
+                    .status(400)
+                    .body(Vec::new())
+                    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+            }
+
             // Remove any leading slashes or backslashes from Webview2 custom scheme normalization (e.g. "/G:/..." -> "G:/...")
             let mut clean_path = path_decoded.trim();
             while (clean_path.starts_with('/') || clean_path.starts_with('\\')) && !clean_path.starts_with("\\\\") {
@@ -195,15 +221,13 @@ fn main() {
 
             if !path.exists() {
                 // Auto-resolve temporary or yt-dlp intermediate filenames to their final merged files
-                let mut resolved = false;
                 let path_str = path.to_string_lossy().to_string();
-                
+
                 if path_str.ends_with(".temp.mp4") {
                     let fallback = path_str.replace(".temp.mp4", ".mp4");
                     let p = std::path::PathBuf::from(&fallback);
                     if p.exists() {
                         path = p;
-                        resolved = true;
                     }
                 } else if let Some(pos) = path_str.rfind(".f") {
                     if let Some(dot_pos) = path_str[pos + 1..].find('.') {
@@ -213,28 +237,15 @@ fn main() {
                             let p = std::path::PathBuf::from(&fallback);
                             if p.exists() {
                                 path = p;
-                                resolved = true;
                             }
                         }
                     }
                 }
 
-                if !resolved && !path.exists() {
-                    // Try waiting briefly in case it's an atomic file rename or sync write
-                    for _ in 0..6 {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                        if path.exists() {
-                            resolved = true;
-                            break;
-                        }
-                    }
-                }
-
-                if !resolved && !path.exists() {
-                    println!("[Cosmo Protocol] File not found: {:?}", path);
+                if !path.exists() {
                     return tauri::http::Response::builder()
                         .status(404)
-                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Origin", acao)
                         .header("Cache-Control", "no-store, no-cache, must-revalidate")
                         .body(Vec::new())
                         .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
@@ -246,15 +257,7 @@ fn main() {
             if is_thumb_request {
                 let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
                 if ext == "jpg" || ext == "jpeg" || ext == "nef" || ext == "cr2" || ext == "cr3" || ext == "arw" || ext == "dng" {
-                    let mut file_opt = None;
-                    for _ in 0..4 {
-                        if let Ok(f) = std::fs::File::open(&path) {
-                            file_opt = Some(f);
-                            break;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(40));
-                    }
-                    if let Some(mut file) = file_opt {
+                    if let Ok(mut file) = std::fs::File::open(&path) {
                         use std::io::Read;
                         let mut header_buf = vec![0u8; 131072];
                         if let Ok(n) = file.read(&mut header_buf) {
@@ -266,29 +269,24 @@ fn main() {
                                     .header("Content-Type", "image/jpeg")
                                     .header("Content-Length", thumb_len)
                                     .header("Cache-Control", "no-store, no-cache, must-revalidate")
-                                    .header("Access-Control-Allow-Origin", "*")
-                                    .header("Access-Control-Allow-Private-Network", "true")
+                                    .header("Access-Control-Allow-Origin", acao)
                                     .body(thumb_bytes)
-                                    .unwrap();
+                                    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
                             }
                         }
                     }
                 }
             }
 
-            // Using standard fs here for metadata, but we'll use tokio for the stream
-            let mut file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             if file_len == 0 {
-                // If the file was just created by sync/browser, wait up to 1.2s for initial bytes
-                for _ in 0..15 {
-                    std::thread::sleep(std::time::Duration::from_millis(80));
-                    if let Ok(m) = std::fs::metadata(&path) {
-                        file_len = m.len();
-                        if file_len > 0 {
-                            break;
-                        }
-                    }
-                }
+                return tauri::http::Response::builder()
+                    .status(200)
+                    .header("Content-Length", 0)
+                    .header("Cache-Control", "no-store, no-cache, must-revalidate")
+                    .header("Access-Control-Allow-Origin", acao)
+                    .body(Vec::new())
+                    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
             }
             
             let ext_lower = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
@@ -302,10 +300,9 @@ fn main() {
                         .header("Content-Type", "image/jpeg")
                         .header("Content-Length", preview_len)
                         .header("Cache-Control", "no-store, no-cache, must-revalidate")
-                        .header("Access-Control-Allow-Origin", "*")
-                        .header("Access-Control-Allow-Private-Network", "true")
+                        .header("Access-Control-Allow-Origin", acao)
                         .body(preview_bytes)
-                        .unwrap();
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
                 } else if let Ok(mut f) = std::fs::File::open(&path) {
                     use std::io::Read;
                     let mut header_buf = vec![0u8; 131072];
@@ -318,50 +315,64 @@ fn main() {
                                 .header("Content-Type", "image/jpeg")
                                 .header("Content-Length", thumb_len)
                                 .header("Cache-Control", "no-store, no-cache, must-revalidate")
-                                .header("Access-Control-Allow-Origin", "*")
-                                .header("Access-Control-Allow-Private-Network", "true")
+                                .header("Access-Control-Allow-Origin", acao)
                                 .body(thumb_bytes)
-                                .unwrap();
+                                .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
                         }
                     }
                 }
             }
             let is_image = matches!(ext_lower.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "tiff" | "tif" | "heic" | "heif" | "avif" | "jxl" | "cr2" | "cr3" | "nef" | "arw" | "dng" | "tga");
 
+            let last_byte = file_len.saturating_sub(1);
             let range = request
                 .headers()
                 .get("range")
                 .and_then(|r: &tauri::http::HeaderValue| r.to_str().ok());
 
-            let (start, end) = if let Some(r) = range {
-                let r_clean = r.replace("bytes=", "");
-                let range_parts: Vec<&str> = r_clean.split('-').collect();
-                let start = range_parts[0].parse::<u64>().unwrap_or(0);
-                let end = if range_parts.len() > 1 && !range_parts[1].is_empty() {
-                    range_parts[1].parse::<u64>().unwrap_or(file_len - 1)
+            let (start, mut end) = if let Some(r) = range {
+                let r_clean = r.trim().strip_prefix("bytes=").unwrap_or(r.trim());
+                let (s_part, e_part) = r_clean.split_once('-').unwrap_or((r_clean, ""));
+                let parsed = if s_part.is_empty() && !e_part.is_empty() {
+                    let suffix = e_part.parse::<u64>().unwrap_or(0);
+                    let start = file_len.saturating_sub(suffix);
+                    (start, last_byte)
                 } else {
-                    file_len - 1
+                    let start = s_part.parse::<u64>().unwrap_or(0);
+                    let end = if !e_part.is_empty() {
+                        e_part.parse::<u64>().unwrap_or(last_byte)
+                    } else {
+                        last_byte
+                    };
+                    (start, end)
                 };
-                (start, end)
+                if parsed.0 >= file_len || parsed.0 > parsed.1 {
+                    return tauri::http::Response::builder()
+                        .status(416)
+                        .header("Content-Range", format!("bytes */{}", file_len))
+                        .header("Access-Control-Allow-Origin", acao)
+                        .body(Vec::new())
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+                }
+                parsed
             } else {
-                (0, file_len.saturating_sub(1))
+                (0, last_byte)
             };
 
-            let max_allowed = if is_image { 24 * 1024 * 1024 } else { 4 * 1024 * 1024 };
-            let mut end = end;
-            if end - start + 1 > max_allowed as u64 {
-                end = start + max_allowed as u64 - 1;
+            if end > last_byte {
+                end = last_byte;
             }
-            if end >= file_len {
-                end = file_len.saturating_sub(1);
+            let max_allowed = if is_image { 24 * 1024 * 1024 } else { 4 * 1024 * 1024 };
+            if end.saturating_sub(start).saturating_add(1) > max_allowed as u64 {
+                end = start.saturating_add(max_allowed as u64).saturating_sub(1).min(last_byte);
             }
 
-            let chunk_size = ((end.saturating_sub(start)) + 1).min(max_allowed as u64) as usize;
+            let chunk_size = (end.saturating_sub(start).saturating_add(1)).min(max_allowed as u64) as usize;
             if chunk_size == 0 {
                 return tauri::http::Response::builder()
-                    .status(503)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Cache-Control", "no-store, no-cache, must-revalidate")
+                    .status(416)
+                    .header("Content-Range", format!("bytes */{}", file_len))
+                    .header("Access-Control-Allow-Origin", acao)
                     .body(Vec::new())
                     .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
             }
@@ -428,14 +439,14 @@ fn main() {
             if file_open_result.is_err() || bytes_read == 0 {
                 return tauri::http::Response::builder()
                     .status(404)
-                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Origin", acao)
                     .body(Vec::new())
                     .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
             }
 
             buffer.truncate(bytes_read);
-            let response_end = start + bytes_read as u64 - 1;
-            let is_partial = start > 0 || bytes_read < file_len as usize;
+            let response_end = start.saturating_add(bytes_read as u64).saturating_sub(1);
+            let is_partial = start > 0 || (bytes_read as u64) < file_len;
 
             let mut builder = tauri::http::Response::builder()
                 .status(if is_partial { 206 } else { 200 })
@@ -443,10 +454,9 @@ fn main() {
                 .header("Accept-Ranges", "bytes")
                 .header("Content-Length", bytes_read)
                 .header("Cache-Control", "no-store, no-cache, must-revalidate")
-                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Origin", acao)
                 .header("Access-Control-Allow-Methods", "GET, OPTIONS, RANGE")
-                .header("Access-Control-Allow-Headers", "Range, Content-Type")
-                .header("Access-Control-Allow-Private-Network", "true");
+                .header("Access-Control-Allow-Headers", "Range, Content-Type");
 
             if is_partial {
                 builder = builder.header("Content-Range", format!("bytes {}-{}/{}", start, response_end, file_len));
@@ -534,6 +544,7 @@ fn main() {
             commands::server::set_wifi_shared_files,
             commands::server::download_shared_file_to_downloads,
             commands::server::ensure_wifi_share_server,
+            commands::server::get_wifi_share_token,
             commands::system::share_to_whatsapp,
             commands::system::share_media_file
         ])
@@ -596,6 +607,10 @@ fn main() {
 
             let dist_str = dist_path.to_string_lossy().to_string();
             println!("[Wi-Fi Share Setup] Static web path: {}", dist_str);
+
+            if let Ok(app_data_dir) = app.path().app_data_dir() {
+                commands::server::init_wifi_token_from_dir(&app_data_dir);
+            }
 
             // Spawn the Axum HTTP server in the background
             tauri::async_runtime::spawn(async move {

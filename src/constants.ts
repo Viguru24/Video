@@ -7,7 +7,7 @@
  */
 
 // Telemetry
-export const TELEMETRY_INTERVAL = 2000; // ms - How often to poll system telemetry
+export const TELEMETRY_INTERVAL = 5000; // ms - How often to poll system telemetry
 
 // Layout & Grid
 export const ROW_THRESHOLD_PX = 25; // px - Vertical distance to consider videos in different rows

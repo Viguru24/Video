@@ -77,17 +77,17 @@ export const PhoneUploadsTab: React.FC<PhoneUploadsTabProps> = ({
                   gap: '3px',
                   boxShadow: '0 2px 6px rgba(0, 255, 136, 0.25)'
                 }}
-                title="Import all phone files to grid"
+                title="Save all phone files to destination folder"
               >
                 {isImportingAll ? (
                   <>
                     <Loader2 size={9} className="spin" />
-                    <span>Importing ({importProgress?.current}/{importProgress?.total})...</span>
+                    <span>Saving ({importProgress?.current}/{importProgress?.total})...</span>
                   </>
                 ) : (
                   <>
                     <Download size={9} />
-                    <span>Import All ({phoneFiles.length})</span>
+                    <span>Save All ({phoneFiles.length})</span>
                   </>
                 )}
               </button>

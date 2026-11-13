@@ -3,26 +3,19 @@ import {
   X, 
   Wifi, 
   ShieldCheck, 
-  Download, 
   FolderOpen, 
   RefreshCw, 
   Smartphone, 
   Monitor, 
-  CheckCircle, 
   Check,
-  Loader2, 
-  Trash2, 
   Copy, 
-  ExternalLink,
-  Film,
-  Image as ImageIcon,
-  FileText
+  ExternalLink
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { PhoneUploadsTab } from './wifishare/PhoneUploadsTab';
 import { PcFilesTab } from './wifishare/PcFilesTab';
-import { formatFileSize, getMediaIcon } from './wifishare/wifiShareUtils';
+import { getWifiShareToken, wifiShareFetch } from '../utils/wifiShareClient';
 
 interface WifiShareModalProps {
   isOpen: boolean;
@@ -46,6 +39,8 @@ export function WifiShareModal({
   const [activeTab, setActiveTab] = useState<'phone' | 'pc'>('phone');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [shareUrl, setShareUrl] = useState<string>('');
+  const [pairingToken, setPairingToken] = useState<string>('');
+  const [tokenCopied, setTokenCopied] = useState<boolean>(false);
   const [receiverConnected, setReceiverConnected] = useState<boolean>(false);
   const [roomFiles, setRoomFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -72,6 +67,18 @@ export function WifiShareModal({
   const [autoRemoveAfterImport, setAutoRemoveAfterImport] = useState<boolean>(() => {
     return localStorage.getItem('cosmo-wifi-auto-remove') !== 'false';
   });
+
+  const [addToGrid, setAddToGrid] = useState<boolean>(() => {
+    return localStorage.getItem('cosmo-wifi-add-to-grid') === 'true';
+  });
+
+  const toggleAddToGrid = () => {
+    setAddToGrid((prev) => {
+      const next = !prev;
+      localStorage.setItem('cosmo-wifi-add-to-grid', next ? 'true' : 'false');
+      return next;
+    });
+  };
 
   const [customDownloadDir, setCustomDownloadDir] = useState<string>(() => {
     return localStorage.getItem('cosmo-wifi-download-dir') || '';
@@ -128,7 +135,7 @@ export function WifiShareModal({
           if (rustRes && typeof rustRes === 'string' && rustRes !== 'Cancelled') {
             selected = rustRes;
           }
-        } catch {}
+        } catch { /* ignore native dialog error */ }
       }
 
       if (selected && typeof selected === 'string') {
@@ -136,7 +143,7 @@ export function WifiShareModal({
         localStorage.setItem('cosmo-wifi-download-dir', selected);
         try {
           await invoke('save_persistence', { key: 'cosmo-wifi-download-dir', data: selected });
-        } catch {}
+        } catch { /* ignore persistence save failure */ }
 
         setFolderHistory((prev) => {
           const updated = [selected, ...prev.filter((p) => p !== selected)].slice(0, 8);
@@ -168,19 +175,22 @@ export function WifiShareModal({
       setError(null);
 
       try {
-        let response = await fetch('http://127.0.0.1:48273/api/rooms/create', { method: 'POST' }).catch(() => null);
+        const tok = await getWifiShareToken();
+        if (active && tok) setPairingToken(tok);
+        let response = await wifiShareFetch('/api/rooms/create', { method: 'POST' }).catch(() => null);
         if (!response || !response.ok) {
           try {
             await invoke('ensure_wifi_share_server');
             await new Promise((r) => setTimeout(r, 600));
-            response = await fetch('http://127.0.0.1:48273/api/rooms/create', { method: 'POST' }).catch(() => null);
-          } catch {}
+            response = await wifiShareFetch('/api/rooms/create', { method: 'POST' }).catch(() => null);
+          } catch { /* ignore retry failure */ }
         }
-        if (!response.ok) {
-          throw new Error(`Server returned status ${response.status}`);
+        if (!response || !response.ok) {
+          throw new Error(`Server returned status ${response?.status ?? 'unreachable'}`);
         }
         const data = await response.json();
         if (active && data.success) {
+          if (data.token) setPairingToken(data.token);
           setShareUrl(data.shareUrl);
           setQrDataUrl(data.qrDataUrl || '');
           setReceiverConnected(data.room?.receiverConnected || false);
@@ -203,26 +213,63 @@ export function WifiShareModal({
     };
   }, [isOpen]);
 
-  // 2. Poll room status for connections and uploads from phone
+  // 2. Poll room status for connections and uploads from phone with backoff & hidden pause
   useEffect(() => {
     if (!isOpen || !shareUrl) return;
 
-    const intervalId = setInterval(async () => {
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveIdleOrErr = 0;
+
+    const scheduleNext = () => {
+      if (cancelled || document.hidden) return;
+      // Adaptive backoff up to 30s to avoid tight fixed polling while idle
+      const delayMs = Math.min(30000, 5000 * Math.pow(2, Math.min(consecutiveIdleOrErr, 3)));
+      timerId = setTimeout(() => {
+        void pollOnce();
+      }, delayMs);
+    };
+
+    const pollOnce = async () => {
+      if (cancelled || document.hidden) return;
       try {
-        const res = await fetch('http://127.0.0.1:48273/api/rooms/local/status?role=sender');
+        const res = await wifiShareFetch('/api/rooms/local/status?role=sender');
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.room) {
             setReceiverConnected(data.room.receiverConnected);
             setRoomFiles(data.room.files || []);
+            consecutiveIdleOrErr = data.room.receiverConnected ? 1 : consecutiveIdleOrErr + 1;
           }
+        } else {
+          consecutiveIdleOrErr += 1;
         }
       } catch (err) {
+        consecutiveIdleOrErr += 1;
         console.warn('Wi-Fi share room poll failed:', err);
+      } finally {
+        scheduleNext();
       }
-    }, 2000);
+    };
 
-    return () => clearInterval(intervalId);
+    void pollOnce();
+    const onVisibility = () => {
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      if (!document.hidden && !cancelled) {
+        consecutiveIdleOrErr = 0;
+        void pollOnce();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [isOpen, shareUrl]);
 
   if (!isOpen) return null;
@@ -252,7 +299,7 @@ export function WifiShareModal({
     }
 
     try {
-      await fetch(`http://127.0.0.1:48273/api/rooms/local/files/${fileId}`, {
+      await wifiShareFetch(`/api/rooms/local/files/${fileId}`, {
         method: 'DELETE'
       });
       onLog(`Wi-Fi Share: Removed ${isPhone ? 'uploaded file' : 'shared file'} "${filename}".`);
@@ -281,13 +328,13 @@ export function WifiShareModal({
       if (onClearSharedFiles) onClearSharedFiles();
       try {
         await invoke('set_wifi_shared_files', { paths: [] });
-      } catch {}
+      } catch { /* ignore cleanup failure */ }
     }
 
     // 2. Delete all items from room on server in parallel
     await Promise.all(
       targetFiles.map((f) =>
-        fetch(`http://127.0.0.1:48273/api/rooms/local/files/${f.id}`, { method: 'DELETE' }).catch(() => {})
+        wifiShareFetch(`/api/rooms/local/files/${f.id}`, { method: 'DELETE' }).catch(() => {})
       )
     );
 
@@ -313,11 +360,14 @@ export function WifiShareModal({
         
         // If auto-remove is enabled, remove from room queue
         if (autoRemoveAfterImport) {
-          await fetch(`http://127.0.0.1:48273/api/rooms/local/files/${fileId}`, { method: 'DELETE' }).catch(() => {});
+          await wifiShareFetch(`/api/rooms/local/files/${fileId}`, { method: 'DELETE' }).catch(() => {});
           setRoomFiles((prev) => prev.filter((f) => f.id !== fileId));
         }
 
-        await onAddMultipleFiles([downloadedPath]);
+        // If auto-add to grid is enabled, ingest into grid workspace
+        if (addToGrid) {
+          await onAddMultipleFiles([downloadedPath]);
+        }
         onClose();
       }
     } catch (err: any) {
@@ -362,7 +412,7 @@ export function WifiShareModal({
           downloadedPaths.push(path);
           successfulFileIds.push(file.id);
           if (autoRemoveAfterImport) {
-            await fetch(`http://127.0.0.1:48273/api/rooms/local/files/${file.id}`, { method: 'DELETE' }).catch(() => {});
+            await wifiShareFetch(`/api/rooms/local/files/${file.id}`, { method: 'DELETE' }).catch(() => {});
           }
         }
       } catch (err: any) {
@@ -387,12 +437,16 @@ export function WifiShareModal({
     }
 
     if (downloadedPaths.length > 0) {
-      onLog(`Wi-Fi Share: Ingesting ${downloadedPaths.length} downloaded file(s) into workspace...`);
-      try {
-        await onAddMultipleFiles(downloadedPaths);
-      } catch (ingestErr: any) {
-        console.error('Failed to ingest paths:', ingestErr);
-        onLog(`Wi-Fi Share ERROR: Failed to add files to workspace: ${ingestErr}`);
+      if (addToGrid) {
+        onLog(`Wi-Fi Share: Ingesting ${downloadedPaths.length} downloaded file(s) into workspace...`);
+        try {
+          await onAddMultipleFiles(downloadedPaths);
+        } catch (ingestErr: any) {
+          console.error('Failed to ingest paths:', ingestErr);
+          onLog(`Wi-Fi Share ERROR: Failed to add files to workspace: ${ingestErr}`);
+        }
+      } else {
+        onLog(`Wi-Fi Share: Successfully saved ${downloadedPaths.length} file(s) to destination folder.`);
       }
 
       if (failedFiles.length === 0) {
@@ -669,6 +723,37 @@ export function WifiShareModal({
                       <ExternalLink size={9} />
                       <span>Open</span>
                     </button>
+
+                    {pairingToken && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(pairingToken);
+                            setTokenCopied(true);
+                            setTimeout(() => setTokenCopied(false), 2000);
+                            onLog('Wi-Fi Share: Pairing token copied to clipboard.');
+                          } catch { /* ignore clipboard write failure */ }
+                        }}
+                        style={{
+                          background: tokenCopied ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 255, 255, 0.07)',
+                          border: `1px solid ${tokenCopied ? 'rgba(0, 255, 136, 0.4)' : 'rgba(255, 255, 255, 0.12)'}`,
+                          color: tokenCopied ? '#00ff88' : 'rgba(255,255,255,0.85)',
+                          borderRadius: '5px',
+                          padding: '2px 7px',
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={`Pairing Token: ${pairingToken} (Click to copy for manual app entry)`}
+                      >
+                        <ShieldCheck size={9} />
+                        <span>{tokenCopied ? 'Token Copied' : `PIN: ${pairingToken.slice(0, 8)}...`}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -793,15 +878,27 @@ export function WifiShareModal({
                 justifyContent: 'space-between',
                 gap: '8px'
               }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontSize: '9px', color: 'rgba(255,255,255,0.7)', userSelect: 'none' }}>
-                  <input
-                    type="checkbox"
-                    checked={autoRemoveAfterImport}
-                    onChange={toggleAutoRemove}
-                    style={{ accentColor: '#00ff88', cursor: 'pointer', width: '12px', height: '12px' }}
-                  />
-                  <span>Auto-remove on import</span>
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '9px', color: 'rgba(255,255,255,0.7)', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={autoRemoveAfterImport}
+                      onChange={toggleAutoRemove}
+                      style={{ accentColor: '#00ff88', cursor: 'pointer', width: '12px', height: '12px' }}
+                    />
+                    <span>Auto-remove</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '9px', color: 'rgba(255,255,255,0.7)', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={addToGrid}
+                      onChange={toggleAddToGrid}
+                      style={{ accentColor: '#00ff88', cursor: 'pointer', width: '12px', height: '12px' }}
+                    />
+                    <span>Add to Grid</span>
+                  </label>
+                </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <span style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 800 }}>

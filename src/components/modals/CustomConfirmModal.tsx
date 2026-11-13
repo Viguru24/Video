@@ -5,7 +5,7 @@ import { AlertCircle } from 'lucide-react';
 interface CustomConfirmModalProps {
   title: string;
   message: string;
-  kind?: 'error' | 'warning';
+  kind?: 'info' | 'warning' | 'error';
   onResolve: (val: boolean) => void;
 }
 
@@ -56,14 +56,14 @@ export function CustomConfirmModal({
             <div
               className="accent-icon-box"
               style={{
-                background: kind === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                border: `1px solid ${kind === 'error' ? '#ef4444' : '#f59e0b'}`,
+                background: kind === 'error' ? 'rgba(239, 68, 68, 0.15)' : kind === 'info' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                border: `1px solid ${kind === 'error' ? '#ef4444' : kind === 'info' ? '#3b82f6' : '#f59e0b'}`,
               }}
             >
               <AlertCircle
                 size={20}
                 style={{
-                  color: kind === 'error' ? '#ef4444' : '#f59e0b',
+                  color: kind === 'error' ? '#ef4444' : kind === 'info' ? '#3b82f6' : '#f59e0b',
                 }}
               />
             </div>
@@ -80,7 +80,7 @@ export function CustomConfirmModal({
                 {title}
               </h2>
               <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 800, letterSpacing: '0.5px' }}>
-                {kind === 'error' ? 'CRITICAL ACTIONS PROTOCOL' : 'SYSTEM INTERLOCK ACTION'}
+                {kind === 'error' ? 'CRITICAL ACTIONS PROTOCOL' : kind === 'info' ? 'SYSTEM INFORMATION' : 'SYSTEM INTERLOCK ACTION'}
               </span>
             </div>
           </div>

@@ -5,7 +5,6 @@ import {
   Camera, 
   Volume2, 
   VolumeX, 
-  FolderOpen, 
   ChevronLeft, 
   ChevronRight, 
   Maximize, 
@@ -13,7 +12,6 @@ import {
   Crop, 
   Sparkles 
 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store/useStore';
 import type { VideoCardProps } from './types';
 import { SoloTimelinePins } from '../solo/SoloTimelinePins';
@@ -21,12 +19,18 @@ import { SoloTimelinePins } from '../solo/SoloTimelinePins';
 export interface VideoCardOverlayFooterProps {
   props: VideoCardProps;
   state: any;
+  progressRef: React.RefObject<HTMLDivElement | null>;
+  handleRef: React.RefObject<HTMLDivElement | null>;
+  textRef: React.RefObject<HTMLDivElement | null>;
   enableSlideshowPanZoom: boolean;
 }
 
 export function VideoCardOverlayFooter({
   props,
   state,
+  progressRef,
+  handleRef,
+  textRef,
   enableSlideshowPanZoom
 }: VideoCardOverlayFooterProps) {
   if (props.isFocused) return null;
@@ -36,25 +40,21 @@ export function VideoCardOverlayFooter({
       {!state.isImage && (
         <div 
           className="scrub-container" 
-          onMouseDown={(e) => { e.stopPropagation(); (state as any).isScrubbing.current = true; state.handleScrub(e); }}
+          onMouseDown={(e) => { e.stopPropagation(); state.beginScrub(false, e); }}
           style={{ position: 'relative' }}
         >
           <div className="scrub-bar-bg">
-            <div ref={state.progressRef} className="scrub-progress" style={{ width: '0%' }} />
+            <div ref={progressRef} className="scrub-progress" style={{ width: '0%' }} />
           </div>
-          {props.video.bookmarks && props.video.bookmarks.length > 0 && state.videoRef?.current?.duration && (
+          {props.video.bookmarks && props.video.bookmarks.length > 0 && state.duration > 0 && (
             <SoloTimelinePins
               bookmarks={props.video.bookmarks}
-              duration={state.videoRef.current.duration}
-              onSeek={(time) => {
-                if (state.videoRef?.current) {
-                  state.videoRef.current.currentTime = time;
-                }
-              }}
+              duration={state.duration}
+              onSeek={(time) => state.seekTo(time)}
             />
           )}
-          <div ref={state.handleRef} className="scrub-handle" style={{ left: '0%' }} />
-          <div ref={state.textRef} className="progress-text">0%</div>
+          <div ref={handleRef} className="scrub-handle" style={{ left: '0%' }} />
+          <div ref={textRef} className="progress-text">0%</div>
         </div>
       )}
 

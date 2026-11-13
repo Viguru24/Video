@@ -57,3 +57,12 @@ gfpgan/
 test_*.jpg
 proof_*.jpg
 *.partial
+
+# Certificates, Secrets & Heavy Python Envs
+*.pfx
+*.p12
+*.key
+.env
+.env.*
+src-tauri/certificates/
+public/logo_options/

@@ -13,12 +13,12 @@ interface AppSoloViewportProps {
   globalRepeat: RepeatMode;
   speed: number;
   fitMode: any;
-  handleDecommission: (idOrIds: string | string[], skipConfirm?: boolean) => Promise<void>;
-  handleAnnihilate: (idOrIds: string | string[]) => Promise<void>;
+  handleDecommission: (id: string) => Promise<void> | void;
+  handleAnnihilate: (id: string, bypassConfirm?: boolean) => Promise<void> | void;
   addLog: (m: string) => void;
   handleSelectAll: () => void;
   snapshotDir: string;
-  setSnapshotDir: (dir: string) => void;
+  setSnapshotDir: React.Dispatch<React.SetStateAction<string>>;
   globalControl: string | null;
   masterPlaying: boolean;
   masterMuted: boolean;
@@ -43,12 +43,12 @@ interface AppSoloViewportProps {
   isFocusedImage: boolean;
   focusedVideo: VideoItem | null;
   navDirection: 1 | -1;
-  startFrameStep: (dir: 1 | -1) => void;
+  startFrameStep: (action: 'stepback' | 'stepforward', videoId: string) => void;
   stopFrameStep: () => void;
   setMasterMuted: (val: boolean) => void;
   stickerLoadingId: string | null;
   handleCreateSticker: (v: VideoItem) => void;
-  handleCancelSticker: (id: string) => void;
+  handleCancelSticker: () => void;
   cachedAssetUrls: string[];
 }
 

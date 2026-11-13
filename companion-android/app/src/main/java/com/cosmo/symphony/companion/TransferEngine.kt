@@ -152,6 +152,7 @@ class TransferEngine(
         val total = uriList.size
         val completedCount = AtomicInteger(0)
         val successCount = AtomicInteger(0)
+        val pairingToken = prefs.getString("wifi_token", "")?.trim() ?: ""
 
         updateProgressHUD(0, total, "Starting high-speed transfer…")
 
@@ -170,6 +171,9 @@ class TransferEngine(
                     conn.useCaches = false
                     conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
                     conn.setRequestProperty("Connection", "Keep-Alive")
+                    if (pairingToken.isNotBlank()) {
+                        conn.setRequestProperty("X-Cosmo-Token", pairingToken)
+                    }
                     conn.connectTimeout = 15000
                     conn.readTimeout = 60000
 
@@ -227,6 +231,7 @@ class TransferEngine(
         val total = files.size
         val completedCount = AtomicInteger(0)
         val successCount = AtomicInteger(0)
+        val pairingToken = prefs.getString("wifi_token", "")?.trim() ?: ""
 
         updateProgressHUD(0, total, "Downloading from PC…")
 
@@ -237,6 +242,9 @@ class TransferEngine(
                     val url = URL(downloadUrl)
                     val conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "GET"
+                    if (pairingToken.isNotBlank()) {
+                        conn.setRequestProperty("X-Cosmo-Token", pairingToken)
+                    }
                     conn.connectTimeout = 15000
                     conn.readTimeout = 60000
 

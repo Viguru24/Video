@@ -1,5 +1,5 @@
 import React from 'react';
-import type { AspectRatio } from './TrimCropToolbar';
+import type { AspectRatio } from './trimCropUtils';
 
 export interface CropBox {
   x: number; // Percentage 0-100

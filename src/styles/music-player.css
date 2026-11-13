@@ -2,8 +2,13 @@
    MUSIC PLAYER, SETTINGS TABS & PRECISION CINEMA STARTUP SEQUENCE
    ========================================================================== */
 @keyframes bounce-bar {
-  0% { height: 3px; }
-  100% { height: 14px; }
+  0% { transform: scaleY(0.25); }
+  100% { transform: scaleY(1); }
+}
+
+.visualizer-bar {
+  transform-origin: bottom center;
+  will-change: transform;
 }
 
 @keyframes pulse-slow {
@@ -191,9 +196,8 @@
   width: 160%;
   height: 160%;
   background:
-    radial-gradient(circle at 38% 38%, rgba(16, 185, 129, 0.11) 0%, transparent 45%),
-    radial-gradient(circle at 65% 62%, rgba(245, 158, 11, 0.08) 0%, transparent 45%);
-  filter: blur(80px);
+    radial-gradient(circle at 38% 38%, rgba(16, 185, 129, 0.09) 0%, rgba(16, 185, 129, 0.03) 32%, transparent 62%),
+    radial-gradient(circle at 65% 62%, rgba(245, 158, 11, 0.07) 0%, rgba(245, 158, 11, 0.02) 32%, transparent 62%);
   z-index: 1;
 }
 
@@ -286,19 +290,19 @@
 
 .boot-loader-progress {
   height: 100%;
-  width: 50%;
+  width: 45%;
   background: linear-gradient(90deg, #10b981, #fbbf24);
   border-radius: 2px;
   animation: loader-slide 1.8s infinite ease-in-out;
+  will-change: transform;
   position: absolute;
   left: 0;
   top: 0;
 }
 
 @keyframes loader-slide {
-  0% { left: -50%; width: 30%; }
-  50% { width: 55%; }
-  100% { left: 120%; width: 30%; }
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(240%); }
 }
 
 .boot-bypass-btn {
@@ -367,24 +371,23 @@
 
 .intro-glow-bg {
   position: absolute;
-  width: 260px;
-  height: 260px;
+  width: 340px;
+  height: 340px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.38) 0%, rgba(245, 158, 11, 0.25) 42%, transparent 100%);
-  filter: blur(55px);
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.28) 0%, rgba(245, 158, 11, 0.14) 40%, transparent 72%);
   opacity: 0.2;
   transform: scale(0.65);
-  transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 1.4s ease-out, width 1.4s, height 1.4s;
+  will-change: transform, opacity;
+  transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 1.4s ease-out;
   z-index: 1;
 }
 
 .intro-glow-bg.expanded {
-  width: 180%;
-  height: 180%;
-  transform: scale(1.4);
+  width: 140vw;
+  height: 140vh;
+  transform: scale(1.1);
   opacity: 0.55;
-  filter: blur(110px);
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.28) 0%, rgba(45, 212, 191, 0.2) 30%, rgba(245, 158, 11, 0.18) 55%, rgba(7, 7, 9, 1) 90%);
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.22) 0%, rgba(45, 212, 191, 0.14) 28%, rgba(245, 158, 11, 0.1) 52%, transparent 78%);
 }
 
 .intro-logo-content {
@@ -501,9 +504,8 @@
 }
 
 @keyframes intro-color-shift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+  0%, 100% { opacity: 0.88; }
+  50% { opacity: 1; }
 }
 
 @keyframes intro-fade-in {

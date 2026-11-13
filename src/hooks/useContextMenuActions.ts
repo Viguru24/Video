@@ -94,7 +94,7 @@ export function useContextMenuActions({
   setFileManageOpen,
   setCollections,
   setCollageItems,
-  metadataCache,
+  metadataCache: metadataCacheRef,
   addLog,
   setToast,
   setMenu,
@@ -181,153 +181,77 @@ export function useContextMenuActions({
         break;
       case 'prev-file': handleNavigateSibling(-1); break;
       case 'next-file': handleNavigateSibling(1); break;
-      case 'rotate-ccw': {
-        const isBatch = selectedIds.size > 0 && selectedIds.has(v.id);
-        
-        if (isBatch) {
-          const targetIds = Array.from(selectedIds);
-          addLog(`Rotating ${targetIds.length} assets Left (-90°)...`);
-          
-          const promises = targetIds.map(async (targetId) => {
-            const targetVideo = videos.find(x => x.id === targetId);
-            if (!targetVideo) return;
-            
-            const targetPath = (targetVideo.folderFiles && targetVideo.currentIdx !== undefined)
-              ? (targetVideo.folderFiles[targetVideo.currentIdx]?.path || targetVideo.folderFiles[targetVideo.currentIdx]?.url)
-              : targetVideo.realPath;
-              
-            if (targetPath) {
-              const isImage = isValidPictureExtension(targetPath || targetVideo.url);
-              try {
-                await invoke('rotate_media_on_disk', { 
-                  path: targetPath, 
-                  rotation: -90, 
-                  isImage: isImage 
-                });
-                const cacheBuster = `t=${Date.now()}`;
-                const cleanUrl = targetVideo.url.split('?')[0];
-                const newUrl = `${cleanUrl}?${cacheBuster}`;
-                onUpdateVideo(targetVideo.id, { 
-                  rotation: 0,
-                  url: newUrl
-                });
-              } catch (err) {
-                console.error("Failed to rotate left on disk:", targetPath, err);
-                throw err;
-              }
-            } else {
-              onUpdateVideo(targetVideo.id, { rotation: (targetVideo.rotation || 0) - 90 });
-            }
-          });
-
-          Promise.all(promises)
-            .then(() => {
-              addLog(`Batch left rotation complete for ${targetIds.length} assets.`);
-            })
-            .catch(() => {
-              addLog(`Batch left rotation failed: some assets could not be rotated.`);
-            });
-        } else {
-          if (effectivePath) {
-            const isImage = isValidPictureExtension(effectivePath || v.url);
-            addLog(`Rotating Left (-90°) and auto-saving to disk for: ${v.title}...`);
-            invoke<string>('rotate_media_on_disk', { 
-              path: effectivePath, 
-              rotation: -90, 
-              isImage: isImage 
-            })
-            .then(() => {
-              const cacheBuster = `t=${Date.now()}`;
-              const cleanUrl = v.url.split('?')[0];
-              const newUrl = `${cleanUrl}?${cacheBuster}`;
-              onUpdateVideo(v.id, { 
-                rotation: 0,
-                url: newUrl
-              });
-              addLog(`Rotation permanently saved to disk for: ${v.title}`);
-            })
-            .catch((err) => {
-              console.error("Failed to save rotation:", err);
-              addLog(`Failed to save rotation: ${err}`);
-            });
-          } else {
-            onUpdateVideo(v.id, { rotation: (v.rotation || 0) - 90 });
-          }
-        }
-        break;
-      }
+      case 'rotate-ccw':
       case 'rotate-cw': {
+        const deltaDeg = action === 'rotate-ccw' ? -90 : 90;
+        const dirLabel = deltaDeg < 0 ? 'Left (-90°)' : 'Right (+90°)';
         const isBatch = selectedIds.size > 0 && selectedIds.has(v.id);
-        
+
+        const applyRotationToItem = async (item: VideoItem) => {
+          const isFolderItem = !!(item.folderFiles && item.currentIdx !== undefined);
+          const rawPath = isFolderItem
+            ? (item.folderFiles![item.currentIdx!]?.path || item.folderFiles![item.currentIdx!]?.url)
+            : (item.realPath || item.url);
+          const diskPath = toRealPath(rawPath) || rawPath;
+
+          if (diskPath) {
+            const isImage = isValidPictureExtension(diskPath || item.url);
+            await invoke<string>('rotate_media_on_disk', {
+              path: diskPath,
+              rotation: deltaDeg,
+              isImage,
+            });
+            const cacheBuster = `t=${Date.now()}`;
+            const updatedUrl = `${toCosmoUrl(diskPath)}?${cacheBuster}`;
+            if (isFolderItem && item.folderFiles && item.currentIdx !== undefined) {
+              const updatedFiles = item.folderFiles.map((f, idx) =>
+                idx === item.currentIdx ? { ...f, url: updatedUrl } : f
+              );
+              onUpdateVideo(item.id, {
+                rotation: 0,
+                url: updatedUrl,
+                folderFiles: updatedFiles,
+              });
+            } else {
+              onUpdateVideo(item.id, {
+                rotation: 0,
+                url: updatedUrl,
+              });
+            }
+          } else {
+            onUpdateVideo(item.id, { rotation: (item.rotation || 0) + deltaDeg });
+          }
+        };
+
         if (isBatch) {
           const targetIds = Array.from(selectedIds);
-          addLog(`Rotating ${targetIds.length} assets Right (+90°)...`);
-          
-          const promises = targetIds.map(async (targetId) => {
-            const targetVideo = videos.find(x => x.id === targetId);
-            if (!targetVideo) return;
-            
-            const targetPath = (targetVideo.folderFiles && targetVideo.currentIdx !== undefined)
-              ? (targetVideo.folderFiles[targetVideo.currentIdx]?.path || targetVideo.folderFiles[targetVideo.currentIdx]?.url)
-              : targetVideo.realPath;
-              
-            if (targetPath) {
-              const isImage = isValidPictureExtension(targetPath || targetVideo.url);
-              try {
-                await invoke('rotate_media_on_disk', { 
-                  path: targetPath, 
-                  rotation: 90, 
-                  isImage: isImage 
-                });
-                const cacheBuster = `t=${Date.now()}`;
-                const cleanUrl = targetVideo.url.split('?')[0];
-                const newUrl = `${cleanUrl}?${cacheBuster}`;
-                onUpdateVideo(targetVideo.id, { 
-                  rotation: 0,
-                  url: newUrl
-                });
-              } catch (err) {
-                console.error("Failed to rotate right on disk:", targetPath, err);
-                throw err;
-              }
-            } else {
-              onUpdateVideo(targetVideo.id, { rotation: (targetVideo.rotation || 0) + 90 });
-            }
-          });
+          addLog(`Rotating ${targetIds.length} assets ${dirLabel}...`);
+          const targets = targetIds
+            .map((targetId) => videos.find((x) => x.id === targetId))
+            .filter((x): x is VideoItem => Boolean(x));
 
-          Promise.all(promises)
+          Promise.all(targets.map((targetVideo) => applyRotationToItem(targetVideo)))
             .then(() => {
-              addLog(`Batch right rotation complete for ${targetIds.length} assets.`);
+              addLog(`Batch ${deltaDeg < 0 ? 'left' : 'right'} rotation complete for ${targetIds.length} assets.`);
             })
-            .catch(() => {
-              addLog(`Batch right rotation failed: some assets could not be rotated.`);
+            .catch((err) => {
+              console.error(`Batch rotation (${deltaDeg}) failed:`, err);
+              addLog(`Batch ${deltaDeg < 0 ? 'left' : 'right'} rotation failed: some assets could not be rotated.`);
             });
         } else {
           if (effectivePath) {
-            const isImage = isValidPictureExtension(effectivePath || v.url);
-            addLog(`Rotating Right (+90°) and auto-saving to disk for: ${v.title}...`);
-            invoke<string>('rotate_media_on_disk', { 
-              path: effectivePath, 
-              rotation: 90, 
-              isImage: isImage 
-            })
+            addLog(`Rotating ${dirLabel} and auto-saving to disk for: ${v.title}...`);
+          }
+          applyRotationToItem(v)
             .then(() => {
-              const cacheBuster = `t=${Date.now()}`;
-              const cleanUrl = v.url.split('?')[0];
-              const newUrl = `${cleanUrl}?${cacheBuster}`;
-              onUpdateVideo(v.id, { 
-                rotation: 0,
-                url: newUrl
-              });
-              addLog(`Rotation permanently saved to disk for: ${v.title}`);
+              if (effectivePath) {
+                addLog(`Rotation permanently saved to disk for: ${v.title}`);
+              }
             })
             .catch((err) => {
-              console.error("Failed to save rotation:", err);
+              console.error('Failed to save rotation:', err);
               addLog(`Failed to save rotation: ${err}`);
             });
-          } else {
-            onUpdateVideo(v.id, { rotation: (v.rotation || 0) + 90 });
-          }
         }
         break;
       }
@@ -650,25 +574,40 @@ export function useContextMenuActions({
 
       case 'focus': onToggleFocus(v.id); break;
       case 'snapshot': setGlobalControl(`snapshot-${v.id}-${Date.now()}`); break;
-      case 'save_rotation':
-        if (v.realPath) {
-          const isImage = isValidPictureExtension(v.realPath || v.url);
+      case 'save_rotation': {
+        const isFolderItem = !!(v.folderFiles && v.currentIdx !== undefined);
+        const rawPath = isFolderItem
+          ? (v.folderFiles![v.currentIdx!]?.path || v.folderFiles![v.currentIdx!]?.url)
+          : (v.realPath || v.url);
+        const diskPath = toRealPath(rawPath) || rawPath;
+        if (diskPath) {
+          const isImage = isValidPictureExtension(diskPath || v.url);
           
           addLog(`Saving rotation permanently to disk for: ${v.title}...`);
           invoke<string>('rotate_media_on_disk', { 
-            path: v.realPath, 
+            path: diskPath, 
             rotation: v.rotation || 0, 
             isImage: isImage 
           })
           .then(() => {
             const cacheBuster = `t=${Date.now()}`;
-            const cleanUrl = v.url.split('?')[0];
-            const newUrl = `${cleanUrl}?${cacheBuster}`;
+            const newUrl = `${toCosmoUrl(diskPath)}?${cacheBuster}`;
 
-            onUpdateVideo(v.id, { 
-              rotation: 0,
-              url: newUrl
-            });
+            if (isFolderItem && v.folderFiles && v.currentIdx !== undefined) {
+              const updatedFiles = v.folderFiles.map((f, idx) =>
+                idx === v.currentIdx ? { ...f, url: newUrl } : f
+              );
+              onUpdateVideo(v.id, {
+                rotation: 0,
+                url: newUrl,
+                folderFiles: updatedFiles,
+              });
+            } else {
+              onUpdateVideo(v.id, { 
+                rotation: 0,
+                url: newUrl
+              });
+            }
             addLog(`Rotation permanently saved to disk for: ${v.title}`);
           })
           .catch((err) => {
@@ -681,6 +620,7 @@ export function useContextMenuActions({
           addLog("Error: Native path lost for this unit.");
         }
         break;
+      }
       case 'folder': {
         // For folder units, open the currently-displayed file (not always the first)
         const folderEffectivePath = (v.folderFiles && v.currentIdx !== undefined)
@@ -841,7 +781,7 @@ export function useContextMenuActions({
           url: currentFile.url || currentFile.path,
           title: currentFile.name || v.title
         } : v;
-        metadataCache.current = {};
+        metadataCacheRef.current = {};
         useStore.getState().setMetadataStudioTargets([targetItem]);
         break;
       }
@@ -857,7 +797,7 @@ export function useContextMenuActions({
             title: currentFile.name || item.title
           } : item;
         });
-        metadataCache.current = {};
+        metadataCacheRef.current = {};
         useStore.getState().setMetadataStudioTargets(selectedItems.length > 0 ? selectedItems : [v]);
         break;
       }
@@ -872,7 +812,7 @@ export function useContextMenuActions({
           selectedIds,
           videos,
           v,
-          metadataCache,
+          metadataCache: metadataCacheRef,
           addLog,
           setToast,
         });
@@ -950,7 +890,7 @@ export function useContextMenuActions({
     setFileManageItems,
     setFileManageOpen,
     handlePasteImage,
-    metadataCache,
+    metadataCacheRef,
     handleTriggerWifiShare,
     setMenu,
     setMenuMetadata

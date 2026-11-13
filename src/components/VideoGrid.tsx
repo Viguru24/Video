@@ -1,15 +1,12 @@
 import React, { useRef } from 'react';
-import { Upload } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '@tauri-apps/api/core';
-import { motion, AnimatePresence } from 'framer-motion';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
 import type { VideoItem, RepeatMode } from '../types';
 import { SortableVideoCard } from './SortableVideoCard';
 import { useStore } from '../store/useStore';
-import { isTauri } from '../utils/videoUtils';
 
 interface VideoGridProps {
   videos: VideoItem[];
@@ -26,7 +23,7 @@ interface VideoGridProps {
   globalVolume: number;
   showImmersiveUI: boolean;
   snapshotDir?: string;
-  setSnapshotDir?: (dir: string) => void;
+  setSnapshotDir?: React.Dispatch<React.SetStateAction<string>>;
   globalControl: string | null;
   rowOffsets: number[];
   rotIdx: number;
@@ -128,6 +125,7 @@ export function VideoGrid({
   const setZoom = useStore((state) => state.setZoom);
   const setSelectedIds = useStore((state) => state.setSelectedIds);
   const setSelectionMode = useStore((state) => state.setSelectionMode);
+  const activeLayoutPresetId = useStore((state) => state.activeLayoutPresetId);
 
   const handleOpenWebsite = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -446,9 +444,22 @@ export function VideoGrid({
                   minHeight: '100vh'
                 }}
               >
-                {filtered.map((v) => (
-                  <div key={v.id} className="virtuoso-grid-item" style={{ display: 'flex' }}>
-                    <SortableVideoCard
+                {filtered.map((v, index) => {
+                  const isHero = activeLayoutPresetId === 'hero-6' && (focusedId ? focusedId === v.id : index === 0);
+                  const itemColSpan = isHero ? 2 : (v.cols || 1);
+                  const itemRowSpan = isHero ? 2 : 1;
+                  return (
+                    <div 
+                      key={v.id} 
+                      className={`virtuoso-grid-item ${isHero ? 'hero-grid-item' : ''}`} 
+                      style={{ 
+                        display: 'flex',
+                        gridColumn: `span ${itemColSpan}`,
+                        gridRow: `span ${itemRowSpan}`,
+                      }}
+                    >
+                      <SortableVideoCard
+                        isHero={isHero}
                       video={v}
                       quality={focusedId === v.id ? 'high' : 'low'}
                       focusedId={focusedId}
@@ -490,8 +501,9 @@ export function VideoGrid({
                       onCreateSticker={onCreateSticker}
                       onCancelSticker={onCancelSticker}
                     />
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </SortableContext>

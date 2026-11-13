@@ -1,11 +1,11 @@
 import { useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { VideoItem } from '../types';
+import type { VideoItem, SortOption } from '../types';
 import { toRealPath, toCosmoUrl, getFileNameFromPath } from '../utils/videoUtils';
 
 interface UseStickerCreatorProps {
   setVideos: React.Dispatch<React.SetStateAction<VideoItem[]>>;
-  setSortOrder: (order: string) => void;
+  setSortOrder: (order: SortOption) => void;
   setFocusedId: (id: string | null) => void;
   addLog: (m: string) => void;
 }

@@ -7,6 +7,7 @@ import {
   Maximize2, 
   Minimize2, 
   ChevronUp, 
+  ChevronDown,
   X, 
   Download, 
   Film, 
@@ -230,39 +231,44 @@ export function BrowserToolbar({
         </div>
       </div>
 
-      {/* Filter, Search & Display Controls */}
-      <div className="browser-filter-row">
-        {/* Media Filter Tabs */}
-        <div className="browser-filter-tabs">
-          <button 
-            className={`browser-filter-tab ${mediaFilter === 'all' ? 'active' : ''}`}
-            onClick={() => onMediaFilterChange('all')}
-            title="Show All Compatible Media"
-          >
-            All <span className="tab-count">{mediaCounts.all}</span>
-          </button>
-          <button 
-            className={`browser-filter-tab ${mediaFilter === 'video' ? 'active' : ''}`}
-            onClick={() => onMediaFilterChange('video')}
-            title="Show Videos Only"
-          >
-            Videos <span className="tab-count">{mediaCounts.video}</span>
-          </button>
-          <button 
-            className={`browser-filter-tab ${mediaFilter === 'picture' ? 'active' : ''}`}
-            onClick={() => onMediaFilterChange('picture')}
-            title="Show Pictures & Photos Only"
-          >
-            Pictures <span className="tab-count">{mediaCounts.picture}</span>
-          </button>
-        </div>
+      {/* Media Filter Segmented Control */}
+      <div className="browser-filter-segmented-bar">
+        <button 
+          className={`browser-filter-tab ${mediaFilter === 'all' ? 'active' : ''}`}
+          onClick={() => onMediaFilterChange('all')}
+          title="Show All Compatible Media"
+        >
+          <span>All</span>
+          <span className="tab-count">{mediaCounts.all}</span>
+        </button>
+        <button 
+          className={`browser-filter-tab ${mediaFilter === 'video' ? 'active' : ''}`}
+          onClick={() => onMediaFilterChange('video')}
+          title="Show Videos Only"
+        >
+          <Film size={11} className="tab-icon" />
+          <span>Videos</span>
+          <span className="tab-count">{mediaCounts.video}</span>
+        </button>
+        <button 
+          className={`browser-filter-tab ${mediaFilter === 'picture' ? 'active' : ''}`}
+          onClick={() => onMediaFilterChange('picture')}
+          title="Show Pictures & Photos Only"
+        >
+          <ImageIcon size={11} className="tab-icon" />
+          <span>Pictures</span>
+          <span className="tab-count">{mediaCounts.picture}</span>
+        </button>
+      </div>
 
+      {/* Search & Display Controls Toolbar */}
+      <div className="browser-search-display-row">
         {/* Live Search Input Box */}
         <div className="browser-search-box">
-          <Search size={11} className="search-icon" />
+          <Search size={11} className="browser-search-icon" />
           <input 
             type="text" 
-            placeholder="Search..." 
+            placeholder="Search files..." 
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             className="browser-search-input"
@@ -280,21 +286,24 @@ export function BrowserToolbar({
 
         {/* Sorting & Layout Toggles */}
         <div className="browser-display-controls">
-          <select 
-            className="browser-sort-select"
-            value={sortBy}
-            onChange={(e) => onSortByChange(e.target.value as any)}
-            title="Sort files by"
-          >
-            <option value="name">Name</option>
-            <option value="date">Date</option>
-            <option value="size">Size</option>
-          </select>
+          <div className="browser-sort-select-wrapper">
+            <select 
+              className="browser-sort-select"
+              value={sortBy}
+              onChange={(e) => onSortByChange(e.target.value as any)}
+              title="Sort files by"
+            >
+              <option value="name">Name</option>
+              <option value="date">Date</option>
+              <option value="size">Size</option>
+            </select>
+            <ChevronDown size={10} className="browser-sort-arrow" />
+          </div>
 
           <button 
-            className="layout-toggle-btn"
+            className="layout-toggle-btn browser-sort-dir-btn"
             onClick={onSortOrderToggle}
-            title={sortOrder === 'asc' ? "Ascending order" : "Descending order"}
+            title={sortOrder === 'asc' ? "Ascending order (Click for Descending)" : "Descending order (Click for Ascending)"}
           >
             {sortOrder === 'asc' ? '↑' : '↓'}
           </button>
@@ -318,20 +327,21 @@ export function BrowserToolbar({
             ? "Auto-Sync Active: New media in this folder will be auto-loaded into your workspace" 
             : "Enable Auto-Sync: Automatically ingest new photos/videos saved to this folder"}
         >
-          <Zap size={11} className={isCurrentFolderAutoSync ? 'glow-accent' : ''} />
-          <span>{isCurrentFolderAutoSync ? 'Auto-Sync Folder (Active)' : 'Enable Folder Auto-Sync'}</span>
+          <Zap size={11} className={`browser-autosync-icon ${isCurrentFolderAutoSync ? 'glow-accent' : ''}`} />
+          <span>{isCurrentFolderAutoSync ? 'Auto-Sync Active' : 'Enable Auto-Sync'}</span>
         </button>
 
         <label 
-          className="browser-autoadd-checkbox"
+          className="browser-autoadd-checkbox-label"
           title="When enabled, new media files appearing in this folder will be added to the workspace automatically"
         >
           <input 
             type="checkbox"
+            className="browser-autoadd-checkbox"
             checked={autoAddIncoming}
             onChange={onToggleAutoAddIncoming}
           />
-          <span>Auto-add incoming media</span>
+          <span className="browser-autoadd-text">Auto-add incoming media</span>
         </label>
       </div>
     </div>

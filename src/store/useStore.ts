@@ -174,7 +174,18 @@ export const useStore = create<GlobalState>((set) => ({
   setFitMode: (mode) => set({ fitMode: mode }),
   
   zoom: 3,
-  setZoom: (val) => set((state) => ({ zoom: typeof val === 'function' ? val(state.zoom) : val })),
+  setZoom: (val) => set((state) => {
+    const nextZoom = typeof val === 'function' ? val(state.zoom) : val;
+    let nextPresetId = state.activeLayoutPresetId;
+    if (nextPresetId) {
+      const match = state.layoutPresets.find(p => p.id === nextPresetId);
+      if (match && match.zoom !== nextZoom) {
+        nextPresetId = null;
+        localStorage.removeItem('cosmo-active-layout-preset');
+      }
+    }
+    return { zoom: nextZoom, activeLayoutPresetId: nextPresetId };
+  }),
   
   immersive: false,
   setImmersive: (val) => set((state) => ({ immersive: typeof val === 'function' ? val(state.immersive) : val })),
@@ -374,8 +385,12 @@ export const useStore = create<GlobalState>((set) => ({
     localStorage.setItem('cosmo-layout-presets', JSON.stringify(presets));
     set({ layoutPresets: presets });
   },
-  activeLayoutPresetId: null,
-  setActiveLayoutPresetId: (id) => set({ activeLayoutPresetId: id }),
+  activeLayoutPresetId: localStorage.getItem('cosmo-active-layout-preset') || 'studio-3x3',
+  setActiveLayoutPresetId: (id) => {
+    if (id) localStorage.setItem('cosmo-active-layout-preset', id);
+    else localStorage.removeItem('cosmo-active-layout-preset');
+    set({ activeLayoutPresetId: id });
+  },
 
   // Grid Sorting State
   sortOrder: (localStorage.getItem('cosmo-sort-order') as SortOption) || 'custom',

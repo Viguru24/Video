@@ -17,11 +17,22 @@ import { VideoCardOverlayHeader } from './VideoCardOverlayHeader';
 import { VideoCardOverlayFooter } from './VideoCardOverlayFooter';
 import { UnitErrorBoundary } from './UnitErrorBoundary';
 
-export * from './types';
-
 function VideoCardInternal(props: VideoCardProps) {
   const { fitMode = 'contain' } = props;
-  const state = useVideoCard(props);
+  const {
+    videoRef,
+    cardRef,
+    progressRef,
+    handleRef,
+    textRef,
+    focusedProgressRef,
+    focusedHandleRef,
+    focusedTimeTextRef,
+    focusedScrubContainerRef,
+    focusedTrackRef,
+    lastTimeRef,
+    ...state
+  } = useVideoCard(props);
 
   const immersive = useStore((state) => state.immersive);
   const enableSlideshowPanZoom = useStore((state) => state.enableSlideshowPanZoom);
@@ -67,7 +78,7 @@ function VideoCardInternal(props: VideoCardProps) {
     if (props.isCropping) return;
 
     if (!props.isFocused) {
-      props.onDeepFocus(state.videoRef.current ? state.videoRef.current.currentTime : undefined);
+      props.onDeepFocus(state.getCurrentTime());
     } else {
       if (state.zoomScale > 1) {
         state.resetZoom();
@@ -75,11 +86,11 @@ function VideoCardInternal(props: VideoCardProps) {
         props.onCloseFocus();
       }
     }
-  }, [props.isCropping, props.isFocused, props.onDeepFocus, props.onCloseFocus, state.zoomScale, state.resetZoom, state.videoRef]);
+  }, [props.isCropping, props.isFocused, props.onDeepFocus, props.onCloseFocus, state.zoomScale, state.resetZoom, state.getCurrentTime]);
 
   return (
     <motion.div
-      ref={state.cardRef}
+      ref={cardRef}
       className={`video-card ${props.isFocused ? 'focused' : ''} ${props.isSelected ? 'selected' : ''} ${state.showControls ? 'ui-visible' : ''} ${props.video.borderWidth ? `border-w-${props.video.borderWidth}` : ''}`}
       data-id={props.video.id}
       layout={props.isFocused ? "position" : false}
@@ -113,6 +124,8 @@ function VideoCardInternal(props: VideoCardProps) {
         props={props}
         state={state}
         fitMode={fitMode}
+        videoRef={videoRef}
+        lastTimeRef={lastTimeRef}
         currentMode={currentMode}
         enableSlideshowPanZoom={enableSlideshowPanZoom}
       />
@@ -301,17 +314,11 @@ function VideoCardInternal(props: VideoCardProps) {
         
         {props.isFocused && !state.isImage && (
           <div 
-            ref={state.focusedScrubContainerRef}
+            ref={focusedScrubContainerRef}
             className="focused-scrub-container"
-            onMouseDown={(e) => { e.stopPropagation(); (state as any).isScrubbing.current = true; state.handleFocusedScrub(e); }}
-            onMouseEnter={() => {
-              const handle = state.focusedHandleRef.current;
-              if (handle) handle.style.transform = 'translate(-50%, -50%) scale(1.3)';
-            }}
-            onMouseLeave={() => {
-              const handle = state.focusedHandleRef.current;
-              if (handle) handle.style.transform = 'translate(-50%, -50%) scale(1)';
-            }}
+            onMouseDown={(e) => { e.stopPropagation(); state.beginScrub(true, e); }}
+            onMouseEnter={() => state.setFocusedHandleScale(1.3)}
+            onMouseLeave={() => state.setFocusedHandleScale(1)}
             style={{
               position: 'absolute',
               bottom: '96px',
@@ -333,7 +340,7 @@ function VideoCardInternal(props: VideoCardProps) {
             }}
           >
             <div 
-              ref={state.focusedTrackRef}
+              ref={focusedTrackRef}
               style={{
                 position: 'relative',
                 flex: 1,
@@ -345,7 +352,7 @@ function VideoCardInternal(props: VideoCardProps) {
               }}
             >
               <div 
-                ref={state.focusedProgressRef}
+                ref={focusedProgressRef}
                 style={{
                   position: 'absolute',
                   left: 0,
@@ -358,7 +365,7 @@ function VideoCardInternal(props: VideoCardProps) {
                 }}
               />
               <div 
-                ref={state.focusedHandleRef}
+                ref={focusedHandleRef}
                 style={{
                   position: 'absolute',
                   top: '50%',
@@ -376,7 +383,7 @@ function VideoCardInternal(props: VideoCardProps) {
               />
             </div>
             <div 
-              ref={state.focusedTimeTextRef}
+              ref={focusedTimeTextRef}
               style={{
                 color: '#fff',
                 fontSize: '12px',
@@ -423,6 +430,9 @@ function VideoCardInternal(props: VideoCardProps) {
         <VideoCardOverlayFooter
           props={props}
           state={state}
+          progressRef={progressRef}
+          handleRef={handleRef}
+          textRef={textRef}
           enableSlideshowPanZoom={enableSlideshowPanZoom}
         />
       </div>

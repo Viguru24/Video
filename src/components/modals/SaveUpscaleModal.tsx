@@ -84,7 +84,7 @@ export const SaveUpscaleModal: React.FC<SaveUpscaleModalProps> = ({
       });
   }, [isOpen, target?.realPath]);
 
-  const isVideo = target?.realPath?.toLowerCase().match(/\.(mp4|webm|mov|mkv|avi|ts|mpeg|mpg)$/);
+  const isVideo = Boolean(target?.realPath?.toLowerCase().match(/\.(mp4|webm|mov|mkv|avi|ts|mpeg|mpg)$/));
   const width = dimensions?.width || 0;
   const height = dimensions?.height || 0;
   const totalPixels = width * height;

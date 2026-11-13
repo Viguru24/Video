@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import type { VideoItem, RepeatMode } from '../types';
-import { isAudioFile } from '../components/MusicPlayerWidget';
+import { isAudioFile } from '../utils/audioUtils';
 import { useStore } from '../store/useStore';
 
 interface UseMediaPlaybackProps {
@@ -67,9 +67,9 @@ export function useMediaPlayback({
 
     // 3. Repeat All ('folder')
     if (currentMode === 'folder') {
-      if (hasFolderFiles) {
+      if (hasFolderFiles && endedVideo.folderFiles) {
         setVideos(prev => prev.map(v => {
-          if (v.id !== id) return v;
+          if (v.id !== id || !v.folderFiles || v.folderFiles.length === 0) return v;
           const nextIdx = ((v.currentIdx || 0) + 1) % v.folderFiles.length;
           const nextFile = v.folderFiles[nextIdx];
           addLog(`Folder Cycle [${v.title}] -> ${nextFile.name}`);

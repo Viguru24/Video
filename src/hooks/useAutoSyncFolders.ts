@@ -8,7 +8,7 @@ interface UseAutoSyncFoldersParams {
   autoSyncFolders: string[];
   videos: VideoItem[];
   setVideos: React.Dispatch<React.SetStateAction<VideoItem[]>>;
-  handleIngestPaths: (paths: string[]) => Promise<void>;
+  handleIngestPaths: (paths: string[]) => Promise<VideoItem[] | void>;
   addLog: (m: string) => void;
 }
 
@@ -23,13 +23,16 @@ export function useAutoSyncFolders({
   const pendingAutoAddRef = useRef<Set<string>>(new Set());
   const dirDebounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const videosRef = useRef<VideoItem[]>(videos);
-  videosRef.current = videos;
   const autoSyncFoldersRef = useRef<string[]>(autoSyncFolders);
-  autoSyncFoldersRef.current = autoSyncFolders;
   const handleIngestPathsRef = useRef(handleIngestPaths);
-  handleIngestPathsRef.current = handleIngestPaths;
   const addLogRef = useRef(addLog);
-  addLogRef.current = addLog;
+
+  useEffect(() => {
+    videosRef.current = videos;
+    autoSyncFoldersRef.current = autoSyncFolders;
+    handleIngestPathsRef.current = handleIngestPaths;
+    addLogRef.current = addLog;
+  }, [videos, autoSyncFolders, handleIngestPaths, addLog]);
 
   // Auto-deduplicate workspace items if duplicate tiles exist
   useEffect(() => {
@@ -80,6 +83,8 @@ export function useAutoSyncFolders({
     if (!isTauri()) return;
     let unsubscribe: (() => void) | null = null;
     let active = true;
+
+    const debounceTimers = dirDebounceTimersRef.current;
 
     const setupMultiFolderListener = async () => {
       try {
@@ -170,8 +175,8 @@ export function useAutoSyncFolders({
 
     return () => {
       active = false;
-      dirDebounceTimersRef.current.forEach(t => clearTimeout(t));
-      dirDebounceTimersRef.current.clear();
+      debounceTimers.forEach(t => clearTimeout(t));
+      debounceTimers.clear();
       if (unsubscribe) unsubscribe();
     };
   }, []);

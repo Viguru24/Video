@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TELEMETRY_INTERVAL } from '../constants';
 import { handleError, isAbortError } from '../utils/errorHandler';
+import { isTauri } from '../utils/videoUtils';
 import type { TelemetryData } from '../types';
 
 /**
@@ -11,17 +12,18 @@ export function useTelemetry(isPopout: boolean = false) {
   const [telemetry, setTelemetry] = useState<TelemetryData>({ 
     cpu: '0%', 
     mem: '0/0GB', 
-    gpu: 'RTX 5080' 
+    gpu: 'Detecting...' 
   });
 
   useEffect(() => {
-    if (isPopout) return;
+    if (isPopout || !isTauri()) return;
     
     let mounted = true;
     const abortController = new AbortController();
+    let interval: ReturnType<typeof setInterval> | null = null;
     
     const poll = async () => {
-      if (!mounted || abortController.signal.aborted) return;
+      if (!mounted || abortController.signal.aborted || document.hidden) return;
       
       try {
         const data = await invoke<TelemetryData>('get_telemetry');
@@ -35,15 +37,37 @@ export function useTelemetry(isPopout: boolean = false) {
       }
     };
 
-    // Initial poll
-    poll();
-    
-    const interval = setInterval(poll, TELEMETRY_INTERVAL);
+    const startPolling = () => {
+      if (interval !== null) return;
+      poll();
+      interval = setInterval(poll, TELEMETRY_INTERVAL);
+    };
+
+    const stopPolling = () => {
+      if (interval !== null) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+      }
+    };
+
+    if (!document.hidden) {
+      startPolling();
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
     return () => {
       mounted = false;
       abortController.abort();
-      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopPolling();
     };
   }, [isPopout]);
 

@@ -52,8 +52,21 @@ Write-Host "Found SignTool: $signtool" -ForegroundColor Green
 
 # 3. Sign the generated packages
 Write-Host "`n[3/3] Signing MSIX packages with local certificate..." -ForegroundColor Yellow
-$certPath = "src-tauri\certificates\dev.pfx"
-$password = "[REDACTED_PFX_PASSWORD]"
+$certPath = if ($env:COSMO_SIGN_CERT_PATH) { $env:COSMO_SIGN_CERT_PATH } else { "src-tauri\certificates\dev.pfx" }
+$password = $env:COSMO_SIGN_CERT_PASSWORD
+if ([string]::IsNullOrWhiteSpace($password)) {
+    $securePwd = Read-Host -Prompt "Enter PFX signing password (or set COSMO_SIGN_CERT_PASSWORD)" -AsSecureString
+    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePwd)
+    try {
+        $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    } finally {
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
+if (!(Test-Path $certPath) -or [string]::IsNullOrWhiteSpace($password)) {
+    Write-Host "Error: Signing certificate missing or password empty." -ForegroundColor Red
+    exit 1
+}
 
 $packages = Get-ChildItem -Path $msixDir -Include "*.msix", "*.msixbundle" -Recurse
 

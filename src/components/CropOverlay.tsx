@@ -259,7 +259,7 @@ export function CropOverlay({
     if (isDragging) {
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch (_) {}
+      } catch { /* ignore missing pointer capture */ }
       setIsDragging(false);
       setDragHandle(null);
     }

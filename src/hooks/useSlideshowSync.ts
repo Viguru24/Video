@@ -91,13 +91,15 @@ export function useSlideshowSync({
     }
   }, [isSlideshowActive, focusedId, filtered, setFocusedId, setVideos, setImmersive, addLog]);
 
-  // Slideshow Timer Effect: Only applies to static images
+  // Slideshow Timer Effect: Only applies to static images (paused while hidden)
   useEffect(() => {
     if (!isSlideshowActive || !focusedId) return;
     if (!isFocusedImage || isFocusedVideo) return;
 
     const timer = setInterval(() => {
-      handleNavigateSibling(1);
+      if (!document.hidden) {
+        handleNavigateSibling(1);
+      }
     }, Math.max(1, slideshowInterval) * 1000);
 
     return () => clearInterval(timer);

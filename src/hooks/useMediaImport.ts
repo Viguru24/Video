@@ -341,7 +341,8 @@ export function useMediaImport({
             cols: 1,
             folderFiles: folderWithUrls,
             currentIdx: 0,
-            activeClean: convertedVids[0].url
+            playing: isValidMediaExtension(convertedVids[0].url, 'video') && masterPlaying,
+            muted: masterMuted
           }
         ]);
         

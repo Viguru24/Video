@@ -379,12 +379,14 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
     }
   }, [playlist, activeVideo, onUpdateVideo, showHudNotification, setIsCropping]);
 
-  // Slideshow Logic - uses configured slideshowInterval
+  // Slideshow Logic - uses configured slideshowInterval (paused while hidden)
   useEffect(() => {
     if (!isSlideshowActive || playlist.length <= 1) return;
     const intervalSec = Math.max(1, slideshowInterval || 5);
     const timer = setInterval(() => {
-      navigate(1);
+      if (!document.hidden) {
+        navigate(1);
+      }
     }, intervalSec * 1000);
     return () => clearInterval(timer);
   }, [isSlideshowActive, playlist, navigate, slideshowInterval]);

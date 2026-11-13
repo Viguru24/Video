@@ -305,6 +305,8 @@ export function useWorkspaceMediaOps({
                 realPath: update.newPath,
                 currentTime: 0,
                 repeatMode: 'none',
+                repeatCount: 0,
+                cols: 1,
                 playing: false,
                 muted: false
               };
@@ -337,6 +339,8 @@ export function useWorkspaceMediaOps({
                   realPath: update.newPath,
                   currentTime: 0,
                   repeatMode: 'none',
+                  repeatCount: 0,
+                  cols: 1,
                   playing: false,
                   muted: false
                 };
@@ -391,6 +395,8 @@ export function useWorkspaceMediaOps({
               realPath: update.newPath,
               currentTime: 0,
               repeatMode: 'none',
+              repeatCount: 0,
+              cols: 1,
               playing: false,
               muted: false
             };

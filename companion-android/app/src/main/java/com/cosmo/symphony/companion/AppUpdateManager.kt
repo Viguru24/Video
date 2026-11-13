@@ -38,7 +38,7 @@ class AppUpdateManager(
     }
 
     private val baseUrl = "https://api.cosmowhisper.com/updates"
-    private val groupToken = "[REDACTED_GROUP_TOKEN]"
+    private val groupToken = "cosmo-companion-ota"
 
     /**
      * Checks if a newer APK is available on the sovereign VPS.

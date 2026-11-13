@@ -26,10 +26,9 @@ export function useVideoCardScrubber({
   const focusedTimeTextRef = useRef<HTMLDivElement>(null);
   const focusedScrubContainerRef = useRef<HTMLDivElement>(null);
   const focusedTrackRef = useRef<HTMLDivElement>(null);
-  const lastTime = useRef<number>(video.currentTime || 0);
 
-  const isScrubbing = useRef(false);
-  const stepInterval = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isScrubbingRef = useRef(false);
+  const stepIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const formatTime = (seconds: number): string => {
     if (isNaN(seconds) || seconds === Infinity) return "0:00";
@@ -91,40 +90,54 @@ export function useVideoCardScrubber({
     if (textRef.current) textRef.current.textContent = `${Math.round(p * 100)}%`;
   }, [video.id, videoRef]);
 
-  const stepFrame = (dir: number) => {
+  const beginScrub = useCallback((focused: boolean, e: MouseEvent | React.MouseEvent | TouchEvent | React.TouchEvent) => {
+    isScrubbingRef.current = true;
+    if (focused) {
+      handleFocusedScrub(e);
+    } else {
+      handleScrub(e);
+    }
+  }, [handleFocusedScrub, handleScrub]);
+
+  const setFocusedHandleScale = useCallback((scale: number) => {
+    const handle = focusedHandleRef.current;
+    if (handle) handle.style.transform = `translate(-50%, -50%) scale(${scale})`;
+  }, []);
+
+  const stepFrame = useCallback((dir: number) => {
     if (videoRef.current) {
       videoRef.current.currentTime += dir * (1 / FPS);
       onUpdateVideo(video.id, { playing: false });
     }
-  };
+  }, [onUpdateVideo, video.id, videoRef]);
 
-  const startStep = (dir: number) => {
+  const startStep = useCallback((dir: number) => {
     setIsInteracting(true);
     stepFrame(dir);
 
-    if (stepInterval.current) {
-      clearTimeout(stepInterval.current);
-      clearInterval(stepInterval.current);
+    if (stepIntervalRef.current) {
+      clearTimeout(stepIntervalRef.current);
+      clearInterval(stepIntervalRef.current);
     }
-    stepInterval.current = setTimeout(() => {
-      stepInterval.current = setInterval(() => {
+    stepIntervalRef.current = setTimeout(() => {
+      stepIntervalRef.current = setInterval(() => {
         stepFrame(dir);
       }, STEP_INTERVAL);
     }, STEP_DELAY);
-  };
+  }, [setIsInteracting, stepFrame]);
 
-  const stopStep = () => {
+  const stopStep = useCallback(() => {
     setIsInteracting(false);
-    if (stepInterval.current) {
-      clearTimeout(stepInterval.current);
-      clearInterval(stepInterval.current);
-      stepInterval.current = null;
+    if (stepIntervalRef.current) {
+      clearTimeout(stepIntervalRef.current);
+      clearInterval(stepIntervalRef.current);
+      stepIntervalRef.current = null;
     }
-  };
+  }, [setIsInteracting]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent | TouchEvent) => {
-      if (isScrubbing.current) {
+      if (isScrubbingRef.current) {
         setIsInteracting(true);
         if (isFocused) {
           handleFocusedScrub(e);
@@ -136,7 +149,7 @@ export function useVideoCardScrubber({
     const onUp = () => {
       setIsInteracting(false);
       stopStep();
-      isScrubbing.current = false;
+      isScrubbingRef.current = false;
     };
 
     window.addEventListener('mousemove', onMove);
@@ -149,7 +162,7 @@ export function useVideoCardScrubber({
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('touchend', onUp);
     };
-  }, [handleScrub, handleFocusedScrub, isFocused, setIsInteracting]);
+  }, [handleScrub, handleFocusedScrub, isFocused, setIsInteracting, stopStep]);
 
   return {
     progressRef,
@@ -160,12 +173,13 @@ export function useVideoCardScrubber({
     focusedTimeTextRef,
     focusedScrubContainerRef,
     focusedTrackRef,
-    lastTime,
-    isScrubbing,
+    isScrubbingRef,
     formatTime,
     handleFocusedScrub,
     handleTimeUpdate,
     handleScrub,
+    beginScrub,
+    setFocusedHandleScale,
     startStep,
     stopStep
   };

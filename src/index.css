@@ -24,3 +24,10 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Halt infinite CSS animations when minimized, hidden, or unfocused */
+html.app-inactive *,
+html.app-inactive *::before,
+html.app-inactive *::after {
+  animation-play-state: paused !important;
+}

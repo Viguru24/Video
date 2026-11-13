@@ -19,17 +19,11 @@ export default defineConfig({
             if (id.includes('framer-motion')) {
               return 'vendor-framer-motion';
             }
-            if (id.includes('hls.js')) {
-              return 'vendor-hls';
-            }
             if (id.includes('lucide-react')) {
               return 'vendor-lucide';
             }
             if (id.includes('@dnd-kit')) {
               return 'vendor-dnd-kit';
-            }
-            if (id.includes('react-virtuoso')) {
-              return 'vendor-virtuoso';
             }
           }
         },

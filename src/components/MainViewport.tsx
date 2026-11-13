@@ -20,7 +20,7 @@ interface MainViewportProps {
   handleDeepFocus: (id: string, time?: number) => void;
   addLog: (m: string) => void;
   snapshotDir: string;
-  setSnapshotDir: (dir: string) => void;
+  setSnapshotDir: React.Dispatch<React.SetStateAction<string>>;
   onAddVideo: (vid: VideoItem) => void;
   immersive: boolean;
   isPopout: boolean;
@@ -103,9 +103,9 @@ interface MainViewportProps {
   setAspectRatio?: (ratio: any) => void;
   stickerLoadingId: string | null;
   handleCreateSticker: (v: VideoItem) => void;
-  handleCancelSticker: (id: string) => void;
+  handleCancelSticker: () => void;
   handleLoadDemos: () => void;
-  handleIngestPaths: (paths: string[]) => Promise<void>;
+  handleIngestPaths: (paths: string[]) => Promise<VideoItem[]>;
 }
 
 export const MainViewport: React.FC<MainViewportProps> = ({

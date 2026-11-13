@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
-  X, Play, Pause, RotateCcw, ArrowLeftRight, Columns, Sliders, 
-  ZoomIn, ZoomOut, Maximize2, Minimize2, ChevronLeft, ChevronRight, Volume2, VolumeX 
+  X, Play, Pause, RotateCcw, ArrowLeftRight, Sliders, 
+  ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Volume2, VolumeX 
 } from 'lucide-react';
 import type { VideoItem } from '../../types';
 import { toCosmoUrl, isValidPictureExtension } from '../../utils/videoUtils';

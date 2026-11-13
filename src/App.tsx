@@ -53,7 +53,6 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useSessionControl } from './hooks/useSessionControl';
 import { useLayoutOrchestration } from './hooks/useLayoutOrchestration';
 import { usePlaybackSync } from './hooks/usePlaybackSync';
-import { MIN_ZOOM, MAX_ZOOM } from './constants';
 
 export default function App() {
   const { 
@@ -94,7 +93,6 @@ export default function App() {
     handleOpenWebsite,
   } = useAppStartup({
     setAiHardwareStatus,
-    addToRenameHistory,
   });
 
   const { isPopout, popoutUrl, isPopoutChecking } = usePopoutState();
@@ -269,6 +267,8 @@ export default function App() {
     videos,
     selectedIds,
     addLog,
+    setToast,
+    setToastPath,
   });
 
   // Clipboard Image Paste Hook
@@ -420,7 +420,10 @@ export default function App() {
     setToast,
     addLog,
   });
-  isSlideshowActiveRef.current = isSlideshowActive;
+
+  useEffect(() => {
+    isSlideshowActiveRef.current = isSlideshowActive;
+  }, [isSlideshowActive]);
 
   // Context Menu Metadata Hook
   const {
@@ -763,7 +766,7 @@ export default function App() {
         setGlobalControl={setGlobalControl}
         showImmersiveUI={showImmersiveUI}
         isFocusedImage={isFocusedImage}
-        focusedVideo={focusedVideo}
+        focusedVideo={focusedVideo ?? null}
         navDirection={navDirection}
         startFrameStep={startFrameStep}
         stopFrameStep={stopFrameStep}

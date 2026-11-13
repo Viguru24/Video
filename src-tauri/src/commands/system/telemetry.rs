@@ -34,85 +34,103 @@ pub fn open_url(url: &str) -> Result<(), String> {
 }
 
 struct GpuTelemetryCache {
+    gpu_name: String,
     vram: String,
     temp: f32,
     last_query: std::time::Instant,
+    refreshing: bool,
 }
 
 static GPU_CACHE: OnceLock<std::sync::Mutex<GpuTelemetryCache>> = OnceLock::new();
 
 #[tauri::command]
-pub fn get_telemetry(state: State<AppState>) -> serde_json::Value {
-    let mut sys = match state.sys.lock() {
-        Ok(s) => s,
-        Err(poisoned) => poisoned.into_inner(),
+pub async fn get_telemetry(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let (cpu_usage, total_mem, used_mem) = {
+        let mut sys = state.sys.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut last_refresh = state.last_refresh.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if last_refresh.elapsed() >= std::time::Duration::from_millis(1000) {
+            sys.refresh_cpu_usage();
+            sys.refresh_memory();
+            *last_refresh = std::time::Instant::now();
+        }
+
+        (
+            sys.global_cpu_usage(),
+            sys.total_memory() / 1024 / 1024 / 1024,
+            sys.used_memory() / 1024 / 1024 / 1024,
+        )
     };
-
-    let mut last_refresh = match state.last_refresh.lock() {
-        Ok(s) => s,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    if last_refresh.elapsed() >= std::time::Duration::from_millis(1000) {
-        sys.refresh_cpu_usage();
-        sys.refresh_memory();
-        *last_refresh = std::time::Instant::now();
-    }
-
-    let cpu_usage = sys.global_cpu_usage();
-    let total_mem = sys.total_memory() / 1024 / 1024 / 1024; // GB
-    let used_mem = sys.used_memory() / 1024 / 1024 / 1024; // GB
 
     let cache_mutex = GPU_CACHE.get_or_init(|| {
         std::sync::Mutex::new(GpuTelemetryCache {
+            gpu_name: "System GPU".to_string(),
             vram: format!("{}/{}GB", used_mem, total_mem),
             temp: 0.0,
             last_query: std::time::Instant::now() - std::time::Duration::from_secs(60),
+            refreshing: false,
         })
     });
 
-    let mut cache = cache_mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (should_refresh, snapshot) = {
+        let mut cache = cache_mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let trigger = !cache.refreshing && cache.last_query.elapsed() >= std::time::Duration::from_secs(15);
+        if trigger {
+            cache.refreshing = true;
+        }
+        (trigger, (cache.gpu_name.clone(), cache.vram.clone(), cache.temp))
+    };
 
-    if cache.last_query.elapsed() >= std::time::Duration::from_secs(10) {
-        let run_hidden_cmd = |cmd_name: &str, args: &[&str]| -> Option<String> {
-            let mut cmd = std::process::Command::new(cmd_name);
-            cmd.args(args);
-            #[cfg(target_os = "windows")]
-            {
-                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            }
-            cmd.output().ok().and_then(|out| String::from_utf8(out.stdout).ok())
-        };
-
-        let temp_data = run_hidden_cmd("nvidia-smi", &["--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"])
-            .and_then(|s| s.trim().parse::<f32>().ok())
-            .unwrap_or(0.0);
-
-        let vram_data = run_hidden_cmd("nvidia-smi", &["--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"])
-            .and_then(|s| {
-                let parts: Vec<&str> = s.split(',').collect();
-                if parts.len() >= 2 {
-                    let used = parts[0].trim().parse::<f32>().ok()? / 1024.0;
-                    let total = parts[1].trim().parse::<f32>().ok()? / 1024.0;
-                    Some(format!("{:.1}/{:.1}GB", used, total))
-                } else {
-                    None
+    if should_refresh {
+        let fallback_vram = format!("{}/{}GB", used_mem, total_mem);
+        tauri::async_runtime::spawn_blocking(move || {
+            let run_hidden_cmd = |cmd_name: &str, args: &[&str]| -> Option<String> {
+                let mut cmd = std::process::Command::new(cmd_name);
+                cmd.args(args);
+                #[cfg(target_os = "windows")]
+                {
+                    cmd.creation_flags(0x08000000);
                 }
-            })
-            .unwrap_or_else(|| format!("{}/{}GB", used_mem, total_mem));
+                cmd.output().ok().and_then(|out| String::from_utf8(out.stdout).ok())
+            };
 
-        cache.temp = temp_data;
-        cache.vram = vram_data;
-        cache.last_query = std::time::Instant::now();
+            let queried = run_hidden_cmd(
+                "nvidia-smi",
+                &[
+                    "--query-gpu=name,temperature.gpu,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+            );
+
+            let mut cache = cache_mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(line) = queried.as_deref().and_then(|s| s.lines().next()) {
+                let parts: Vec<&str> = line.split(',').map(|p| p.trim()).collect();
+                if parts.len() >= 4 {
+                    if !parts[0].is_empty() {
+                        cache.gpu_name = parts[0].to_string();
+                    }
+                    if let Ok(t) = parts[1].parse::<f32>() {
+                        cache.temp = t;
+                    }
+                    if let (Ok(used), Ok(total)) = (parts[2].parse::<f32>(), parts[3].parse::<f32>()) {
+                        cache.vram = format!("{:.1}/{:.1}GB", used / 1024.0, total / 1024.0);
+                    }
+                }
+            } else {
+                cache.vram = fallback_vram;
+            }
+            cache.last_query = std::time::Instant::now();
+            cache.refreshing = false;
+        });
     }
 
-    serde_json::json!({
+    Ok(serde_json::json!({
         "cpu": format!("{:.1}%", cpu_usage),
-        "mem": cache.vram,
-        "gpu": "RTX 5080",
-        "temp": cache.temp,
+        "mem": snapshot.1,
+        "gpu": snapshot.0,
+        "temp": snapshot.2,
         "fps": "STABLE"
-    })
+    }))
 }
 
 #[tauri::command]

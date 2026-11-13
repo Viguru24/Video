@@ -468,8 +468,13 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
         let _ = std::fs::remove_file(&zip_path);
     }
 
-    const BUNDLE_URL: &str =
-        "http://[REDACTED_LEGACY_HOST]:8099/cosmo_enhance_cpu_win64.zip";
+    let bundle_url = std::env::var("COSMO_CPU_BUNDLE_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            "https://github.com/Viguru24/Video/releases/download/ai-backend-v1.0.0/cosmo_enhance_cpu_win64.zip"
+                .to_string()
+        });
 
     emit("download", "Downloading AI backend (one-time setup)...", 5);
 
@@ -486,7 +491,7 @@ pub async fn install_dependencies(app: AppHandle, force: Option<bool>) -> Result
          $client = New-Object System.Net.WebClient; \
          $client.DownloadFile('{url}', '{dest}')",
         app_dir = app_data_str,
-        url     = BUNDLE_URL,
+        url     = bundle_url,
         dest    = zip_path_str,
     );
 
@@ -633,8 +638,12 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
         let _ = std::fs::remove_file(&zip_path);
     }
 
-    const GPU_BUNDLE_URL: &str =
-        "http://[REDACTED_LEGACY_HOST]:8099/cosmo_enhance_gpu_win64.zip";
+    let gpu_bundle_url = std::env::var("COSMO_GPU_BUNDLE_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            "https://api.cosmowhisper.com/downloads/cosmo_enhance_gpu_win64.zip".to_string()
+        });
 
     emit("download", "Downloading GPU Acceleration Pack...", 3);
 
@@ -651,7 +660,7 @@ pub async fn install_gpu_pack(app: AppHandle, force: Option<bool>) -> Result<(),
          $client = New-Object System.Net.WebClient; \
          $client.DownloadFile('{url}', '{dest}')",
         app_dir = app_data_str,
-        url     = GPU_BUNDLE_URL,
+        url     = gpu_bundle_url,
         dest    = zip_str,
     );
 

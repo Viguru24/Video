@@ -4,9 +4,9 @@ import { sortVideoItems, normalizeTimestamp, compareVideoItems } from '../sortUt
 
 describe('sorting and filtering logic tests', () => {
   const sampleItems: VideoItem[] = [
-    { id: '1', title: 'Beta Video', url: 'beta.mp4', created: 1000000, modified: 2000000, size: 500, repeatMode: 'none', repeatCount: 0, cols: 1 },
-    { id: '2', title: 'Alpha Video', url: 'alpha.mp4', created: 3000000, modified: 1000000, size: 100, repeatMode: 'none', repeatCount: 0, cols: 1 },
-    { id: '3', title: 'Gamma Video', url: 'gamma.mp4', created: 2000000, modified: 3000000, size: 1000, repeatMode: 'none', repeatCount: 0, cols: 1 },
+    { id: '1', title: 'Beta Video', url: 'beta.mp4', created: 1000000, modified: 2000000, size: 500, repeatMode: 'none', repeatCount: 0, cols: 1, playing: false, muted: true },
+    { id: '2', title: 'Alpha Video', url: 'alpha.mp4', created: 3000000, modified: 1000000, size: 100, repeatMode: 'none', repeatCount: 0, cols: 1, playing: false, muted: true },
+    { id: '3', title: 'Gamma Video', url: 'gamma.mp4', created: 2000000, modified: 3000000, size: 1000, repeatMode: 'none', repeatCount: 0, cols: 1, playing: false, muted: true },
   ];
 
   it('normalizes timestamps in seconds and milliseconds correctly', () => {
@@ -58,8 +58,8 @@ describe('sorting and filtering logic tests', () => {
 
   it('sorts newest first correctly when one item is in seconds and another is in ms', () => {
     const mixedItems: VideoItem[] = [
-      { id: 'old', title: 'Old File', url: 'old.mp4', modified: 1700000000, repeatMode: 'none', repeatCount: 0, cols: 1 }, // seconds: 2023
-      { id: 'new', title: 'New File', url: 'new.mp4', modified: 1725280000000, repeatMode: 'none', repeatCount: 0, cols: 1 }, // ms: 2024
+      { id: 'old', title: 'Old File', url: 'old.mp4', modified: 1700000000, repeatMode: 'none', repeatCount: 0, cols: 1, playing: false, muted: true }, // seconds: 2023
+      { id: 'new', title: 'New File', url: 'new.mp4', modified: 1725280000000, repeatMode: 'none', repeatCount: 0, cols: 1, playing: false, muted: true }, // ms: 2024
     ];
     const sorted = sortVideoItems(mixedItems, 'modified-newest');
     expect(sorted.map(x => x.id)).toEqual(['new', 'old']);
@@ -67,9 +67,9 @@ describe('sorting and filtering logic tests', () => {
 
   it('breaks timestamp ties in modified-newest by putting higher sequence number first', () => {
     const batchItems: VideoItem[] = [
-      { id: '1', title: 'ComfyUI_00001_.png', url: '1.png', modified: 1725280000, repeatMode: 'none', repeatCount: 0, cols: 1 },
-      { id: '5', title: 'ComfyUI_00005_.png', url: '5.png', modified: 1725280000, repeatMode: 'none', repeatCount: 0, cols: 1 },
-      { id: '2', title: 'ComfyUI_00002_.png', url: '2.png', modified: 1725280000, repeatMode: 'none', repeatCount: 0, cols: 1 },
+      { id: '1', title: 'ComfyUI_00001_.png', url: '1.png', modified: 1725280000, repeatMode: 'none', repeatCount: 0, cols: 1, playing: false, muted: true },
+      { id: '5', title: 'ComfyUI_00005_.png', url: '5.png', modified: 1725280000, repeatMode: 'none', repeatCount: 0, cols: 1, playing: false, muted: true },
+      { id: '2', title: 'ComfyUI_00002_.png', url: '2.png', modified: 1725280000, repeatMode: 'none', repeatCount: 0, cols: 1, playing: false, muted: true },
     ];
     const sorted = sortVideoItems(batchItems, 'modified-newest');
     expect(sorted.map(x => x.id)).toEqual(['5', '2', '1']);

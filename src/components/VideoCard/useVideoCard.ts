@@ -36,7 +36,7 @@ export interface UseVideoCardProps {
   onDeepFocus: (time?: number) => void;
   onUpscale?: (video: VideoItem) => void;
   isVisible: boolean;
-  setSnapshotDir?: (dir: string) => void;
+  setSnapshotDir?: React.Dispatch<React.SetStateAction<string>>;
   isSelected?: boolean;
   onToggleSelect?: (shiftKey?: boolean, ctrlKey?: boolean) => void;
   selectionMode?: boolean;
@@ -91,6 +91,7 @@ export function useVideoCard({
   const videoRef = useRef<HTMLVideoElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const retryAttempted = useRef<boolean>(false);
+  const lastTimeRef = useRef<number>(video.currentTime || 0);
 
   const isImage = useMemo(() => {
     return isValidPictureExtension(video.realPath || video.url);
@@ -365,8 +366,8 @@ export function useVideoCard({
     focusedTimeTextRef,
     focusedScrubContainerRef,
     focusedTrackRef,
-    lastTime,
-    isScrubbing,
+    beginScrub,
+    setFocusedHandleScale,
     handleFocusedScrub,
     handleTimeUpdate,
     handleScrub,
@@ -383,13 +384,13 @@ export function useVideoCard({
   // Preserve time during hibernation
   useEffect(() => {
     if (!isVisible && videoRef.current) {
-      lastTime.current = videoRef.current.currentTime;
+      lastTimeRef.current = videoRef.current.currentTime;
     }
-  }, [isVisible, lastTime]);
+  }, [isVisible]);
 
   useEffect(() => {
-    lastTime.current = 0;
-  }, [displayUrl, lastTime]);
+    lastTimeRef.current = 0;
+  }, [displayUrl]);
 
   useEffect(() => {
     if (!isImage && videoRef.current) {
@@ -439,7 +440,7 @@ export function useVideoCard({
         videoRef.current.pause();
       }
     }
-  }, [video.playing, isImage, focusedId, inSoloMode, video.url, trimCropModalTarget, isCropping]);
+  }, [video.playing, video.id, isImage, focusedId, inSoloMode, video.url, trimCropModalTarget, isCropping]);
 
   useEffect(() => {
     if (isImage || !videoRef.current) return;
@@ -447,9 +448,9 @@ export function useVideoCard({
       if (Math.abs(videoRef.current.currentTime - video.currentTime) > 0.5) {
         videoRef.current.currentTime = video.currentTime;
       }
-      lastTime.current = video.currentTime;
+      lastTimeRef.current = video.currentTime;
     }
-  }, [video.currentTime, isImage, lastTime]);
+  }, [video.currentTime, isImage]);
 
   useEffect(() => {
     if (isImage) return;
@@ -457,23 +458,30 @@ export function useVideoCard({
     if (v) v.playbackRate = globalSpeed;
   }, [globalSpeed, isImage]);
 
-  // Recovery monitor
+  // Recovery monitor — only active while video is playing & tab is visible
   useEffect(() => {
-    if (isImage) return;
+    if (isImage || !video.playing) return;
     const v = videoRef.current;
     if (!v) return;
+    let recoveryTimeout: ReturnType<typeof setTimeout> | null = null;
     const monitor = setInterval(() => {
+      if (document.hidden) return;
       if (video.playing && v.paused && !v.ended && v.readyState < 2 && !recovering) {
         setRecovering(true);
         setError("RECOVERING...");
-        setTimeout(() => {
+        if (recoveryTimeout) clearTimeout(recoveryTimeout);
+        recoveryTimeout = setTimeout(() => {
+          recoveryTimeout = null;
           v.load();
           setError(null);
           setRecovering(false);
         }, 3000);
       }
     }, 5000);
-    return () => clearInterval(monitor);
+    return () => {
+      clearInterval(monitor);
+      if (recoveryTimeout) clearTimeout(recoveryTimeout);
+    };
   }, [video.playing, video.url, recovering, isImage, setError]);
 
   // Global control listener
@@ -505,6 +513,9 @@ export function useVideoCard({
     }
 
     if (type === 'snapshot' && !isNaN(timestamp)) {
+      if (lastProcessedActions.size > 200) {
+        lastProcessedActions.clear();
+      }
       lastProcessedActions.set(baseAction, timestamp);
     }
 
@@ -703,8 +714,40 @@ export function useVideoCard({
     };
   }, [isFocused, selectionMode, video.id, video.rotation, video.title, onUpdateVideo, onRemove, onLog]);
 
+  const getCurrentTime = useCallback(() => {
+    return videoRef.current ? videoRef.current.currentTime : undefined;
+  }, []);
+
+  const seekTo = useCallback((time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+    }
+  }, []);
+
+  const handleVideoLoadedMetadata = useCallback(() => {
+    handleMediaSuccess();
+    const el = videoRef.current;
+    const dur = el?.duration || 0;
+    setDuration(dur);
+    if (lastTimeRef.current > 0 && el) {
+      if (dur > 4 && (lastTimeRef.current >= dur - 2.5 || lastTimeRef.current / dur > 0.96)) {
+        el.currentTime = 0;
+        lastTimeRef.current = 0;
+      } else {
+        el.currentTime = lastTimeRef.current;
+      }
+    } else if (el && !video.playing) {
+      try {
+        el.currentTime = 0.001;
+      } catch { /* ignore initial seek failure */ }
+    }
+    if (video.playing && el) {
+      el.play().catch((e: unknown) => console.warn("Autoplay failed:", e));
+    }
+    setTimeout(handleTimeUpdate, 50);
+  }, [handleMediaSuccess, setDuration, video.playing, handleTimeUpdate]);
+
   return {
-    // refs
     videoRef,
     cardRef,
     progressRef,
@@ -715,8 +758,7 @@ export function useVideoCard({
     focusedTimeTextRef,
     focusedScrubContainerRef,
     focusedTrackRef,
-    lastTime,
-    isScrubbing,
+    lastTimeRef,
     // states
     isHoldingToCutout,
     reloadKey,
@@ -727,7 +769,6 @@ export function useVideoCard({
     error,
     recovering,
     isSyncingOrRecovering,
-    retryAttempted,
     snapshotToast,
     isLocalFS,
     showControls,
@@ -773,6 +814,11 @@ export function useVideoCard({
     handleFocusedScrub,
     handleTimeUpdate,
     handleScrub,
+    beginScrub,
+    setFocusedHandleScale,
+    getCurrentTime,
+    seekTo,
+    handleVideoLoadedMetadata,
     startStep,
     stopStep,
     handleMuteToggle,

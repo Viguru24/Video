@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bookmark, Plus, Trash2, Edit2, Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Bookmark, Trash2, Edit2, Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { BookmarkItem, VideoItem } from '../../types';
 
 interface SoloBookmarksProps {

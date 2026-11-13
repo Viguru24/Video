@@ -75,9 +75,6 @@ object NetworkDiscoveryHelper {
         if (!savedHost.isNullOrBlank() && !candidates.contains(savedHost)) {
             candidates.add(savedHost)
         }
-        if (!candidates.contains("192.168.1.55")) {
-            candidates.add("192.168.1.55")
-        }
 
         for (subnet in subnets) {
             for (i in 1..254) {
@@ -98,22 +95,21 @@ object NetworkDiscoveryHelper {
                         socket.connect(InetSocketAddress(candidateIp, 48273), 850)
                         socket.close()
 
-                        // Verify with health check
-                        try {
-                            val pingUrl = URL("http://$candidateIp:48273/api/health")
-                            val conn = pingUrl.openConnection() as HttpURLConnection
-                            conn.connectTimeout = 1000
-                            conn.readTimeout = 1000
-                            val code = conn.responseCode
-                            conn.disconnect()
-                            if (code in 200..299 || code == 404) {
-                                if (found.compareAndSet(false, true)) {
-                                    val targetUrl = "http://$candidateIp:48273"
-                                    onFound(targetUrl)
-                                }
-                            }
-                        } catch (_: Exception) {
+                        // Verify health response matches Cosmo Symphony Wi-Fi Share service
+                        val pingUrl = URL("http://$candidateIp:48273/api/health")
+                        val conn = pingUrl.openConnection() as HttpURLConnection
+                        conn.connectTimeout = 1000
+                        conn.readTimeout = 1000
+                        val code = conn.responseCode
+                        val body = if (code == 200) {
+                            conn.inputStream.bufferedReader().use { it.readText() }
+                        } else {
+                            ""
+                        }
+                        conn.disconnect()
+                        if (code == 200 && body.contains("cosmo-symphony-wifi-share")) {
                             if (found.compareAndSet(false, true)) {
+                                scanExecutor.shutdownNow()
                                 val targetUrl = "http://$candidateIp:48273"
                                 onFound(targetUrl)
                             }

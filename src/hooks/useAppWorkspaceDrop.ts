@@ -4,7 +4,7 @@ import type { VideoItem } from '../types';
 
 interface UseAppWorkspaceDropParams {
   videos: VideoItem[];
-  handleIngestPaths: (paths: string[]) => Promise<void>;
+  handleIngestPaths: (paths: string[]) => Promise<VideoItem[] | void>;
   addLog: (m: string) => void;
   setToast: (m: string | null) => void;
 }

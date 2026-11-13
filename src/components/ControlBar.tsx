@@ -307,7 +307,7 @@ export function ControlBar({
       try {
         const max = await getCurrentWindow().isMaximized();
         setIsWindowMaximized(max);
-      } catch {}
+      } catch { /* ignore window state check failure */ }
     };
     checkMax();
     let unlisten: (() => void) | null = null;
@@ -788,7 +788,7 @@ export function ControlBar({
 
             {/* DENSITY & UI */}
             <div className="ctrl-group density-group">
-              <LayoutPresetDropdown />
+              <LayoutPresetDropdown onApplyPreset={(p) => addLog('Layout Preset: ' + p.name + ' applied')} />
               {/* HORIZONTAL DENSITY */}
               <div className="slider-h-box" data-tooltip={`Density: ${(MAX_ZOOM + MIN_ZOOM) - zoom}`}>
                 <LayoutGrid 

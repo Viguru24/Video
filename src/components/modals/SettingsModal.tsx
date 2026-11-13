@@ -1,4 +1,4 @@
-import { X, Monitor, MousePointer2, Info, Gauge, Zap, ListRestart, Layers, Palette, HelpCircle, Keyboard, Play, Camera, Maximize, ExternalLink, Download, Sparkles } from 'lucide-react';
+import { X, MousePointer2, Info, Gauge, Zap, ListRestart, Layers, Palette, HelpCircle, Keyboard, Maximize, ExternalLink, Download, Sparkles } from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store/useStore';

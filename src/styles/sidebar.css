@@ -789,9 +789,9 @@ html[data-theme="distorted"] .workshop-offline-banner {
 }
 
 @keyframes banner-alert {
-  0% { filter: brightness(1); }
-  50% { filter: brightness(1.2); }
-  100% { filter: brightness(1); }
+  0% { opacity: 0.85; }
+  50% { opacity: 1; }
+  100% { opacity: 0.85; }
 }
 
 html[data-theme="distorted"] .workshop-offline-btn {

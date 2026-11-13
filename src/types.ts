@@ -55,6 +55,7 @@ export interface VideoItem {
   url: string;
   realPath?: string;
   title: string;
+  type?: 'video' | 'picture';
   repeatMode: RepeatMode;
   repeatCount: number;
   cols: number;
@@ -62,11 +63,19 @@ export interface VideoItem {
   folderPath?: string;
   folderMode?: 'video' | 'picture' | 'all';
   currentIdx?: number;
+  folderIdx?: number;
+  parentUnitId?: string;
   playing: boolean;
   muted: boolean;
+  pausedExplicitly?: boolean;
   rotation?: number;
   flipped?: boolean;
   currentTime?: number;
+  duration?: number;
+  width?: number;
+  height?: number;
+  borderWidth?: number;
+  borderColor?: string;
   colorFilters?: ColorFilters;
   prevColorFilters?: ColorFilters;
   colorTag?: ColorTag | null;
@@ -74,6 +83,12 @@ export interface VideoItem {
   size?: number;
   modified?: number;
   created?: number;
+}
+
+export interface QuickFolder {
+  id: string;
+  name: string;
+  path: string;
 }
 
 export type SortOption =

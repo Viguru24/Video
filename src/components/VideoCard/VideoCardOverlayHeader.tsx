@@ -61,7 +61,7 @@ export function VideoCardOverlayHeader({ props, state, immersive }: VideoCardOve
         )}
         <button 
           className="exit-focus-btn" 
-          onClick={() => props.onDeepFocus(state.videoRef.current ? state.videoRef.current.currentTime : undefined)} 
+          onClick={() => props.onDeepFocus(state.getCurrentTime())} 
           data-tooltip="Exit Enlarge Mode"
           style={{ height: '36px', width: '36px', pointerEvents: 'auto' }}
         >

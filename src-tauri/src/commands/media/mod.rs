@@ -189,8 +189,10 @@ pub async fn upscale_video(app: AppHandle, path: String, overwrite: bool) -> Res
 }
 
 #[tauri::command]
-pub fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String, String> {
-    upscale::enhance_image_crop(app, base64_data)
+pub async fn enhance_image_crop(app: AppHandle, base64_data: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || upscale::enhance_image_crop(app, base64_data))
+        .await
+        .map_err(|e| format!("Enhance crop task panicked: {}", e))?
 }
 
 #[tauri::command]

@@ -87,10 +87,10 @@ export const SystemBadges: React.FC<SystemBadgesProps> = ({
             e.preventDefault();
             try {
               await invoke('open_external_url', { url: 'https://cosmowhisper.com' });
-            } catch (err) {
+            } catch {
               try {
                 window.open('https://cosmowhisper.com', '_blank', 'noopener,noreferrer');
-              } catch (e2) {}
+              } catch { /* ignore external link fallback failure */ }
             }
           }}
           style={{

@@ -3,13 +3,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { isTauri } from '../utils/videoUtils';
+import { useStore } from '../store/useStore';
 
 interface UseAppStartupParams {
   setAiHardwareStatus: (status: string) => void;
-  addToRenameHistory: (path: string) => void;
 }
 
-export function useAppStartup({ setAiHardwareStatus, addToRenameHistory }: UseAppStartupParams) {
+export function useAppStartup({ setAiHardwareStatus }: UseAppStartupParams) {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [forceSetup, setForceSetup] = useState(false);
 
@@ -42,23 +42,53 @@ export function useAppStartup({ setAiHardwareStatus, addToRenameHistory }: UseAp
   };
 
   useEffect(() => {
+    if (!isTauri()) {
+      setAiHardwareStatus('CPU (Web Preview)');
+      return;
+    }
     let active = true;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    const maxAttempts = 15;
+
     const checkStatus = async () => {
+      timeoutId = null;
+      if (!active || document.hidden) return;
       try {
         const res = await invoke<string>('get_ai_hardware_status');
-        if (active) {
-          setAiHardwareStatus(res);
-          if (res === 'Detecting...') {
-            setTimeout(checkStatus, 1000);
+        if (!active) return;
+        if (res === 'Detecting...') {
+          attempts += 1;
+          if (attempts >= maxAttempts) {
+            setAiHardwareStatus('CPU (Bilateral Filter Fallback)');
+            return;
           }
+          setAiHardwareStatus(res);
+          timeoutId = setTimeout(checkStatus, 1000);
+        } else {
+          setAiHardwareStatus(res);
         }
       } catch (e) {
         console.error("Failed to query hardware status:", e);
+        if (active) setAiHardwareStatus('CPU (Bilateral Filter Fallback)');
       }
     };
+
+    const onVisibility = () => {
+      if (!document.hidden && active && attempts < maxAttempts && timeoutId === null) {
+        checkStatus();
+      } else if (document.hidden && timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
     checkStatus();
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       active = false;
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (timeoutId !== null) clearTimeout(timeoutId);
     };
   }, [setAiHardwareStatus]);
 
@@ -68,7 +98,12 @@ export function useAppStartup({ setAiHardwareStatus, addToRenameHistory }: UseAp
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) addToRenameHistory('');
+          if (Array.isArray(parsed)) {
+            const validEntries = parsed.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+            if (validEntries.length > 0) {
+              useStore.getState().setRenameHistory(validEntries);
+            }
+          }
         } catch { /* ignore corrupt data */ }
       }
     }).catch(() => {});
@@ -84,7 +119,7 @@ export function useAppStartup({ setAiHardwareStatus, addToRenameHistory }: UseAp
         }
       }).catch(err => console.error("Dependency check failed:", err));
     }
-  }, [addToRenameHistory]);
+  }, []);
 
   return {
     needsSetup,

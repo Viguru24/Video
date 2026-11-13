@@ -68,6 +68,16 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
     }, 50);
   };
 
+  const startModelDownload = async () => {
+    addLog('Starting AI model weight downloads...');
+    try {
+      await invoke('download_models');
+    } catch (err: any) {
+      setErrorMsg(String(err));
+      setPhase('error');
+    }
+  };
+
   // Listen for install progress events
   useEffect(() => {
     let unlistenInstall: (() => void) | undefined;
@@ -130,16 +140,6 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
     addLog('Starting Python environment setup...');
     try {
       await invoke('install_dependencies', { force: force || false });
-    } catch (err: any) {
-      setErrorMsg(String(err));
-      setPhase('error');
-    }
-  };
-
-  const startModelDownload = async () => {
-    addLog('Starting AI model weight downloads...');
-    try {
-      await invoke('download_models');
     } catch (err: any) {
       setErrorMsg(String(err));
       setPhase('error');

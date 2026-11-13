@@ -48,8 +48,17 @@ if (typeof window !== 'undefined') {
     }
   });
 
+  // Pause CSS animations when unfocused/hidden and re-paint when becoming active
+  const syncWindowActivityClass = () => {
+    document.documentElement.classList.toggle('app-inactive', document.hidden || !document.hasFocus());
+  };
+  syncWindowActivityClass();
+  window.addEventListener('blur', syncWindowActivityClass);
+  window.addEventListener('focus', syncWindowActivityClass);
+
   // Re-paint on visibility change when tab/window becomes active again
   document.addEventListener('visibilitychange', () => {
+    syncWindowActivityClass();
     if (document.visibilityState === 'visible') {
       window.requestAnimationFrame(() => {
         document.body.style.display = 'none';
@@ -64,7 +73,7 @@ if (typeof window !== 'undefined') {
     if (isTauri()) {
       try {
         getCurrentWindow().show().catch(() => {});
-      } catch {}
+      } catch { /* ignore window reveal failure */ }
     }
   }, 1500);
 }
@@ -81,11 +90,11 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}> {
         stack: error?.stack,
         time: new Date().toISOString()
       }));
-    } catch {}
+    } catch { /* ignore storage failure */ }
     if (isTauri()) {
       try {
         getCurrentWindow().show().catch(() => {});
-      } catch {}
+      } catch { /* ignore window reveal failure */ }
     }
   }
   handleClose = () => {

@@ -10,7 +10,7 @@ use super::utils::{
     debug_log, new_hidden_ffmpeg_command, get_optimal_video_encoder, apply_optimal_video_encoding_args,
 };
 
-pub async fn rotate_media_on_disk(app: AppHandle, path: String, rotation: i32, is_image: bool) -> Result<String, String> {
+fn rotate_media_on_disk_blocking(app: AppHandle, path: String, rotation: i32, is_image: bool) -> Result<String, String> {
     let path = clean_local_path(&path);
     let log_msg = format!("START rotate_media_on_disk: path={}, rotation={}, is_image={}", path, rotation, is_image);
     debug_log(&log_msg);
@@ -23,7 +23,6 @@ pub async fn rotate_media_on_disk(app: AppHandle, path: String, rotation: i32, i
     }
 
     let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
-    let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
 
     let normalized_rotation = ((rotation % 360) + 360) % 360;
     debug_log(&format!("normalized_rotation={}", normalized_rotation));
@@ -129,6 +128,12 @@ pub async fn rotate_media_on_disk(app: AppHandle, path: String, rotation: i32, i
     Ok(path)
 }
 
+pub async fn rotate_media_on_disk(app: AppHandle, path: String, rotation: i32, is_image: bool) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || rotate_media_on_disk_blocking(app, path, rotation, is_image))
+        .await
+        .map_err(|e| format!("Rotation task panicked: {}", e))?
+}
+
 pub async fn mirror_media_on_disk(app: AppHandle, path: String, is_image: bool) -> Result<String, String> {
     let path = clean_local_path(&path);
     debug_log(&format!("START mirror_media_on_disk: path={}, is_image={}", path, is_image));
@@ -139,7 +144,6 @@ pub async fn mirror_media_on_disk(app: AppHandle, path: String, is_image: bool) 
         }
 
         let ext = path_obj.extension().ok_or("No extension")?.to_string_lossy().to_lowercase();
-        let stem = path_obj.file_stem().ok_or("No file stem")?.to_string_lossy().to_string();
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

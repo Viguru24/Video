@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LayoutGrid, Check, Plus, Trash2, Sliders } from 'lucide-react';
+import { LayoutGrid, Check, Plus, Trash2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import type { LayoutPreset } from '../../types';
 
@@ -84,7 +84,15 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
   };
 
   return (
-    <div className="layout-preset-container" style={{ position: 'relative', display: 'inline-block' }}>
+    <div
+      className="layout-preset-container"
+      data-no-drag
+      style={{
+        position: 'relative',
+        display: 'inline-block',
+        pointerEvents: 'auto',
+      }}
+    >
       <button
         ref={buttonRef}
         type="button"
@@ -97,6 +105,7 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
           gap: '4px',
           padding: '4px 8px',
           fontSize: '11px',
+          pointerEvents: 'auto',
         }}
       >
         <LayoutGrid size={14} style={{ color: 'var(--accent, #00ff88)' }} />
@@ -107,18 +116,21 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
         <div
           ref={dropdownRef}
           className="layout-preset-dropdown-menu"
+          data-no-drag
+          onMouseDown={(e) => e.stopPropagation()}
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
             left: 0,
-            zIndex: 1000,
-            background: 'rgba(18, 18, 22, 0.95)',
-            backdropFilter: 'blur(16px)',
+            zIndex: 999999,
+            pointerEvents: 'auto',
+            background: 'rgba(18, 18, 22, 0.96)',
+            backdropFilter: 'blur(20px)',
             border: '1px solid rgba(255, 255, 255, 0.12)',
             borderRadius: '10px',
             padding: '6px',
-            minWidth: '220px',
-            boxShadow: '0 12px 30px rgba(0, 0, 0, 0.5)',
+            minWidth: '240px',
+            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
           }}
         >
           <div
@@ -140,11 +152,15 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             {layoutPresets.map((preset, index) => {
-              const isActive = zoom === preset.zoom || activeLayoutPresetId === preset.id;
+              const isActive = activeLayoutPresetId === preset.id;
               return (
                 <div
                   key={preset.id}
-                  onClick={() => handleSelectPreset(preset)}
+                  data-no-drag
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSelectPreset(preset);
+                  }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -156,6 +172,7 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
                     color: isActive ? 'var(--accent, #00ff88)' : '#eee',
                     fontSize: '12px',
                     transition: 'background 0.12s ease',
+                    pointerEvents: 'auto',
                   }}
                   onMouseEnter={(e) => {
                     if (!isActive) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
@@ -183,6 +200,7 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
                     {preset.isCustom && (
                       <button
                         type="button"
+                        data-no-drag
                         onClick={(e) => handleDeletePreset(preset.id, e)}
                         title="Delete custom preset"
                         style={{
@@ -193,6 +211,7 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
                           padding: '2px',
                           display: 'flex',
                           alignItems: 'center',
+                          pointerEvents: 'auto',
                         }}
                       >
                         <Trash2 size={12} />
@@ -207,7 +226,7 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
           <div style={{ margin: '6px 0', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }} />
 
           {showSaveInput ? (
-            <div style={{ padding: '4px', display: 'flex', gap: '4px' }}>
+            <div style={{ padding: '4px', display: 'flex', gap: '4px' }} data-no-drag onMouseDown={(e) => e.stopPropagation()}>
               <input
                 type="text"
                 placeholder="Preset Name..."
@@ -227,10 +246,12 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
                   fontSize: '11px',
                   padding: '4px 6px',
                   outline: 'none',
+                  pointerEvents: 'auto',
                 }}
               />
               <button
                 type="button"
+                data-no-drag
                 onClick={handleSaveCurrentLayout}
                 style={{
                   background: 'var(--accent, #00ff88)',
@@ -241,6 +262,7 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
                   fontSize: '11px',
                   fontWeight: 600,
                   cursor: 'pointer',
+                  pointerEvents: 'auto',
                 }}
               >
                 Save
@@ -249,6 +271,7 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
           ) : (
             <button
               type="button"
+              data-no-drag
               onClick={() => setShowSaveInput(true)}
               style={{
                 width: '100%',
@@ -263,6 +286,7 @@ export const LayoutPresetDropdown: React.FC<LayoutPresetDropdownProps> = ({ onAp
                 borderRadius: '6px',
                 fontSize: '11px',
                 textAlign: 'left',
+                pointerEvents: 'auto',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0, 255, 136, 0.08)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}

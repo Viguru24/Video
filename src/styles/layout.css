@@ -170,7 +170,7 @@
   border-radius: 50%;
   border: 2px solid var(--accent-subtle);
   border-top-color: var(--accent);
-  animation: hibernate-spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  opacity: 0.45;
 }
 
 .hibernate-label {
@@ -188,6 +188,22 @@
 .grid-item-wrap.dimmed { opacity: 0.15; filter: brightness(0.3); pointer-events: none; transform: scale(0.96); }
 .grid-item-wrap.dragging { opacity: 0.55; scale: 0.96; z-index: 100; box-shadow: 0 0 0 2px var(--accent); }
 .global-dragging .grid-item-wrap > * { pointer-events: none !important; }
+
+/* === HERO TILE PROTOCOL === */
+.virtuoso-grid-item.hero-grid-item {
+  grid-column: span 2 !important;
+  grid-row: span 2 !important;
+  height: 100%;
+}
+.grid-item-wrap.hero-card {
+  width: 100% !important;
+  height: 100% !important;
+}
+.grid-item-wrap.hero-card .video-card {
+  width: 100% !important;
+  height: 100% !important;
+  aspect-ratio: unset !important;
+}
 
 /* === GHOST MODE === */
 [data-ghost="true"], [data-ghost="true"] * {

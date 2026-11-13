@@ -115,22 +115,25 @@ export const UpscaleStatusPanel: React.FC<UpscaleStatusPanelProps> = ({
             <div 
               style={{ 
                 height: '100%', 
+                width: '100%',
                 background: 'linear-gradient(90deg, var(--accent), #00d2ff)', 
-                width: progressPercent !== null ? `${progressPercent}%` : '5%',
+                transform: progressPercent !== null ? `scaleX(${progressPercent / 100})` : 'scaleX(0.05)',
+                transformOrigin: 'left',
                 borderRadius: '2px',
-                transition: progressPercent !== null ? 'width 0.2s ease-out' : 'none',
-                animation: progressPercent === null ? 'shimmerBar 40s linear forwards' : 'none'
+                transition: progressPercent !== null ? 'transform 0.2s ease-out' : 'none',
+                animation: progressPercent === null ? 'shimmerBar 40s linear forwards' : 'none',
+                willChange: 'transform'
               }} 
             />
             <style>{`
               @keyframes shimmerBar {
-                0% { width: 5%; }
-                5% { width: 25%; }
-                20% { width: 45%; }
-                50% { width: 70%; }
-                80% { width: 85%; }
-                95% { width: 92%; }
-                100% { width: 95%; }
+                0% { transform: scaleX(0.05); }
+                5% { transform: scaleX(0.25); }
+                20% { transform: scaleX(0.45); }
+                50% { transform: scaleX(0.7); }
+                80% { transform: scaleX(0.85); }
+                95% { transform: scaleX(0.92); }
+                100% { transform: scaleX(0.95); }
               }
             `}</style>
           </div>

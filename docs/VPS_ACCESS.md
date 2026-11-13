@@ -1,63 +1,38 @@
-# VPS Access — Cosmo Symphony
+# Infrastructure Access — Cosmo Symphony
 
-This VPS (Hetzner) hosts the **GPU Acceleration Pack** (`cosmo_enhance_gpu_win64.zip`)
-that users download when they opt in to full Real-ESRGAN AI upscaling.
-
----
-
-## Connection Details
-
-| Field       | Value                     |
-|-------------|---------------------------|
-| Host IP     | `[REDACTED_LEGACY_HOST]`            |
-| SSH Port    | `8522`                    |
-| User        | `root`                    |
-| Key         | `%USERPROFILE%\.ssh\id_ed25519` |
-
-### SSH into the VPS
-
-```powershell
-ssh -i "$env:USERPROFILE\.ssh\id_ed25519" -p [REDACTED_PORT] root@[REDACTED_LEGACY_HOST]
-```
-
-### SCP a file to the VPS
-
-```powershell
-scp -i "$env:USERPROFILE\.ssh\id_ed25519" -P [REDACTED_PORT] <local-file> root@[REDACTED_LEGACY_HOST]:/var/www/html/<filename>
-```
+> [!CAUTION]
+> Legacy Hetzner VPS credentials and static IPs were redacted from version control.
+> All production infrastructure should deploy to or reverse-proxy through **Ra Server** (`C:\Users\louis\Desktop\VPS_ACCESS_MANUAL.md`) or use environment-configured artifact URLs.
 
 ---
 
-## Hosted Files
+## GPU & CPU Bundle Configuration
 
-Files are served via **nginx** from `/var/www/html/`.
+Set environment overrides before building or running if hosting custom mirror URLs:
 
-| File | URL | Purpose |
-|---|---|---|
-| `cosmo_enhance_gpu_win64.zip` | `http://[REDACTED_LEGACY_HOST]:8099/cosmo_enhance_gpu_win64.zip` | GPU Acceleration Pack (~2.8 GB) |
+- `COSMO_CPU_BUNDLE_URL`: URL to `cosmo_enhance_cpu_win64.zip`
+- `COSMO_GPU_BUNDLE_URL`: URL to `cosmo_enhance_gpu_win64.zip`
 
-The CPU bundle (~286 MB) is hosted on **GitHub Releases**:
-`https://github.com/Viguru24/Video/releases/latest/download/cosmo_enhance_cpu_win64.zip`
+The default CPU bundle (~286 MB) is hosted on **GitHub Releases**:
+`https://github.com/Viguru24/Video/releases/download/ai-backend-v1.0.0/cosmo_enhance_cpu_win64.zip`
+
+The default GPU Acceleration Pack (`cosmo_enhance_gpu_win64.zip`) resolves via **Ra Server**:
+`https://api.cosmowhisper.com/downloads/cosmo_enhance_gpu_win64.zip` (served from `/var/www/html/cosmo_enhance_gpu_win64.zip` on Ra Server).
 
 ---
 
 ## Updating the GPU Bundle
 
-When you rebuild the GPU pack with a new version of cosmo_enhance.py:
-
-1. **Build** the new bundle:
+1. **Build**:
    ```powershell
    .\scripts\build_cosmo_enhance_exe.ps1
    ```
 
-2. **Upload** to VPS (replaces the existing file):
+2. **Stage to Ra Server (`/var/www/html`)**:
    ```powershell
-   scp -i "$env:USERPROFILE\.ssh\id_ed25519" -P [REDACTED_PORT] `
-     dist\cosmo_enhance_gpu_win64.zip `
-     root@[REDACTED_LEGACY_HOST]:/var/www/html/cosmo_enhance_gpu_win64.zip
+   scp dist\cosmo_enhance_gpu_win64.zip viguru@192.168.1.28:/tmp/cosmo_enhance_gpu_win64.zip
+   ssh viguru@192.168.1.28 "sudo mv /tmp/cosmo_enhance_gpu_win64.zip /var/www/html/cosmo_enhance_gpu_win64.zip && sudo chmod 644 /var/www/html/cosmo_enhance_gpu_win64.zip"
    ```
-
-3. **No code change needed** — `GPU_BUNDLE_URL` in `system.rs` already points there.
 
 ---
 
@@ -72,27 +47,3 @@ When you rebuild the GPU pack with a new version of cosmo_enhance.py:
    ```powershell
    gh release upload ai-backend-v1.0.0 dist\cosmo_enhance_cpu_win64.zip --clobber
    ```
-
----
-
-## VPS Monitor
-
-The VPS monitor dashboard runs locally on port `58913`.
-Launch it from the **VPS Monitor** project:
-
-```powershell
-# In C:\Users\louis\Documents\GitHub\VPS Monitor
-.\vps-monitor.bat
-```
-
-Then open: [http://localhost:58913](http://localhost:58913)
-
----
-
-## Disk Space
-
-| Total | Used | Free |
-|---|---|---|
-| 38 GB | 25 GB (69%) | ~12 GB |
-
-After uploading the GPU bundle (~2.8 GB), expect ~9 GB free.

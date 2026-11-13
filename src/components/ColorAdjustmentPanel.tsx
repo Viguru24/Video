@@ -172,7 +172,8 @@ export function ColorAdjustmentPanel({
               ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
               
               // Determine format from extension
-              const extension = video.realPath.split('.').pop()?.toLowerCase();
+              const realPath = video.realPath || '';
+              const extension = realPath.split('.').pop()?.toLowerCase();
               let mimeType = "image/jpeg";
               if (extension === "png") {
                 mimeType = "image/png";
@@ -185,7 +186,7 @@ export function ColorAdjustmentPanel({
               
               // Write the file to disk using the custom Tauri command
               const savedPath = await invoke<string>('save_adjusted_image_bytes', {
-                path: video.realPath,
+                path: realPath,
                 base64Data,
                 saveAsCopy
               });

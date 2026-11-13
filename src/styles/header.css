@@ -609,10 +609,26 @@ body {
 }
 
 /* === 3D HARDWARE KEYCAP BUTTONS === */
-.hdr-btn, .search-container, .win-btn, .win-dot, .zoom-slider, .volume-slider, .interval-select, .h-range, .slider-h-box, .hdr-search-input {
+.hdr-btn, .search-container, .win-btn, .win-dot, .zoom-slider, .volume-slider, .interval-select, .h-range, .slider-h-box, .hdr-search-input, .layout-preset-container, .layout-preset-dropdown-menu {
   position: relative;
   z-index: 1002;
   pointer-events: auto;
+}
+
+.layout-preset-container {
+  position: relative;
+  display: inline-block;
+  pointer-events: auto !important;
+}
+
+.layout-preset-dropdown-menu {
+  position: absolute !important;
+  z-index: 999999 !important;
+  pointer-events: auto !important;
+}
+
+.layout-preset-dropdown-menu * {
+  pointer-events: auto !important;
 }
 
 .hdr-btn {

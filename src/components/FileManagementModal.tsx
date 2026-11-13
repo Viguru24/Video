@@ -271,7 +271,7 @@ export function FileManagementModal({
               setCollisionInfo({
                 filename: fileName,
                 resolve: (userChoice, applyToAll) => {
-                  if (applyToAll) {
+                  if (applyToAll && userChoice !== 'cancel') {
                     localApplyToAllChoice = userChoice;
                     setApplyToAllChoice(userChoice);
                   }

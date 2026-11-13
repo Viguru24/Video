@@ -301,26 +301,28 @@ export function useVideoOperations({
       const cleanTitle = fileName.replace(/\.[^/.]+$/, "");
 
       if (overwrite) {
-        if (target.folderIdx !== undefined && target.folderFiles) {
+        const folderIdx = target.folderIdx;
+        const unitId = target.parentUnitId || target.id;
+        if (folderIdx !== undefined && target.folderFiles) {
           current = current.map((v) => {
-            if (v.id === target.parentUnitId && v.folderFiles) {
+            if (v.id === unitId && v.folderFiles) {
               const updatedFiles = [...v.folderFiles];
-              updatedFiles[target.folderIdx] = {
-                ...updatedFiles[target.folderIdx],
+              updatedFiles[folderIdx] = {
+                ...updatedFiles[folderIdx],
                 url: toCosmoUrl(newPath) + `?t=${Date.now()}`,
                 path: newPath
               };
               return {
                 ...v,
                 folderFiles: updatedFiles,
-                url: v.currentIdx === target.folderIdx ? (toCosmoUrl(newPath) + `?t=${Date.now()}`) : v.url
+                url: v.currentIdx === folderIdx ? (toCosmoUrl(newPath) + `?t=${Date.now()}`) : v.url
               };
             }
             return v;
           });
         } else {
           current = current.map((v) => {
-            if (v.id === target.parentUnitId) {
+            if (v.id === unitId) {
               return {
                 ...v,
                 url: toCosmoUrl(newPath) + `?t=${Date.now()}`,
@@ -332,13 +334,15 @@ export function useVideoOperations({
         }
         setToast(`Original media resized successfully!`);
       } else {
-        const newUnit = {
+        const newUnit: VideoItem = {
           id: `resize-${Date.now()}`,
           title: cleanTitle,
           url: toCosmoUrl(newPath),
           realPath: newPath,
           currentTime: 0,
-          repeatMode: 'none' as any,
+          repeatMode: 'none',
+          repeatCount: 0,
+          cols: target.cols || 1,
           playing: false,
           muted: false
         };
@@ -459,17 +463,20 @@ export function useVideoOperations({
       setUpscaleStatus(isFallback ? 'fallback' : 'success');
       
       if (overwrite) {
-        const cacheBustUrl = `${toCosmoUrl(v.realPath)}?t=${Date.now()}`;
+        const sourcePath = v.realPath || v.url;
+        const cacheBustUrl = `${toCosmoUrl(sourcePath)}?t=${Date.now()}`;
+        const unitId = v.parentUnitId || v.id;
+        const folderIdx = v.folderIdx;
         const originalId = focusedId;
         setFocusedId(null);
         await new Promise(resolve => setTimeout(resolve, 120));
         
         setVideos(prev => prev.map(vid => {
-          if (vid.id === v.parentUnitId) {
+          if (vid.id === unitId) {
             let updatedFiles = vid.folderFiles;
-            if (updatedFiles && v.folderIdx !== undefined) {
-              updatedFiles = vid.folderFiles.map((f, idx) => 
-                idx === v.folderIdx 
+            if (updatedFiles && folderIdx !== undefined) {
+              updatedFiles = updatedFiles.map((f, idx) => 
+                idx === folderIdx 
                   ? { ...f, url: cacheBustUrl } 
                   : f
               );
@@ -485,7 +492,7 @@ export function useVideoOperations({
         setFocusedId(originalId);
 
         setToast(`Original media overwritten with upscaled version!`);
-        setToastPath(v.realPath);
+        setToastPath(v.realPath ?? null);
         setTimeout(() => {
           setToast(null);
           setToastPath(null);

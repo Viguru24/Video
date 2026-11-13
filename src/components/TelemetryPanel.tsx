@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { ClockDisplay } from './ClockDisplay';
 import { Thermometer, Database, Cpu, Zap, Activity } from 'lucide-react';
 import type { TelemetryData } from '../types';
@@ -9,23 +8,6 @@ interface TelemetryPanelProps {
 }
 
 export function TelemetryPanel({ videosCount, telemetry }: TelemetryPanelProps) {
-  const [internalStats, setInternalStats] = useState({
-    temp: 42,
-    stability: 99.9,
-    throughput: 124.5
-  });
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setInternalStats(prev => ({
-        temp: telemetry.temp ?? Math.min(65, Math.max(38, prev.temp + (Math.random() - 0.5) * 2)),
-        stability: 99.8 + Math.random() * 0.2,
-        throughput: Math.min(150, Math.max(100, prev.throughput + (Math.random() - 0.5) * 5))
-      }));
-    }, 2000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <div className="telemetry sovereign-glass">
       <div className="tel-group">
@@ -39,7 +21,7 @@ export function TelemetryPanel({ videosCount, telemetry }: TelemetryPanelProps) 
           <span className="tel-label">CPU:</span> {telemetry.cpu}
         </div>
         <div className="tel-divider" />
-        <div className="tel-item" data-tooltip="VRAM RESOURCE ALLOCATION">
+        <div className="tel-item" data-tooltip={`VRAM RESOURCE ALLOCATION (${telemetry.gpu})`}>
           <Database size={12} className="text-accent" />
           <span className="tel-label">VRAM:</span> {telemetry.mem}
         </div>
@@ -47,14 +29,14 @@ export function TelemetryPanel({ videosCount, telemetry }: TelemetryPanelProps) 
 
       <div className="tel-group hidden-mobile">
         <div className="tel-divider" />
-        <div className="tel-item" data-tooltip="GPU THERMAL STATE">
+        <div className="tel-item" data-tooltip={`GPU THERMAL STATE (${telemetry.gpu})`}>
           <Thermometer size={12} className="text-accent" />
-          <span className="tel-label">TEMP:</span> {(telemetry.temp ?? internalStats.temp).toFixed(1)}°C
+          <span className="tel-label">TEMP:</span> {telemetry.temp !== undefined ? `${telemetry.temp.toFixed(1)}°C` : 'N/A'}
         </div>
         <div className="tel-divider" />
-        <div className="tel-item" data-tooltip="SYSTEM STABILITY INDEX">
+        <div className="tel-item" data-tooltip={`SYSTEM TELEMETRY (${telemetry.gpu})`}>
           <Zap size={12} className="text-accent" />
-          <span className="tel-label">STABILITY:</span> {internalStats.stability.toFixed(2)}%
+          <span className="tel-label">GPU:</span> {telemetry.gpu}
         </div>
       </div>
 

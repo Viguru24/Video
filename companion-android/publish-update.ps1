@@ -5,7 +5,20 @@ param(
     [string]$Notes = ""
 )
 
-$AdminKey = "[REDACTED_ADMIN_KEY]"
+$AdminKey = $env:COSMO_OTA_ADMIN_KEY
+if ([string]::IsNullOrWhiteSpace($AdminKey)) {
+    $secureKey = Read-Host -Prompt "Enter OTA admin key (or set COSMO_OTA_ADMIN_KEY)" -AsSecureString
+    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+    try {
+        $AdminKey = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    } finally {
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
+if ([string]::IsNullOrWhiteSpace($AdminKey)) {
+    Write-Error "[!] OTA admin key cannot be empty."
+    exit 1
+}
 $AppSlug = "cosmo-companion"
 $UploadUrl = "https://api.cosmowhisper.com/updates/$AppSlug/upload"
 

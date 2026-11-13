@@ -1,20 +1,108 @@
 use axum::{
     body::Bytes,
-    extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{Html, IntoResponse, Json},
+    extract::{ConnectInfo, DefaultBodyLimit, Multipart, Path as AxumPath, Query, Request, State},
+    http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Json, Response},
     routing::{delete, get, post},
     Router,
 };
-use std::{collections::HashMap, fs, path::PathBuf};
-use tower_http::cors::CorsLayer;
+use std::{collections::HashMap, fs, net::{IpAddr, SocketAddr}, path::PathBuf};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use super::cleanup::secure_delete_file;
 use super::network::{generate_qr_data_url, get_local_ip, urlencoding_name};
-use super::types::{now_millis, AppState, FileItem, FileItemResponse, Room, RoomStore, ROOMS};
+use super::types::{
+    constant_time_token_eq, get_or_init_wifi_token, now_millis, AppState, FileItem,
+    FileItemResponse, Room, RoomStore, ROOMS,
+};
+
+fn is_private_or_loopback_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unique_local()
+                || v6
+                    .to_ipv4_mapped()
+                    .map(|v4| v4.is_loopback() || v4.is_private() || v4.is_link_local())
+                    .unwrap_or(false)
+        }
+    }
+}
+
+fn is_allowed_cors_origin(origin: &str) -> bool {
+    let lower = origin.trim().to_ascii_lowercase();
+    if lower == "tauri://localhost"
+        || lower == "http://tauri.localhost"
+        || lower == "https://tauri.localhost"
+    {
+        return true;
+    }
+    let Some(without_scheme) = lower
+        .strip_prefix("http://")
+        .or_else(|| lower.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    let host_port = without_scheme.split('/').next().unwrap_or("");
+    let host = if host_port.starts_with('[') {
+        host_port.split(']').next().unwrap_or("").trim_start_matches('[')
+    } else {
+        host_port.split(':').next().unwrap_or("")
+    };
+    if host == "localhost" {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return is_private_or_loopback_ip(ip);
+    }
+    false
+}
+
+async fn require_lan_client(req: Request, next: Next) -> Response {
+    if let Some(ConnectInfo(addr)) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+        if !is_private_or_loopback_ip(addr.ip()) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": "Access restricted to local network devices" })),
+            )
+                .into_response();
+        }
+    }
+    next.run(req).await
+}
+
+async fn require_room_auth(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if req.method() == Method::OPTIONS {
+        return next.run(req).await;
+    }
+    let header_token = req
+        .headers()
+        .get("x-cosmo-token")
+        .and_then(|v| v.to_str().ok());
+    let query_token = req.uri().query().and_then(|q| {
+        q.split('&').find_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            if k == "token" {
+                Some(v)
+            } else {
+                None
+            }
+        })
+    });
+    if !constant_time_token_eq(&state.auth_token, header_token.or(query_token)) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized: invalid or missing pairing token" })),
+        )
+            .into_response();
+    }
+    next.run(req).await
+}
 
 pub async fn create_room(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let mut rooms = state.rooms.lock().unwrap();
+    let mut rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
     let code = "local".to_string();
     let now = now_millis();
 
@@ -31,12 +119,13 @@ pub async fn create_room(State(state): State<AppState>) -> Json<serde_json::Valu
         .clone();
 
     let local_ip = get_local_ip();
-    let share_url = format!("http://{}:48273/", local_ip);
+    let share_url = format!("http://{}:48273/?token={}", local_ip, state.auth_token);
     let qr_data_url = generate_qr_data_url(&share_url);
 
     Json(serde_json::json!({
         "success": true,
         "code": code,
+        "token": state.auth_token,
         "shareUrl": share_url,
         "qrDataUrl": qr_data_url,
         "room": room.to_response()
@@ -53,7 +142,7 @@ pub async fn room_status(
     AxumPath(code): AxumPath<String>,
     Query(query): Query<StatusQuery>,
 ) -> impl IntoResponse {
-    let mut rooms = state.rooms.lock().unwrap();
+    let mut rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
     let room = rooms.entry(code.clone()).or_insert_with(|| Room {
         code: code.clone(),
         created_at: now_millis(),
@@ -69,7 +158,7 @@ pub async fn room_status(
     }
 
     // Check receiver timeout (12s)
-    if now_millis() - room.receiver_last_seen > 12000 {
+    if now_millis().saturating_sub(room.receiver_last_seen) > 12000 {
         room.receiver_connected = false;
     }
 
@@ -83,7 +172,7 @@ pub async fn room_status(
 }
 
 pub async fn join_room(State(state): State<AppState>, AxumPath(code): AxumPath<String>) -> impl IntoResponse {
-    let mut rooms = state.rooms.lock().unwrap();
+    let mut rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
     let room = rooms.entry(code.clone()).or_insert_with(|| Room {
         code: code.clone(),
         created_at: now_millis(),
@@ -108,7 +197,7 @@ pub async fn upload_files(
 
     // Ensure room exists
     {
-        let mut rooms = state.rooms.lock().unwrap();
+        let mut rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
         rooms.entry(code.clone()).or_insert_with(|| Room {
             code: code.clone(),
             created_at: now_millis(),
@@ -184,7 +273,7 @@ pub async fn upload_files(
         ).into_response();
     }
 
-    let mut rooms = state.rooms.lock().unwrap();
+    let mut rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
     let Some(room) = rooms.get_mut(&code) else {
         return (
             StatusCode::NOT_FOUND,
@@ -209,89 +298,109 @@ pub async fn upload_files(
 pub async fn download_file(
     State(state): State<AppState>,
     AxumPath((code, file_id)): AxumPath<(String, String)>,
+    req: Request,
 ) -> impl IntoResponse {
-    let mut rooms = state.rooms.lock().unwrap();
-    let Some(room) = rooms.get_mut(&code) else {
-        return (StatusCode::NOT_FOUND, HeaderMap::new(), vec![]).into_response();
+    let (file_path, file_name, mime_type) = {
+        let mut rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(room) = rooms.get_mut(&code) else {
+            return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response();
+        };
+
+        let Some(file) = room.files.iter().find(|f| f.id == file_id) else {
+            return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response();
+        };
+
+        let file_path = if file.filename.contains(':') || file.filename.starts_with('/') || file.filename.starts_with('\\') {
+            PathBuf::from(&file.filename)
+        } else {
+            state.upload_dir.join(&file.filename)
+        };
+        room.last_activity = now_millis();
+        (file_path, file.name.clone(), file.mime_type.clone())
     };
 
-    let Some(file) = room.files.iter().find(|f| f.id == file_id) else {
-        return (StatusCode::NOT_FOUND, HeaderMap::new(), vec![]).into_response();
-    };
+    if !file_path.is_file() {
+        return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response();
+    }
 
-    let file_path = if file.filename.contains(':') || file.filename.starts_with('/') || file.filename.starts_with('\\') {
-        PathBuf::from(&file.filename)
-    } else {
-        state.upload_dir.join(&file.filename)
-    };
-
-    let Ok(data) = fs::read(&file_path) else {
-        return (StatusCode::NOT_FOUND, HeaderMap::new(), vec![]).into_response();
-    };
-
-    room.last_activity = now_millis();
-
-    let mut headers = HeaderMap::new();
-    let encoded_name = urlencoding_name(&file.name);
-    headers.insert(
-        header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!("attachment; filename=\"{}\"", encoded_name))
-            .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
-    );
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&file.mime_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-    );
-    headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&data.len().to_string())
-            .unwrap_or_else(|_| HeaderValue::from_static("0")),
-    );
-
-    (StatusCode::OK, headers, data).into_response()
+    use tower::util::ServiceExt;
+    let service = tower_http::services::ServeFile::new(&file_path);
+    match service.oneshot(req).await {
+        Ok(mut res) => {
+            let encoded_name = urlencoding_name(&file_name);
+            if let Ok(cd) = HeaderValue::from_str(&format!("attachment; filename=\"{}\"", encoded_name)) {
+                res.headers_mut().insert(header::CONTENT_DISPOSITION, cd);
+            }
+            if !res.headers().contains_key(header::CONTENT_TYPE) {
+                if let Ok(ct) = HeaderValue::from_str(&mime_type) {
+                    res.headers_mut().insert(header::CONTENT_TYPE, ct);
+                }
+            }
+            res.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 pub async fn download_zip(
     State(state): State<AppState>,
     AxumPath(code): AxumPath<String>,
 ) -> impl IntoResponse {
-    let rooms = state.rooms.lock().unwrap();
-    let Some(room) = rooms.get(&code) else {
-        return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response();
+    let pc_files: Vec<(String, PathBuf)> = {
+        let rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(room) = rooms.get(&code) else {
+            return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response();
+        };
+
+        room.files
+            .iter()
+            .filter(|f| f.filename.contains(':') || f.filename.starts_with('/') || f.filename.starts_with('\\'))
+            .map(|f| (f.name.clone(), PathBuf::from(&f.filename)))
+            .collect()
     };
-
-    // Collect all PC-shared files (absolute path entries)
-    let pc_files: Vec<(String, PathBuf)> = room.files.iter()
-        .filter(|f| f.filename.contains(':') || f.filename.starts_with('/') || f.filename.starts_with('\\'))
-        .map(|f| (f.name.clone(), PathBuf::from(&f.filename)))
-        .collect();
-
-    drop(rooms); // release lock before doing IO
 
     if pc_files.is_empty() {
         return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response();
     }
 
-    // Build ZIP in memory
-    let mut buf = std::io::Cursor::new(Vec::<u8>::new());
-    {
-        let mut zip = zip::ZipWriter::new(&mut buf);
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .compression_level(Some(3)); // fast, good enough for media
-
-        for (name, path) in &pc_files {
-            if let Ok(data) = fs::read(path) {
-                let _ = zip.start_file(name, options);
-                use std::io::Write;
-                let _ = zip.write_all(&data);
+    const MAX_ZIP_INPUT_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB cap
+    let zip_result = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, StatusCode> {
+        let mut total_bytes = 0u64;
+        for (_, path) in &pc_files {
+            if let Ok(meta) = fs::metadata(path) {
+                total_bytes = total_bytes.saturating_add(meta.len());
+                if total_bytes > MAX_ZIP_INPUT_BYTES {
+                    return Err(StatusCode::PAYLOAD_TOO_LARGE);
+                }
             }
         }
-        let _ = zip.finish();
-    }
 
-    let zip_bytes = buf.into_inner();
+        let mut buf = std::io::Cursor::new(Vec::<u8>::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .compression_level(Some(3));
+
+            for (name, path) in &pc_files {
+                if let Ok(mut f) = fs::File::open(path) {
+                    if zip.start_file(name, options).is_ok() {
+                        let _ = std::io::copy(&mut f, &mut zip);
+                    }
+                }
+            }
+            let _ = zip.finish();
+        }
+        Ok(buf.into_inner())
+    })
+    .await;
+
+    let zip_bytes = match zip_result {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(status)) => return (status, "Selection exceeds 2 GiB ZIP archive limit; download files individually.").into_response(),
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_DISPOSITION,
@@ -311,14 +420,23 @@ pub async fn download_zip(
 }
 
 pub async fn delete_room(State(state): State<AppState>, AxumPath(code): AxumPath<String>) -> impl IntoResponse {
-    let mut rooms = state.rooms.lock().unwrap();
-    if let Some(room) = rooms.remove(&code) {
-        for file in &room.files {
-            // Only remove temporary uploads, not direct PC sharing paths
-            if !file.filename.contains(':') && !file.filename.starts_with('/') && !file.filename.starts_with('\\') {
-                let path = state.upload_dir.join(&file.filename);
-                let _ = secure_delete_file(path);
-            }
+    let removed = {
+        let mut rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
+        rooms.remove(&code)
+    };
+    if let Some(room) = removed {
+        let to_delete: Vec<PathBuf> = room
+            .files
+            .iter()
+            .filter(|file| !file.filename.contains(':') && !file.filename.starts_with('/') && !file.filename.starts_with('\\'))
+            .map(|file| state.upload_dir.join(&file.filename))
+            .collect();
+        if !to_delete.is_empty() {
+            tokio::task::spawn_blocking(move || {
+                for path in to_delete {
+                    let _ = secure_delete_file(path);
+                }
+            });
         }
         (
             StatusCode::OK,
@@ -340,7 +458,7 @@ pub async fn delete_file(
     let response: axum::response::Response;
 
     {
-        let mut rooms = state.rooms.lock().unwrap();
+        let mut rooms = state.rooms.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(room) = rooms.get_mut(&code) {
             if let Some(pos) = room.files.iter().position(|f| f.id == file_id) {
                 let file = room.files.remove(pos);
@@ -385,7 +503,7 @@ pub async fn delete_file(
 
 pub async fn spa_fallback(State(state): State<AppState>) -> impl IntoResponse {
     let index_path = state.frontend_path.join("index.html");
-    match fs::read_to_string(&index_path) {
+    match tokio::fs::read_to_string(&index_path).await {
         Ok(html) => Html(html).into_response(),
         Err(_) => (StatusCode::NOT_FOUND, "Frontend not found").into_response(),
     }
@@ -399,19 +517,30 @@ pub fn spawn_cleanup_task(rooms: RoomStore, upload_dir: PathBuf) {
             let now = now_millis();
             let max_inactivity: u64 = 15 * 60 * 1000; // 15 minutes
 
-            let mut store = rooms.lock().unwrap();
-            if let Some(room) = store.get_mut("local") {
-                if now - room.last_activity > max_inactivity && !room.files.is_empty() {
-                    println!("[CleanUp] Room local timed out due to inactivity. Clearing files...");
-                    for file in &room.files {
-                        if !file.filename.contains(':') && !file.filename.starts_with('/') && !file.filename.starts_with('\\') {
-                            let path = upload_dir.join(&file.filename);
-                            let _ = secure_delete_file(path);
+            let to_delete: Vec<PathBuf> = {
+                let mut store = rooms.lock().unwrap_or_else(|e| e.into_inner());
+                let mut paths = Vec::new();
+                if let Some(room) = store.get_mut("local") {
+                    if now.saturating_sub(room.last_activity) > max_inactivity && !room.files.is_empty() {
+                        println!("[CleanUp] Room local timed out due to inactivity. Clearing files...");
+                        for file in &room.files {
+                            if !file.filename.contains(':') && !file.filename.starts_with('/') && !file.filename.starts_with('\\') {
+                                paths.push(upload_dir.join(&file.filename));
+                            }
                         }
+                        room.files.clear();
+                        room.last_activity = now;
                     }
-                    room.files.clear();
-                    room.last_activity = now;
                 }
+                paths
+            };
+            if !to_delete.is_empty() {
+                let _ = tokio::task::spawn_blocking(move || {
+                    for path in to_delete {
+                        let _ = secure_delete_file(path);
+                    }
+                })
+                .await;
             }
         }
     });
@@ -453,26 +582,6 @@ pub async fn download_apk_direct(
     }
 }
 
-pub async fn view_local_file(
-    Query(params): Query<HashMap<String, String>>,
-    req: axum::extract::Request,
-) -> impl IntoResponse {
-    let Some(path_str) = params.get("path") else {
-        return (StatusCode::BAD_REQUEST, "Missing path parameter").into_response();
-    };
-    let p = PathBuf::from(path_str);
-    if !p.is_file() {
-        return (StatusCode::NOT_FOUND, "File not found").into_response();
-    }
-
-    use tower::util::ServiceExt;
-    let service = tower_http::services::ServeFile::new(&p);
-    match service.oneshot(req).await {
-        Ok(res) => res.into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    }
-}
-
 pub async fn start_server_internal(frontend_dist_path: String) {
     let upload_dir = std::env::temp_dir().join("wi-share-files");
     let _ = fs::create_dir_all(&upload_dir);
@@ -487,17 +596,26 @@ pub async fn start_server_internal(frontend_dist_path: String) {
         rooms,
         upload_dir: upload_dir.clone(),
         frontend_path: frontend_path.clone(),
+        auth_token: get_or_init_wifi_token(),
     };
 
     // Spawn background room cleanup
     spawn_cleanup_task(state.rooms.clone(), upload_dir);
 
-    // CORS — allow all origins for phone access
-    let cors = CorsLayer::permissive();
+    // CORS — strictly allow Tauri desktop and private LAN origins only
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+            origin.to_str().map(is_allowed_cors_origin).unwrap_or(false)
+        }))
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::RANGE,
+            HeaderName::from_static("x-cosmo-token"),
+        ]);
 
-    // API routes
-    let api = Router::new()
-        .route("/api/health", get(health_check))
+    // Authenticated Wi-Fi room routes
+    let room_routes = Router::new()
         .route("/api/rooms/create", post(create_room))
         .route("/api/rooms/{code}/status", get(room_status))
         .route("/api/rooms/{code}/join", post(join_room))
@@ -508,7 +626,11 @@ pub async fn start_server_internal(frontend_dist_path: String) {
         )
         .route("/api/rooms/{code}/download-zip", get(download_zip))
         .route("/api/rooms/{code}", delete(delete_room))
-        .route("/api/view-file", get(view_local_file))
+        .layer(middleware::from_fn_with_state(state.clone(), require_room_auth));
+
+    // Public LAN discovery / pairing UI routes
+    let public_routes = Router::new()
+        .route("/api/health", get(health_check))
         .route("/CosmoShare.apk", get(download_apk_direct))
         .route("/CosmoSymphonyCompanion.apk", get(download_apk_direct));
 
@@ -516,10 +638,14 @@ pub async fn start_server_internal(frontend_dist_path: String) {
     let serve_dir = tower_http::services::ServeDir::new(&frontend_path)
         .fallback(get(spa_fallback).with_state(state.clone()));
 
-    let app = api
+    let max_upload_bytes = usize::try_from(8u64 * 1024 * 1024 * 1024).unwrap_or(2 * 1024 * 1024 * 1024);
+
+    let app = public_routes
+        .merge(room_routes)
         .fallback_service(serve_dir)
+        .layer(middleware::from_fn(require_lan_client))
         .layer(cors)
-        .layer(DefaultBodyLimit::disable())
+        .layer(DefaultBodyLimit::max(max_upload_bytes))
         .with_state(state);
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 48273));
@@ -548,7 +674,12 @@ pub async fn start_server_internal(frontend_dist_path: String) {
         None => return,
     };
 
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    {
         eprintln!("[Wi-Fi Share Server] Server error: {}", e);
     }
 }

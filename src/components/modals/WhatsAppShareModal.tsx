@@ -22,6 +22,7 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import type { VideoItem } from '../../types';
 import { toCosmoUrl, toRealPath, isTauri } from '../../utils/videoUtils';
+import { wifiShareFetch } from '../../utils/wifiShareClient';
 
 interface WhatsAppShareModalProps {
   target: VideoItem | null;
@@ -61,7 +62,7 @@ export function WhatsAppShareModal({ target, onClose, addLog }: WhatsAppShareMod
             await invoke('set_wifi_shared_files', { paths: [effectivePath] });
           }
           // 2. Create room to get QR Code
-          const res = await fetch('http://127.0.0.1:48273/api/rooms/create', { method: 'POST' });
+          const res = await wifiShareFetch('/api/rooms/create', { method: 'POST' });
           if (res.ok) {
             const data = await res.json();
             if (active && data.success) {

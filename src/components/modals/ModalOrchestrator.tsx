@@ -99,7 +99,7 @@ interface ModalOrchestratorProps {
   wifiShareItems: any[];
   setWifiShareItems?: React.Dispatch<React.SetStateAction<any[]>>;
   onClearSharedFiles?: () => void;
-  handleIngestPaths: (paths: string[]) => Promise<void>;
+  handleIngestPaths: (paths: string[]) => Promise<VideoItem[] | void>;
 
   // Volume Repeat Modal
   volumeRepeatOpen: boolean;

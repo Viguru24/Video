@@ -28,7 +28,7 @@ export function compareVideoItems(a: VideoItem, b: VideoItem, sortOrder: SortOpt
     { numeric: true, sensitivity: 'base' }
   );
 
-  let diff = 0;
+  let diff: number;
   switch (sortOrder) {
     case 'videos-first': {
       const pathA = a.realPath || a.url || '';

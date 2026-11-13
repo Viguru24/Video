@@ -7,6 +7,8 @@ import type { RepeatMode } from '../../types';
 export interface VideoCardMediaViewProps {
   props: VideoCardProps;
   state: any;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  lastTimeRef: React.MutableRefObject<number>;
   fitMode: 'contain' | 'cover' | 'fill';
   currentMode: RepeatMode;
   enableSlideshowPanZoom: boolean;
@@ -15,6 +17,8 @@ export interface VideoCardMediaViewProps {
 export function VideoCardMediaView({
   props,
   state,
+  videoRef,
+  lastTimeRef,
   fitMode,
   currentMode,
   enableSlideshowPanZoom
@@ -78,8 +82,8 @@ export function VideoCardMediaView({
             effectiveMuted={state.effectiveMuted}
             globalRepeat={props.globalRepeat || 'folder'}
             songInfo={state.songInfo}
-            videoRef={state.videoRef}
-            lastTime={state.lastTime}
+            videoRef={videoRef}
+            lastTimeRef={lastTimeRef}
             onEnded={props.onEnded}
             handleTimeUpdate={state.handleTimeUpdate}
             setDuration={state.setDuration}
@@ -94,7 +98,7 @@ export function VideoCardMediaView({
         ) : (
           <video
             key={state.displayUrl}
-            ref={state.videoRef}
+            ref={videoRef}
             src={state.displayUrl}
             preload="metadata"
             draggable="false"
@@ -144,28 +148,7 @@ export function VideoCardMediaView({
             data-pan-x={state.panOffset.x}
             data-pan-y={state.panOffset.y}
             data-rotation={props.video.rotation || 0}
-            onLoadedMetadata={() => {
-              state.handleMediaSuccess();
-              const dur = state.videoRef.current?.duration || 0;
-              state.setDuration(dur);
-              if (state.lastTime.current > 0 && state.videoRef.current) {
-                if (dur > 4 && (state.lastTime.current >= dur - 2.5 || state.lastTime.current / dur > 0.96)) {
-                  state.videoRef.current.currentTime = 0;
-                  state.lastTime.current = 0;
-                } else {
-                  state.videoRef.current.currentTime = state.lastTime.current;
-                }
-              } else if (state.videoRef.current && !props.video.playing) {
-                try {
-                  state.videoRef.current.currentTime = 0.001;
-                } catch {}
-              }
-              
-              if (props.video.playing && state.videoRef.current) {
-                state.videoRef.current.play().catch(e => console.warn("Autoplay failed:", e));
-              }
-              setTimeout(state.handleTimeUpdate, 50);
-            }}
+            onLoadedMetadata={state.handleVideoLoadedMetadata}
             onError={() => {
               state.handleMediaError('video');
             }}

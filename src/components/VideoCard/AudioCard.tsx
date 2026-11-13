@@ -10,8 +10,8 @@ interface AudioCardProps {
   effectiveMuted: boolean;
   globalRepeat: RepeatMode;
   songInfo: { band: string; album: string; title: string } | null;
-  videoRef: React.RefObject<HTMLVideoElement>;
-  lastTime: React.MutableRefObject<number>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  lastTimeRef: React.MutableRefObject<number>;
   onEnded: () => void;
   handleTimeUpdate: () => void;
   setDuration: (d: number) => void;
@@ -26,7 +26,7 @@ interface AudioCardProps {
 
 export function AudioCard({
   video, displayUrl, effectiveMuted, globalRepeat, songInfo,
-  videoRef, lastTime, onEnded, handleTimeUpdate,
+  videoRef, lastTimeRef, onEnded, handleTimeUpdate,
   setDuration, setError, zoomScale, panOffset, onUpdateVideo, onLog,
   onMediaError, onMediaSuccess
 }: AudioCardProps) {
@@ -72,8 +72,8 @@ export function AudioCard({
         data-rotation={video.rotation || 0}
         onLoadedMetadata={() => {
           setDuration(videoRef.current?.duration || 0);
-          if (lastTime.current > 0 && videoRef.current) {
-            videoRef.current.currentTime = lastTime.current;
+          if (lastTimeRef.current > 0 && videoRef.current) {
+            videoRef.current.currentTime = lastTimeRef.current;
           }
           if (onMediaSuccess) {
             onMediaSuccess();
@@ -167,11 +167,11 @@ export function AudioCard({
           </motion.div>
           {video.playing && (
             <div style={{ position: 'absolute', bottom: '-4px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '2px', alignItems: 'flex-end', height: '14px', zIndex: 2 }}>
-              <span style={{ width: '2px', height: '12px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate' }} />
-              <span style={{ width: '2px', height: '7px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate 0.1s' }} />
-              <span style={{ width: '2px', height: '14px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate 0.2s' }} />
-              <span style={{ width: '2px', height: '9px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate 0.3s' }} />
-              <span style={{ width: '2px', height: '11px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate 0.4s' }} />
+              <span className="visualizer-bar" style={{ width: '2px', height: '12px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate' }} />
+              <span className="visualizer-bar" style={{ width: '2px', height: '7px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate 0.1s' }} />
+              <span className="visualizer-bar" style={{ width: '2px', height: '14px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate 0.2s' }} />
+              <span className="visualizer-bar" style={{ width: '2px', height: '9px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate 0.3s' }} />
+              <span className="visualizer-bar" style={{ width: '2px', height: '11px', background: 'var(--accent, #00ff88)', borderRadius: '1px', animation: 'bounce-bar 0.5s infinite alternate 0.4s' }} />
             </div>
           )}
         </div>

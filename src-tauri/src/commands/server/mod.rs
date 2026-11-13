@@ -12,6 +12,11 @@ use std::{fs, path::PathBuf, sync::{Arc, Mutex, OnceLock}};
 
 static FRONTEND_DIST_PATH: OnceLock<String> = OnceLock::new();
 
+#[tauri::command]
+pub fn get_wifi_share_token() -> String {
+    types::get_or_init_wifi_token()
+}
+
 pub async fn start_server(frontend_dist_path: String) {
     let _ = FRONTEND_DIST_PATH.set(frontend_dist_path.clone());
     routes::start_server_internal(frontend_dist_path).await;
@@ -40,7 +45,7 @@ pub async fn ensure_wifi_share_server() -> Result<bool, String> {
 #[tauri::command]
 pub async fn set_wifi_shared_files(paths: Vec<String>) -> Result<(), String> {
     let rooms = ROOMS.get_or_init(|| Arc::new(Mutex::new(std::collections::HashMap::new()))).clone();
-    let mut store = rooms.lock().unwrap();
+    let mut store = rooms.lock().unwrap_or_else(|e| e.into_inner());
     let room = store.entry("local".to_string()).or_insert_with(|| Room {
         code: "local".to_string(),
         created_at: now_millis(),
@@ -238,9 +243,10 @@ pub async fn download_shared_file_to_downloads(
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], local_port));
     if let Ok(mut stream) = tokio::net::TcpStream::connect(addr).await {
+        let token = types::get_or_init_wifi_token();
         let request = format!(
-            "GET /api/rooms/{}/files/{} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
-            code, file_id, local_port
+            "GET /api/rooms/{}/files/{} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-Cosmo-Token: {}\r\nConnection: close\r\n\r\n",
+            code, file_id, local_port, token
         );
         if stream.write_all(request.as_bytes()).await.is_ok() {
             let mut response_bytes = Vec::new();

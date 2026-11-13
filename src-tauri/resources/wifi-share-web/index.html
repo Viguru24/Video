@@ -363,19 +363,6 @@
         </svg>
         <h1>Cosmo Share</h1>
         <div style="display: flex; gap: 8px; align-items: center; margin-left: auto;">
-          <button 
-            id="app-share-launcher-btn" 
-            class="btn btn-primary btn-small"
-            onclick="triggerAppShareOpen()"
-            title="Open App Share room view"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-              <polyline points="15 3 21 3 21 9"/>
-              <line x1="10" y1="14" x2="21" y2="3"/>
-            </svg>
-            Open Share Page on this PC
-          </button>
           <div id="connection-status" class="status-badge connected">
             <div class="status-dot"></div>
             <span>Active Session</span>
@@ -383,21 +370,45 @@
         </div>
       </header>
 
-      <!-- Android App Download Banner -->
-      <div style="background: rgba(0, 255, 136, 0.08); border: 1px solid rgba(0, 255, 136, 0.25); border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 1.2rem;">📱</span>
+      <!-- Pairing Token Prompt (Shown if connected manually without QR token) -->
+      <div id="pairing-auth-card" class="hidden" style="background: rgba(255, 170, 0, 0.12); border: 1.5px solid rgba(255, 170, 0, 0.45); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-size: 0.82rem; font-weight: 800; color: #ffaa00;">🔒 PC Pairing Token Required</div>
+        <div style="font-size: 0.72rem; color: #cbd5e1;">Scan the QR code in Cosmo Symphony on your PC, or paste the Pairing Token shown in the Wi-Fi Share window:</div>
+        <div style="display: flex; gap: 8px;">
+          <input id="pairing-token-input" type="text" placeholder="Paste PC pairing token..." style="flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.4); color: #fff; font-size: 0.8rem;" />
+          <button onclick="saveManualPairingToken()" class="btn btn-primary btn-small" style="cursor: pointer;">Pair</button>
+        </div>
+      </div>
+
+      <!-- In-App Over-The-Air Update Banner (Pops up when update is detected) -->
+      <div id="ota-update-alert-banner" class="hidden" style="background: linear-gradient(135deg, rgba(255, 170, 0, 0.22) 0%, rgba(255, 100, 0, 0.14) 100%); border: 1.5px solid #ffaa00; border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; box-shadow: 0 4px 24px rgba(255, 170, 0, 0.28);">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.4rem;">🚀</span>
           <div>
-            <div style="font-size: 0.8rem; font-weight: 800; color: var(--accent);">CosmoShare Android APK</div>
-            <div style="font-size: 0.7rem; color: var(--text-secondary);">Direct studio ingestion & wireless workspace sync</div>
+            <div id="ota-alert-title" style="font-weight: 800; color: #ffaa00; font-size: 0.88rem;">New Over-The-Air Update Available!</div>
+            <div id="ota-alert-desc" style="font-size: 0.72rem; color: #cbd5e1;">In-place Over-The-Air update is ready to install without losing data.</div>
           </div>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-          <a href="/CosmoShare.apk" download="CosmoShare.apk" class="btn btn-primary btn-small" style="text-decoration: none; font-size: 0.75rem; padding: 6px 12px; white-space: nowrap;">
-            ⬇ LAN APK
-          </a>
-          <a href="https://api.cosmowhisper.com/updates/cosmo-companion/app-latest.apk" target="_blank" class="btn btn-small" style="text-decoration: none; font-size: 0.75rem; padding: 6px 12px; white-space: nowrap; border-color: rgba(0, 210, 255, 0.4); color: #00d2ff;">
-            🌐 Cloud VPS APK
+        <button onclick="triggerNativeOtaCheck()" class="btn btn-primary btn-small" style="background: #ffaa00; border-color: #ffaa00; color: #09090d; font-weight: 800; padding: 8px 16px; white-space: nowrap; cursor: pointer;">
+          Install Update 🚀
+        </button>
+      </div>
+
+      <!-- Android App Status / OTA Card -->
+      <div id="app-updater-card" style="background: rgba(0, 255, 136, 0.08); border: 1px solid rgba(0, 255, 136, 0.25); border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span id="app-card-icon" style="font-size: 1.2rem;">📱</span>
+          <div>
+            <div id="app-card-title" style="font-size: 0.8rem; font-weight: 800; color: var(--accent);">CosmoShare Companion</div>
+            <div id="app-card-desc" style="font-size: 0.7rem; color: var(--text-secondary);">Direct studio ingestion & wireless workspace sync</div>
+          </div>
+        </div>
+        <div id="app-card-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <button id="ota-check-btn" onclick="triggerNativeOtaCheck()" class="btn btn-primary btn-small" style="font-size: 0.75rem; padding: 6px 12px; white-space: nowrap; cursor: pointer;">
+            🚀 Check for OTA Update
+          </button>
+          <a id="lan-apk-link" href="/CosmoShare.apk" download="CosmoShare.apk" class="btn btn-small" style="text-decoration: none; font-size: 0.75rem; padding: 6px 12px; white-space: nowrap; border-color: rgba(255, 255, 255, 0.2); color: var(--text-secondary);">
+            ⬇ APK File
           </a>
         </div>
       </div>
@@ -493,6 +504,75 @@
       const roomCode = 'local';
       let currentFiles = [];
 
+      function getShareToken() {
+        const stored = localStorage.getItem('cosmo-share-token') || '';
+        if (stored) return stored;
+        if (window.CosmoNative && typeof window.CosmoNative.getPairingToken === 'function') {
+          const nativeTok = window.CosmoNative.getPairingToken() || '';
+          if (nativeTok) {
+            localStorage.setItem('cosmo-share-token', nativeTok);
+            return nativeTok;
+          }
+        }
+        return '';
+      }
+
+      (function bootstrapTokenFromUrl() {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const urlToken = (params.get('token') || '').trim();
+          if (urlToken) {
+            localStorage.setItem('cosmo-share-token', urlToken);
+            if (window.CosmoNative && typeof window.CosmoNative.setPairingToken === 'function') {
+              window.CosmoNative.setPairingToken(urlToken);
+            }
+            params.delete('token');
+            const nextQuery = params.toString();
+            const cleanUrl = window.location.pathname + (nextQuery ? `?${nextQuery}` : '') + window.location.hash;
+            window.history.replaceState({}, '', cleanUrl);
+          }
+        } catch {}
+      })();
+
+      function authHeaders(extra = {}) {
+        const token = getShareToken();
+        return token ? { ...extra, 'X-Cosmo-Token': token } : { ...extra };
+      }
+
+      function withTokenQuery(url) {
+        const token = getShareToken();
+        if (!token) return url;
+        const sep = url.includes('?') ? '&' : '?';
+        return `${url}${sep}token=${encodeURIComponent(token)}`;
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function showPairingCard(show) {
+        const card = document.getElementById('pairing-auth-card');
+        if (card) card.classList.toggle('hidden', !show);
+      }
+
+      function saveManualPairingToken() {
+        const input = document.getElementById('pairing-token-input');
+        const val = (input?.value || '').trim();
+        if (!val) return;
+        localStorage.setItem('cosmo-share-token', val);
+        if (window.CosmoNative && typeof window.CosmoNative.setPairingToken === 'function') {
+          window.CosmoNative.setPairingToken(val);
+        }
+        showPairingCard(false);
+        joinRoom();
+        pollRoom();
+      }
+
       // Format size to human readable
       function formatBytes(bytes) {
         if (bytes === 0) return '0 Bytes';
@@ -511,7 +591,13 @@
       // Connect / Join Room on start
       async function joinRoom() {
         try {
-          await fetch(`/api/rooms/${roomCode}/join`, { method: 'POST' });
+          const res = await fetch(`/api/rooms/${roomCode}/join`, {
+            method: 'POST',
+            headers: authHeaders()
+          });
+          if (res.status === 401) {
+            showPairingCard(true);
+          }
         } catch (e) {
           console.warn('Failed to join share session:', e);
         }
@@ -519,9 +605,19 @@
 
       // Poll room status
       async function pollRoom() {
+        if (document.hidden) return;
         try {
-          const res = await fetch(`/api/rooms/${roomCode}/status?role=receiver`);
+          const res = await fetch(`/api/rooms/${roomCode}/status?role=receiver`, {
+            headers: authHeaders()
+          });
+          if (res.status === 401) {
+            showPairingCard(true);
+            document.getElementById('connection-status').classList.remove('connected');
+            document.getElementById('connection-status').querySelector('span').innerText = 'Pairing Required';
+            return;
+          }
           if (res.ok) {
+            showPairingCard(false);
             const data = await res.json();
             if (data.success && data.room) {
               updateUI(data.room.files || []);
@@ -534,6 +630,54 @@
         }
       }
 
+      // Track auto-downloaded PC shared files to prevent duplicate downloads
+      const autoDownloadedPcFileIds = new Set();
+      let isBatchDownloading = false;
+
+      function autoSyncPcFiles(pcFiles) {
+        if (!pcFiles || pcFiles.length === 0) return;
+        
+        // Find new PC-shared files that haven't been downloaded in this session
+        const toDownload = pcFiles.filter(f => !autoDownloadedPcFileIds.has(f.id));
+        if (toDownload.length === 0 || isBatchDownloading) return;
+
+        // If running inside our native CosmoShare Android App (Instant 0-Click Sync)
+        if (window.CosmoNative && typeof window.CosmoNative.downloadBatch === 'function') {
+          isBatchDownloading = true;
+          toDownload.forEach(f => autoDownloadedPcFileIds.add(f.id));
+          const items = toDownload.map(f => ({
+            url: `${window.location.origin}/api/rooms/${roomCode}/files/${f.id}`,
+            name: f.name
+          }));
+          window.CosmoNative.downloadBatch(JSON.stringify(items));
+          if (typeof window.CosmoNative.showToast === 'function') {
+            window.CosmoNative.showToast(`⚡ Instant Share: Auto-saving ${items.length} file(s) from PC...`);
+          }
+          setTimeout(() => { isBatchDownloading = false; }, 1200);
+          return;
+        }
+
+        if (window.CosmoNative && typeof window.CosmoNative.downloadFile === 'function') {
+          toDownload.forEach(f => {
+            autoDownloadedPcFileIds.add(f.id);
+            const url = `${window.location.origin}/api/rooms/${roomCode}/files/${f.id}`;
+            window.CosmoNative.downloadFile(url, f.name);
+          });
+          return;
+        }
+
+        // Web browser auto-download fallback if enabled
+        const autoDownloadEnabled = localStorage.getItem('cosmo-auto-download-web') === 'true';
+        if (autoDownloadEnabled) {
+          toDownload.forEach((file, index) => {
+            autoDownloadedPcFileIds.add(file.id);
+            setTimeout(() => {
+              downloadSingleFile(file.id, encodeURIComponent(file.name));
+            }, index * 350);
+          });
+        }
+      }
+
       // Update UI with file lists
       function updateUI(files) {
         currentFiles = files;
@@ -543,17 +687,23 @@
 
         // 1. Files Shared from PC (isPhoneUpload === false)
         const pcFiles = files.filter(f => !f.isPhoneUpload);
+        autoSyncPcFiles(pcFiles);
         const pcList = document.getElementById('pc-files-list');
         const downloadAllBtn = document.getElementById('download-all-btn');
 
         if (pcFiles.length > 0) {
           downloadAllBtn.classList.remove('hidden');
-          downloadAllBtn.href = `/api/rooms/${roomCode}/download-zip`;
+          downloadAllBtn.href = withTokenQuery(`/api/rooms/${roomCode}/download-zip`);
           downloadAllBtn.download = 'cosmo-share.zip';
-          pcList.innerHTML = pcFiles.map(file => `
+          pcList.innerHTML = pcFiles.map(file => {
+            const safeName = escapeHtml(file.name);
+            const safeId = escapeHtml(file.id);
+            const safeIdJs = encodeURIComponent(file.id);
+            const safeNameJs = encodeURIComponent(file.name);
+            return `
             <div class="file-item" style="border-left: 3px solid #00d2ff;">
               <div class="file-info">
-                <span class="file-name" title="${file.name}">${file.name}</span>
+                <span class="file-name" title="${safeName}">${safeName}</span>
                 <div class="file-meta">
                   <span style="color: #00d2ff; font-weight: 700;">${formatBytes(file.size)}</span>
                   <span>•</span>
@@ -561,7 +711,7 @@
                 </div>
               </div>
               <div style="display: flex; gap: 6px; align-items: center;">
-                <button onclick="downloadSingleFile('${file.id}', '${encodeURIComponent(file.name)}')" class="btn btn-small" style="background: rgba(0, 210, 255, 0.15); border-color: rgba(0, 210, 255, 0.4); color: #00d2ff; cursor: pointer;">
+                <button onclick="downloadSingleFile(decodeURIComponent('${safeIdJs}'), '${safeNameJs}')" class="btn btn-small" style="background: rgba(0, 210, 255, 0.15); border-color: rgba(0, 210, 255, 0.4); color: #00d2ff; cursor: pointer;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
@@ -569,7 +719,7 @@
                   </svg>
                   Get
                 </button>
-                <button onclick="deleteFile('${file.id}')" class="btn btn-danger btn-small" title="Remove from share">
+                <button onclick="deleteFile(decodeURIComponent('${safeIdJs}'))" class="btn btn-danger btn-small" title="Remove from share" data-file-id="${safeId}">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -577,7 +727,8 @@
                 </button>
               </div>
             </div>
-          `).join('');
+          `;
+          }).join('');
         } else {
           downloadAllBtn.classList.add('hidden');
           pcList.innerHTML = `
@@ -597,10 +748,14 @@
         const phoneList = document.getElementById('phone-files-list');
 
         if (phoneFiles.length > 0) {
-          phoneList.innerHTML = phoneFiles.map(file => `
+          phoneList.innerHTML = phoneFiles.map(file => {
+            const safeName = escapeHtml(file.name);
+            const safeIdJs = encodeURIComponent(file.id);
+            const safeNameJs = encodeURIComponent(file.name);
+            return `
             <div class="file-item" style="border-left: 3px solid #00ff88;">
               <div class="file-info">
-                <span class="file-name" title="${file.name}">${file.name}</span>
+                <span class="file-name" title="${safeName}">${safeName}</span>
                 <div class="file-meta">
                   <span style="color: #00ff88; font-weight: 700;">${formatBytes(file.size)}</span>
                   <span>•</span>
@@ -608,7 +763,7 @@
                 </div>
               </div>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <button onclick="downloadSingleFile('${file.id}', '${encodeURIComponent(file.name)}')" class="btn btn-primary btn-small" style="cursor: pointer;">
+                <button onclick="downloadSingleFile(decodeURIComponent('${safeIdJs}'), '${safeNameJs}')" class="btn btn-primary btn-small" style="cursor: pointer;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
@@ -616,7 +771,7 @@
                   </svg>
                   Save
                 </button>
-                <button onclick="deleteFile('${file.id}')" class="btn btn-danger btn-small" title="Delete upload">
+                <button onclick="deleteFile(decodeURIComponent('${safeIdJs}'))" class="btn btn-danger btn-small" title="Delete upload">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -627,7 +782,8 @@
                 </button>
               </div>
             </div>
-          `).join('');
+          `;
+          }).join('');
         } else {
           phoneList.innerHTML = `
             <div class="empty-state">
@@ -640,13 +796,13 @@
       // Download a single file using CosmoNative if available, or fallback to browser
       function downloadSingleFile(fileId, encodedName) {
         const fileName = decodeURIComponent(encodedName);
-        const url = `${window.location.origin}/api/rooms/${roomCode}/files/${fileId}`;
+        const url = `${window.location.origin}/api/rooms/${roomCode}/files/${encodeURIComponent(fileId)}`;
         if (window.CosmoNative && typeof window.CosmoNative.downloadFile === 'function') {
           window.CosmoNative.downloadFile(url, fileName);
           return;
         }
         const a = document.createElement('a');
-        a.href = url;
+        a.href = withTokenQuery(url);
         a.download = fileName;
         document.body.appendChild(a);
         a.click();
@@ -661,7 +817,7 @@
         // If running inside our native CosmoShare Android App
         if (window.CosmoNative && typeof window.CosmoNative.downloadFile === 'function') {
           pcFiles.forEach(file => {
-            const url = `${window.location.origin}/api/rooms/${roomCode}/files/${file.id}`;
+            const url = `${window.location.origin}/api/rooms/${roomCode}/files/${encodeURIComponent(file.id)}`;
             window.CosmoNative.downloadFile(url, file.name);
           });
           window.CosmoNative.showToast(`⬇ Starting download of ${pcFiles.length} file(s)...`);
@@ -672,7 +828,7 @@
         pcFiles.forEach((file, index) => {
           setTimeout(() => {
             const a = document.createElement('a');
-            a.href = `/api/rooms/${roomCode}/files/${file.id}`;
+            a.href = withTokenQuery(`/api/rooms/${roomCode}/files/${encodeURIComponent(file.id)}`);
             a.download = file.name;
             document.body.appendChild(a);
             a.click();
@@ -684,8 +840,9 @@
       // Delete a file
       async function deleteFile(fileId) {
         try {
-          const res = await fetch(`/api/rooms/${roomCode}/files/${fileId}`, {
-            method: 'DELETE'
+          const res = await fetch(`/api/rooms/${roomCode}/files/${encodeURIComponent(fileId)}`, {
+            method: 'DELETE',
+            headers: authHeaders()
           });
           if (res.ok) {
             pollRoom();
@@ -717,6 +874,10 @@
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `/api/rooms/${roomCode}/upload`, true);
+        const token = getShareToken();
+        if (token) {
+          xhr.setRequestHeader('X-Cosmo-Token', token);
+        }
 
         xhr.upload.onprogress = function(e) {
           if (e.lengthComputable) {
@@ -777,19 +938,51 @@
         }
       });
 
-      // Trigger opening the share folder / browser view on the PC
-      async function triggerAppShareOpen() {
+      async function checkCloudOta() {
+        // Native Android companion performs authenticated OTA checks in Kotlin.
+        if (isNativeCompanion()) return;
         try {
-          await fetch('/api/view-file');
+          const res = await fetch('https://api.cosmowhisper.com/updates/cosmo-companion/version.json', { cache: 'no-store' });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data && data.versionName) {
+            showOtaAlert(data.versionName, data.releaseNotes);
+          }
         } catch (e) {
-          console.warn('Failed to trigger local view-file:', e);
+          console.warn('Cloud OTA check skipped:', e);
         }
       }
+
+      function initAppEnvironment() {
+        if (isNativeCompanion()) {
+          const lanApk = document.getElementById('lan-apk-link');
+          if (lanApk) lanApk.style.display = 'none';
+
+          const cardTitle = document.getElementById('app-card-title');
+          const cardDesc = document.getElementById('app-card-desc');
+          const cardIcon = document.getElementById('app-card-icon');
+          if (cardIcon) cardIcon.innerText = '⚡';
+          if (cardTitle) cardTitle.innerText = 'Cosmo Companion Active';
+          const vName = (typeof window.CosmoNative.getAppVersionName === 'function') ? window.CosmoNative.getAppVersionName() : '2.2.0';
+          if (cardDesc) cardDesc.innerText = `v${vName} • Sovereign OTA Updates Enabled`;
+
+          if (typeof window.CosmoNative.isOtaUpdateAvailable === 'function' && window.CosmoNative.isOtaUpdateAvailable()) {
+            showOtaAlert('Update', 'Tap to install the downloaded update.');
+          }
+        }
+      }
+
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) pollRoom();
+      });
 
       // Start connection
       joinRoom();
       pollRoom();
-      setInterval(pollRoom, 2000);
+      setInterval(() => {
+        if (!document.hidden) pollRoom();
+      }, 2000);
+      initAppEnvironment();
     </script>
   </body>
 </html>

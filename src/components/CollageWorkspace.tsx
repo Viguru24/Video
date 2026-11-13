@@ -34,7 +34,7 @@ const BACKGROUND_PRESETS = [
   { name: 'Phosphor Emerald',value: 'linear-gradient(135deg, #031208 0%, #062a12 100%)',                  type: 'gradient' },
   { name: 'Tungsten Amber',  value: 'linear-gradient(135deg, #1a0e00 0%, #2e1800 100%)',                  type: 'gradient' },
   { name: 'Platinum Light',  value: 'linear-gradient(135deg, #e4e4e7 0%, #fafafa 100%)',                  type: 'gradient' },
-];
+] as const;
 
 export function CollageWorkspace({
   videos,
@@ -300,6 +300,8 @@ export function CollageWorkspace({
           realPath: savedPath,
           currentTime: 0,
           repeatMode: 'none',
+          repeatCount: 0,
+          cols: 1,
           playing: false,
           muted: true
         });

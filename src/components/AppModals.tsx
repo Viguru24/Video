@@ -13,7 +13,7 @@ interface AppModalsProps {
   fileManageItems: VideoItem[];
   fileManageMode: 'move' | 'copy';
   activeGridFolders: string[];
-  handleFileManagementSuccess: () => void;
+  handleFileManagementSuccess: (updatedItems: { originalId: string; newPath: string }[]) => void;
   addLog: (m: string) => void;
   singleRenameTarget: VideoItem | null;
   setSingleRenameTarget: (target: VideoItem | null) => void;
@@ -23,9 +23,9 @@ interface AppModalsProps {
   videoOps: UseVideoOperationsReturn;
   customDialogs: UseCustomDialogsReturn;
   wifiTransfer: UseWifiTransferReturn;
-  handleIngestPaths: (paths: string[]) => Promise<void>;
+  handleIngestPaths: (paths: string[]) => Promise<VideoItem[] | void>;
   globalVolume: number;
-  setGlobalVolume: (vol: number) => void;
+  setGlobalVolume: (val: number | ((prev: number) => number)) => void;
   masterMuted: boolean;
   toggleMasterMute: () => void;
   globalRepeat: RepeatMode;

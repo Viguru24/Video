@@ -72,7 +72,26 @@ pub fn unseal_persistence_payload(raw: &str) -> String {
     raw.to_string()
 }
 
+fn sanitize_persistence_key(key: &str) -> Option<&str> {
+    let trimmed = key.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 64
+        || !trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
 pub async fn save_persistence(app: AppHandle, key: String, data: String) {
+    let Some(valid_key) = sanitize_persistence_key(&key).map(|s| s.to_string()) else {
+        eprintln!("[Persistence Security] Rejected invalid persistence key");
+        return;
+    };
+    let key = valid_key;
     let _ = tauri::async_runtime::spawn_blocking(move || {
         if let Ok(mut dir_path) = app.path().app_data_dir() {
             dir_path.push("persistence");
@@ -118,6 +137,8 @@ pub async fn save_persistence(app: AppHandle, key: String, data: String) {
 }
 
 pub async fn load_persistence(app: AppHandle, key: String) -> Option<String> {
+    let valid_key = sanitize_persistence_key(&key)?.to_string();
+    let key = valid_key;
     tauri::async_runtime::spawn_blocking(move || {
         let is_json_key = key == "cosmo-v2" || key == "cosmo-video-v2" || key == "cosmo-video" 
             || key == "cosmo-collections" || key == "cosmo-video-collections";

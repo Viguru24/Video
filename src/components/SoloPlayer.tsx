@@ -26,7 +26,7 @@ interface SoloPlayerProps {
   addLog: (msg: string) => void;
   handleSelectAll: () => void;
   snapshotDir: string;
-  setSnapshotDir: (dir: string) => void;
+  setSnapshotDir: React.Dispatch<React.SetStateAction<string>>;
   globalControl: string | null;
   masterPlaying: boolean;
   masterMuted: boolean;
@@ -48,7 +48,7 @@ interface SoloPlayerProps {
   setCropBox: React.Dispatch<React.SetStateAction<{ x: number; y: number; w: number; h: number }>>;
   aspectRatio: 'free' | '1:1' | '16:9' | '4:3';
   setAspectRatio: (val: 'free' | '1:1' | '16:9' | '4:3') => void;
-  onAddVideo: (path: string) => void;
+  onAddVideo: (vid: VideoItem) => void;
   soloOverlayRef: React.RefObject<HTMLDivElement | null>;
   soloVolumeContainerRef: React.RefObject<HTMLDivElement | null>;
   isSlideshowActive: boolean;

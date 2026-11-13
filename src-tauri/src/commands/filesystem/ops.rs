@@ -136,14 +136,12 @@ pub fn clean_local_path(p: &str) -> String {
         }
         
         if resolved.is_none() {
-            let paths_to_try = [
-                PathBuf::from("C:\\Users\\louis\\Documents\\GitHub\\Video\\public").join(suffix),
-                PathBuf::from("C:\\Users\\louis\\OneDrive\\Documents\\GitHub\\Video\\public").join(suffix)
-            ];
-            for p_try in paths_to_try {
-                if p_try.exists() {
-                    resolved = Some(p_try);
-                    break;
+            if let Ok(exe_dir) = std::env::current_exe().map(|p| p.parent().map(|d| d.to_path_buf())) {
+                if let Some(dir) = exe_dir {
+                    let p_try = dir.join("public").join(suffix);
+                    if p_try.exists() {
+                        resolved = Some(p_try);
+                    }
                 }
             }
         }
@@ -198,14 +196,12 @@ pub fn open_folder(path: String) -> Result<(), String> {
         }
         
         if resolved.is_none() {
-            let paths_to_try = [
-                PathBuf::from("C:\\Users\\louis\\Documents\\GitHub\\Video\\public").join(suffix),
-                PathBuf::from("C:\\Users\\louis\\OneDrive\\Documents\\GitHub\\Video\\public").join(suffix)
-            ];
-            for p_try in paths_to_try {
-                if p_try.exists() {
-                    resolved = Some(p_try);
-                    break;
+            if let Ok(exe_dir) = std::env::current_exe().map(|p| p.parent().map(|d| d.to_path_buf())) {
+                if let Some(dir) = exe_dir {
+                    let p_try = dir.join("public").join(suffix);
+                    if p_try.exists() {
+                        resolved = Some(p_try);
+                    }
                 }
             }
         }

@@ -1,16 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { 
-  X, Play, Pause, RotateCcw, Scissors, Crop, Check, 
-  ChevronLeft, ChevronRight, Volume2, VolumeX,
-  Maximize2, Eye, Sparkles, Move, Film, SlidersHorizontal,
-  FastForward, Rewind, Layers, CheckCircle2, AlertTriangle,
-  ZoomIn, ZoomOut, Compass, RefreshCw, MessageSquare, Share2
+  X, Scissors, Check, AlertTriangle, Share2
 } from 'lucide-react';
 import type { VideoItem } from '../../types';
 import { toCosmoUrl, toRealPath, isTauri } from '../../utils/videoUtils';
 import { useStore } from '../../store/useStore';
-import { TrimCropToolbar, formatTime, type AspectRatio, ASPECT_RATIOS } from './trimcrop/TrimCropToolbar';
+import { TrimCropToolbar } from './trimcrop/TrimCropToolbar';
+import { formatTime, type AspectRatio, ASPECT_RATIOS } from './trimcrop/trimCropUtils';
 import { TrimCropTimeline } from './trimcrop/TrimCropTimeline';
 import { CropOverlayBox, type CropBox } from './trimcrop/CropOverlayBox';
 
@@ -21,13 +18,21 @@ interface VideoTrimCropModalProps {
   addLog: (msg: string) => void;
 }
 
-export function VideoTrimCropModal({
+export function VideoTrimCropModal(props: VideoTrimCropModalProps) {
+  if (!props.target) return null;
+  return <VideoTrimCropModalContent key={props.target.id} {...props} target={props.target} />;
+}
+
+interface VideoTrimCropModalContentProps extends Omit<VideoTrimCropModalProps, 'target'> {
+  target: VideoItem;
+}
+
+function VideoTrimCropModalContent({
   target,
   onClose,
   onSuccess,
   addLog
-}: VideoTrimCropModalProps) {
-  if (!target) return null;
+}: VideoTrimCropModalContentProps) {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -119,7 +124,7 @@ export function VideoTrimCropModal({
     }
   };
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
@@ -132,39 +137,39 @@ export function VideoTrimCropModal({
       videoRef.current.play().catch(() => {});
       setIsPlaying(true);
     }
-  };
+  }, [isPlaying, currentTime, startTime, endTime, playbackRate]);
 
-  const seekTo = (time: number) => {
+  const seekTo = useCallback((time: number) => {
     const clamped = Math.max(0, Math.min(duration, time));
     if (videoRef.current) {
       videoRef.current.currentTime = clamped;
     }
     setCurrentTime(clamped);
-  };
+  }, [duration]);
 
-  const stepFrame = (frames: number) => {
+  const stepFrame = useCallback((frames: number) => {
     const fps = 30;
     const delta = frames / fps;
     seekTo(currentTime + delta);
-  };
+  }, [currentTime, seekTo]);
 
-  const setInPoint = () => {
+  const setInPoint = useCallback(() => {
     const newStart = Math.min(currentTime, endTime - 0.1);
     setStartTime(Math.max(0, newStart));
-  };
+  }, [currentTime, endTime]);
 
-  const setOutPoint = () => {
+  const setOutPoint = useCallback(() => {
     const newEnd = Math.max(currentTime, startTime + 0.1);
     setEndTime(Math.min(duration, newEnd));
-  };
+  }, [currentTime, startTime, duration]);
 
-  const jumpToIn = () => {
+  const jumpToIn = useCallback(() => {
     seekTo(startTime);
-  };
+  }, [seekTo, startTime]);
 
-  const jumpToOut = () => {
+  const jumpToOut = useCallback(() => {
     seekTo(endTime);
-  };
+  }, [seekTo, endTime]);
 
   const resetTrim = () => {
     setStartTime(0);
@@ -195,8 +200,8 @@ export function VideoTrimCropModal({
 
     const targetRatio = item.ratio;
     const videoAspect = nativeDim.width / nativeDim.height;
-    let newW = 100;
-    let newH = 100;
+    let newW: number;
+    let newH: number;
 
     if (targetRatio > videoAspect) {
       // Wider than video aspect
@@ -321,7 +326,7 @@ export function VideoTrimCropModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTime, startTime, endTime, duration, isPlaying, playbackRate, enableCrop]);
+  }, [onClose, togglePlay, setInPoint, setOutPoint, stepFrame, jumpToIn, jumpToOut]);
 
   // Timeline Dragging Handler
   const handleTimelineMouseDown = (e: React.MouseEvent, type: 'playhead' | 'start' | 'end' | 'range') => {
@@ -384,7 +389,7 @@ export function VideoTrimCropModal({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDraggingTimeline, duration, startTime, endTime]);
+  }, [isDraggingTimeline, duration, startTime, endTime, seekTo]);
 
   // Crop Box Dragging Handler
   const handleCropMouseDown = (e: React.MouseEvent, handle: string | null) => {
@@ -467,8 +472,6 @@ export function VideoTrimCropModal({
     setProcessingMsg(overwrite ? 'Trimming & replacing video in-place...' : 'Rendering new trimmed clip...');
     setErrorMessage(null);
 
-    const isFullCrop = !enableCrop || (cropBox.x <= 1 && cropBox.y <= 1 && cropBox.width >= 98 && cropBox.height >= 98);
-
     const pixelX = enableCrop ? Math.round((cropBox.x / 100) * nativeDim.width) : undefined;
     const pixelY = enableCrop ? Math.round((cropBox.y / 100) * nativeDim.height) : undefined;
     const pixelW = enableCrop ? Math.round((cropBox.width / 100) * nativeDim.width) : undefined;
@@ -479,7 +482,7 @@ export function VideoTrimCropModal({
       try {
         videoRef.current.removeAttribute('src');
         videoRef.current.load();
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

@@ -104,7 +104,7 @@ export function useVideoCardMediaSource({
         if (type !== 'image' && videoRef.current) {
           try {
             videoRef.current.load();
-          } catch {}
+          } catch { /* ignore media reload failure */ }
         }
       }, delay);
       return;
@@ -127,7 +127,7 @@ export function useVideoCardMediaSource({
       if (videoRef.current) {
         try {
           videoRef.current.load();
-        } catch {}
+        } catch { /* ignore manual media reload failure */ }
       }
     }, 100);
   }, [videoRef]);

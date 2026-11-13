@@ -1,4 +1,4 @@
-import { useEffect, Dispatch, SetStateAction } from 'react';
+import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import type { VideoItem, RepeatMode } from '../types';
 import { isValidPictureExtension, showConfirm } from '../utils/videoUtils';
 import { useStore } from '../store/useStore';
@@ -44,7 +44,6 @@ interface KeyboardShortcutsProps {
   onNavigateSibling?: (direction: 1 | -1) => void;
   jumpToUnit?: (id: string) => void;
   onDeepFocus?: (id: string, time?: number) => void;
-  triggerGlobalHud?: (label: string, val: string) => void;
 }
 
 /**
@@ -160,7 +159,7 @@ export function useKeyboardShortcuts({
         if (isInput) return;
         
         // Grid Density Scaling (1-8)
-        if (key >= '1' && key <= '8') { 
+        if (!e.ctrlKey && !e.altKey && !e.metaKey && key >= '1' && key <= '8') { 
           const cols = parseInt(key) * 2;
           setZoom(cols); 
           addLog(`Grid Density: ${key} mode`); 

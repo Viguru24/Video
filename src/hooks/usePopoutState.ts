@@ -11,7 +11,7 @@ export function usePopoutState() {
         if (label.startsWith('pop-') || label === 'popout') {
           return true;
         }
-      } catch {}
+      } catch { /* ignore non-Tauri window check */ }
     }
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
@@ -38,7 +38,7 @@ export function usePopoutState() {
         if (label.startsWith('pop-') || label === 'popout') {
           return localStorage.getItem(`cosmo-popout-active-url-${label}`) || '';
         }
-      } catch {}
+      } catch { /* ignore storage read failure */ }
     }
     return '';
   });
@@ -57,7 +57,7 @@ export function usePopoutState() {
                 setPopoutUrl(url);
                 try {
                   localStorage.setItem(`cosmo-popout-active-url-${label}`, url);
-                } catch {}
+                } catch { /* ignore storage write failure */ }
               }
               setIsPopoutChecking(false);
             })
@@ -66,7 +66,7 @@ export function usePopoutState() {
             });
           return;
         }
-      } catch {}
+      } catch { /* ignore popout window init error */ }
     }
     setIsPopoutChecking(false);
   }, [isPopout]);
