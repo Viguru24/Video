@@ -5,7 +5,10 @@ import {
   Pause, 
   RefreshCw, 
   X, 
-  AlertCircle, 
+  AlertCircle,
+  FileWarning,
+  HardDrive,
+  Trash2,
   CheckCircle2 
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
@@ -133,15 +136,65 @@ function VideoCardInternal(props: VideoCardProps) {
         enableSlideshowPanZoom={enableSlideshowPanZoom}
       />
 
-      {state.error && (
-        <div className="unit-error-overlay">
-          <AlertCircle size={20} color="var(--danger)" />
-          <p>{state.error}</p>
-          <button className="retry-btn" onClick={() => { state.handleManualRetry(); state.setError("RETRYING..."); }}>
-            <RefreshCw size={12} />
-          </button>
-        </div>
-      )}
+      {state.error && (() => {
+        const errInfo = state.errorInfo;
+        const isOffline = errInfo?.kind === 'drive-offline';
+        const isMissing = errInfo?.kind === 'file-missing';
+        const displayName = errInfo?.fileName || props.video.title;
+        return (
+          <div
+            className={`unit-error-overlay ${isOffline ? 'is-offline' : 'is-error'}`}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="error-icon-wrap">
+              {isOffline ? (
+                <HardDrive size={20} color="#f59e0b" />
+              ) : isMissing ? (
+                <FileWarning size={20} color="var(--danger, #f87171)" />
+              ) : (
+                <AlertCircle size={20} color="var(--danger, #f87171)" />
+              )}
+            </div>
+            <span className="error-code-pill">{errInfo?.code || state.error}</span>
+            <p className="error-filename" title={errInfo?.filePath || displayName}>
+              {displayName}
+            </p>
+            {errInfo?.detail && (
+              <span className="error-detail" title={errInfo?.filePath}>
+                {errInfo.detail}
+              </span>
+            )}
+            <div className="error-actions">
+              <button
+                type="button"
+                className="retry-btn error-action-btn"
+                title="Retry loading media"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  state.handleManualRetry();
+                }}
+              >
+                <RefreshCw size={12} />
+                <span className="error-btn-label">Retry</span>
+              </button>
+              <button
+                type="button"
+                className="error-remove-btn error-action-btn"
+                title="Remove tile from grid (keeps disk file intact)"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onRemove(props.video.id);
+                }}
+              >
+                <Trash2 size={12} />
+                <span className="error-btn-label">Remove</span>
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {state.isSyncingOrRecovering && !state.error && (
         <div className="unit-syncing-overlay" style={{
@@ -275,8 +328,11 @@ function VideoCardInternal(props: VideoCardProps) {
         </div>
       )}
 
-      {!props.isFocused && !state.isSyncingOrRecovering && (state.error || (props.masterShowUI && (props.selectionMode || state.showControls || props.isSelected))) && !immersive && (
+      {!props.isFocused && (state.error || state.isSyncingOrRecovering || (props.masterShowUI && (props.selectionMode || state.showControls || props.isSelected))) && !immersive && (
         <button 
+          type="button"
+          aria-label={`Remove ${props.video.title} from grid`}
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); props.onRemove(props.video.id); }} 
           className="premium-close-btn"
           data-tooltip="Remove from Grid"
@@ -294,7 +350,7 @@ function VideoCardInternal(props: VideoCardProps) {
             justifyContent: 'center',
             color: '#fff',
             pointerEvents: 'auto',
-            zIndex: 102,
+            zIndex: 110,
             cursor: 'pointer',
             transition: 'all 0.2s ease-in-out'
           }}

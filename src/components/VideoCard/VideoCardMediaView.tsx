@@ -38,7 +38,7 @@ export function VideoCardMediaView({
       )}
       
       {props.isVisible && !props.isAiEnhancing ? (
-        state.isImage ? (
+        state.error ? null : state.isImage ? (
           <div
             className="media-wrapper"
             data-zoom={state.zoomScale}
@@ -60,15 +60,17 @@ export function VideoCardMediaView({
             <img
               key={state.effectiveImgSrc}
               src={state.effectiveImgSrc}
-              alt={props.video.title}
+              alt=""
+              aria-label={props.video.title}
               draggable="false"
               decoding="async"
-              loading="lazy"
+              loading={state.isSyncingOrRecovering ? 'eager' : 'lazy'}
               onLoad={state.handleMediaSuccess}
               onError={() => state.handleMediaError('image')}
               style={{ 
                 width: '100%', 
                 height: '100%', 
+                opacity: state.isSyncingOrRecovering ? 0 : 1,
                 objectFit: props.isCropping ? 'contain' : fitMode, 
                 filter: props.video.colorFilters ? `url(#filter-${state.filterId}) brightness(${state.filters.brightness}) contrast(${state.filters.contrast}) saturate(${state.filters.saturation}) hue-rotate(${state.filters.hue}deg)` : undefined
               }}

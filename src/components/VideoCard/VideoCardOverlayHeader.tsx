@@ -114,7 +114,13 @@ export function VideoCardOverlayHeader({ props, state, immersive }: VideoCardOve
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+      <div style={{
+        display: 'flex',
+        gap: '6px',
+        alignItems: 'center',
+        marginRight: (state.error || state.isSyncingOrRecovering || (props.masterShowUI && (props.selectionMode || state.showControls || props.isSelected))) ? '30px' : '0px',
+        transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+      }}>
         {/* Refresh Tile Button */}
         <button
           className="mini-btn refresh-btn"

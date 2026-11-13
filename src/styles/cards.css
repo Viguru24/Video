@@ -545,47 +545,150 @@ input[type="range"]:active::-webkit-slider-thumb {
 .unit-error-overlay {
   position: absolute;
   inset: 0;
-  background: #0d0808;
+  background: radial-gradient(circle at 50% 35%, rgba(28, 16, 18, 0.96) 0%, #0b0b0f 75%);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: inherit;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 6px;
   z-index: 50;
   color: var(--text-primary);
-  padding: 20px;
+  padding: 28px 14px 14px;
   text-align: center;
   font-family: var(--font-mono);
   font-size: 11px;
+  overflow: hidden;
+  user-select: none;
 }
 
-.unit-error-overlay p {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--danger);
+.unit-error-overlay.is-offline {
+  background: radial-gradient(circle at 50% 35%, rgba(30, 22, 10, 0.96) 0%, #0b0b0f 75%);
+  border-color: rgba(245, 158, 11, 0.35);
 }
 
-.retry-btn {
-  background: var(--keycap-bg);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: var(--keycap-shadow);
-  color: var(--text-primary);
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
+.error-icon-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
+  opacity: 0.95;
+}
+
+.error-code-pill {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(248, 113, 113, 0.14);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: var(--danger, #f87171);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit-error-overlay.is-offline .error-code-pill {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.unit-error-overlay .error-filename {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  color: #e4e4e7;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.error-detail {
+  font-family: var(--font);
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-muted, #a1a1aa);
+  max-width: 92%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.error-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.retry-btn,
+.error-action-btn {
+  background: var(--keycap-bg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: var(--keycap-shadow);
+  color: var(--text-primary);
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
 .retry-btn:hover {
   background: var(--keycap-bg-hover);
-  transform: rotate(90deg);
   border-color: var(--accent);
+  color: #fff;
+}
+
+.retry-btn:hover svg {
+  transform: rotate(90deg);
+  transition: transform 0.2s ease;
+}
+
+.error-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(248, 113, 113, 0.7);
+  color: #fecaca;
+}
+
+@container (max-width: 210px) {
+  .unit-error-overlay {
+    padding: 24px 8px 8px;
+    gap: 4px;
+  }
+  .error-detail {
+    display: none;
+  }
+}
+
+@container (max-width: 150px) {
+  .error-btn-label,
+  .unit-error-overlay .error-filename {
+    display: none;
+  }
+  .error-action-btn {
+    width: 26px;
+    padding: 0;
+  }
 }
 
 /* === DRAG DROP ZONE === */
