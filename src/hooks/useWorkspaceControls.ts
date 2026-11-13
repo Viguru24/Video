@@ -1,13 +1,8 @@
-import { useState, useCallback, useRef } from 'react';
-import { useStore } from '../store/useStore';
+import { useState, useCallback } from 'react';
 
 export function useWorkspaceControls(addLog: (m: string) => void) {
-  const zoom = useStore(state => state.zoom);
-  const setZoom = useStore(state => state.setZoom);
   const [search, setSearch] = useState('');
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const immersive = useStore(state => state.immersive);
-  const setImmersive = useStore(state => state.setImmersive);
   const [rotating, setRotating] = useState(false);
   const [menu, setMenu] = useState<{ x: number, y: number, id: string } | null>(null);
   const [idToRow, setIdToRow] = useState<Record<string, number>>({});

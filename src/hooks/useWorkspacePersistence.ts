@@ -37,8 +37,7 @@ function sanitizePersistedString(s: string | null | undefined): string {
 }
 
 export function cleanVideosForPersistence(
-  vids: VideoItem[],
-  opts?: { keepPictures?: boolean }
+  vids: VideoItem[]
 ): VideoItem[] {
   return vids
     .filter(v => {
@@ -105,7 +104,7 @@ export function cleanCollectionsForPersistence(
   for (const [name, vids] of Object.entries(colls)) {
     // Collections are explicitly saved by the user — preserve ALL tile types
     // (including pictures). Only strip folderFiles arrays to reduce file size.
-    result[name] = cleanVideosForPersistence(vids, { keepPictures: true });
+    result[name] = cleanVideosForPersistence(vids);
   }
   return result;
 }
@@ -160,6 +159,7 @@ export function useWorkspacePersistence(
    * until this is true, preventing boot-time overwrites.
    */
   const readyToSaveRef = useRef(false);
+  const initialPlaybackRef = useRef({ masterMuted, masterPlaying });
 
   // Keep a ref to the latest state values to avoid stale closures on beforeunload
   const stateRef = useRef({
@@ -291,8 +291,8 @@ export function useWorkspacePersistence(
                 })
                 .map(item => ({
                   ...hydrateItem(item),
-                  muted: masterMuted,
-                  playing: masterPlaying,
+                  muted: initialPlaybackRef.current.masterMuted,
+                  playing: initialPlaybackRef.current.masterPlaying,
                 }));
             }
           } catch (err) {
@@ -304,8 +304,8 @@ export function useWorkspacePersistence(
         if (initialVids.length === 0 && !hasExplicitlyPurged && v === null) {
           initialVids = defaultDemoItems.map(item => ({
             ...item,
-            muted: masterMuted,
-            playing: masterPlaying,
+            muted: initialPlaybackRef.current.masterMuted,
+            playing: initialPlaybackRef.current.masterPlaying,
           }));
         }
 
@@ -365,7 +365,7 @@ export function useWorkspacePersistence(
       mounted = false;
       clearTimeout(bootGuard);
     };
-  }, [addLog, isPopout]); // intentionally omit masterMuted/masterPlaying to avoid re-init on toggle
+  }, [addLog, isPopout, setGlobalRepeat, setTheme]);
 
   // ─── SAVE: ACTIVE WORKSPACE ──────────────────────────────────────────────────
   useEffect(() => {

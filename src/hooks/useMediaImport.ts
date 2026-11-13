@@ -26,7 +26,6 @@ interface UseMediaImportProps {
 }
 
 export function useMediaImport({
-  mediaMode,
   setMediaMode,
   masterPlaying,
   masterMuted,
@@ -38,8 +37,7 @@ export function useMediaImport({
 }: UseMediaImportProps) {
 
   const processFolderConversion = useCallback(async (
-    folderVids: { name: string; url?: string; path?: string; size?: number; modified?: number; created?: number }[],
-    mode: 'all' | 'video' | 'picture'
+    folderVids: { name: string; url?: string; path?: string; size?: number; modified?: number; created?: number }[]
   ): Promise<{ name: string; url: string; size?: number; modified?: number; created?: number }[]> => {
     const resolved: { path: string; name: string; isVideo: boolean; size?: number; modified?: number; created?: number }[] = [];
     for (const v of folderVids) {
@@ -312,7 +310,7 @@ export function useMediaImport({
       const folderVids = await invoke<{ name: string; url: string }[]>('get_folder_videos', { path: parentPath, mode: 'all' });
       if (folderVids && folderVids.length > 0) {
         const sortedVids = [...folderVids].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-        const convertedVids = await processFolderConversion(sortedVids, 'all');
+        const convertedVids = await processFolderConversion(sortedVids);
         if (convertedVids.length === 0) {
           addLog(`System: No compatible files in folder.`);
           return;
@@ -367,7 +365,7 @@ export function useMediaImport({
     } catch (err) {
       addLog(`ERROR: Failed to load folder: ${err}`);
     }
-  }, [mediaMode, setMediaMode, processFolderConversion, setVideos, setSelectedIds, setFocusedId, addLog]);
+  }, [setMediaMode, processFolderConversion, setVideos, setSelectedIds, setFocusedId, addLog, masterPlaying, masterMuted]);
 
   const handleSidebarAddFolder = useCallback(async () => {
     if (isTauri()) {

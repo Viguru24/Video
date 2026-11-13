@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { SWIPE_THRESHOLD, SNAPSHOT_TOAST_DURATION, FPS } from '../../constants';
-import { isValidPictureExtension, isTauri, toCosmoUrl, showConfirm, toRealPath } from '../../utils/videoUtils';
+import { SWIPE_THRESHOLD, FPS } from '../../constants';
+import { isValidPictureExtension } from '../../utils/videoUtils';
 import { useStore } from '../../store/useStore';
 import type { VideoItem, RepeatMode } from '../../types';
 import { DEFAULT_COLOR_FILTERS } from '../../types';
@@ -61,14 +61,13 @@ export interface UseVideoCardProps {
 const lastProcessedActions = new Map<string, number>();
 
 export function useVideoCard({
-  video, globalRepeat = 'folder', globalSpeed,
-  onUpdateVideo, onRemove, onAnnihilate, onLog, onFocus, isFocused, onCloseFocus,
-  snapshotDir, setSnapshotDir, globalControl, dragListeners, dragAttributes,
-  masterPlaying, masterMuted, globalVolume, masterShowUI, toggleMasterMute, toggleMasterPlay, onEnded, onContextMenu, onDeepFocus, onUpscale,
-  quality = 'high', isVisible, isSelected, onToggleSelect, selectionMode,
-  focusedId = null, inSoloMode = false, onNavigateSibling, onSelectAll,
+  video, globalSpeed,
+  onUpdateVideo, onRemove, onLog, isFocused, onCloseFocus,
+  snapshotDir, setSnapshotDir, globalControl,
+  masterPlaying, masterMuted, globalVolume, toggleMasterMute, onDeepFocus,
+  isVisible, selectionMode,
+  focusedId = null, inSoloMode = false, onNavigateSibling,
   isAiEnhancing = false,
-  isSlideshowActive = false, setIsSlideshowActive, onColorAdjust, onStartCrop,
   isCropping = false,
   onAddVideo,
   isStickerLoading = false,
@@ -90,7 +89,6 @@ export function useVideoCard({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const retryAttempted = useRef<boolean>(false);
   const lastTimeRef = useRef<number>(video.currentTime || 0);
 
   const isImage = useMemo(() => {
@@ -178,7 +176,6 @@ export function useVideoCard({
     };
   }, []);
 
-  const [playing, setPlaying] = useState(masterPlaying);
   const [recovering, setRecovering] = useState(false);
   const { snapshotToast, takeSnapshot } = useVideoCardSnapshot({
     video,
@@ -796,7 +793,6 @@ export function useVideoCard({
     setIsInteracting,
     setDuration,
     setError,
-    setPlaying,
     setReloadKey,
     setZoomScale,
     setPanOffset,

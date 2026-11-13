@@ -22,7 +22,7 @@ export function useAppLifecycle(isPopout: boolean) {
         } else if (audioCtxRef.current.state === 'suspended') {
           audioCtxRef.current.resume().catch(() => {});
         }
-      } catch (e) { /* silently ignore */ }
+      } catch { /* silently ignore */ }
     };
 
     document.addEventListener('pointerdown', warmUp, { passive: true });

@@ -12,8 +12,6 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -34,7 +32,6 @@ import java.util.concurrent.atomic.AtomicReference
 class MainActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
-    private lateinit var addressBar: EditText
     private lateinit var container: FrameLayout
 
     private var uploadMessage: ValueCallback<Array<Uri>>? = null
@@ -330,200 +327,23 @@ class MainActivity : ComponentActivity() {
 
     private fun buildConnectScreen(errorMessage: String? = null) {
         container.removeAllViews()
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#09090d"))
-            setPadding(32.dp, 32.dp, 32.dp, 32.dp)
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        }
-
-        val badge = TextView(this).apply {
-            text = "🎵 COSMO SYMPHONY"
-            textSize = 12f
-            setTextColor(Color.parseColor("#00ff88"))
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 4.dp)
-        }
-
-        val title = TextView(this).apply {
-            text = "Companion Share"
-            textSize = 28f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 8.dp)
-        }
-
-        val subtitle = TextView(this).apply {
-            text = "Connect to your PC Studio running Cosmo Symphony"
-            textSize = 13f
-            setTextColor(Color.parseColor("#94a3b8"))
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 24.dp)
-        }
-
-        root.addView(badge)
-        root.addView(title)
-        root.addView(subtitle)
-
-        val phoneIp = NetworkDiscoveryHelper.getLocalDeviceIp()
-        val ipStatusText = TextView(this).apply {
-            text = if (phoneIp != null) "📡 Connected to Wi-Fi ($phoneIp)" else "⚠️ Wi-Fi not connected (LAN sync needs Wi-Fi)"
-            textSize = 11f
-            setTextColor(if (phoneIp != null) Color.parseColor("#38bdf8") else Color.parseColor("#f87171"))
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 16.dp)
-        }
-        root.addView(ipStatusText)
-
-        if (!errorMessage.isNullOrBlank()) {
-            val errorBox = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setBackgroundColor(Color.parseColor("#2a1215"))
-                setPadding(16.dp, 12.dp, 16.dp, 12.dp)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = 20.dp }
-            }
-            val errTitle = TextView(this).apply {
-                text = "⚠️ Connection Issue"
-                textSize = 13f
-                setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.parseColor("#ff6b6b"))
-            }
-            val errDesc = TextView(this).apply {
-                text = errorMessage
-                textSize = 12f
-                setTextColor(Color.parseColor("#fca5a5"))
-                setPadding(0, 4.dp, 0, 0)
-            }
-            errorBox.addView(errTitle)
-            errorBox.addView(errDesc)
-            root.addView(errorBox)
-        }
-
-        val savedUrl = prefs.getString("last_url", "") ?: ""
-        val displayUrl = if (savedUrl.contains("192.168.1.54") || savedUrl.contains(":8765")) "" else savedUrl
-
-        val input = EditText(this).apply {
-            hint = "Enter PC IP (e.g. http://192.168.x.x:48273)"
-            setText(displayUrl)
-            setHintTextColor(Color.parseColor("#475569"))
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            setBackgroundColor(Color.parseColor("#141923"))
-            setPadding(16.dp, 16.dp, 16.dp, 16.dp)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 10.dp }
-            setSingleLine(true)
-            inputType = InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_CLASS_TEXT
-        }
-        addressBar = input
-
-        val tokenInput = EditText(this).apply {
-            hint = "Pairing Token (from PC QR or Share window)"
-            setText(prefs.getString("wifi_token", "") ?: "")
-            setHintTextColor(Color.parseColor("#475569"))
-            setTextColor(Color.parseColor("#00ff88"))
-            textSize = 14f
-            setBackgroundColor(Color.parseColor("#141923"))
-            setPadding(16.dp, 14.dp, 16.dp, 14.dp)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 12.dp }
-            setSingleLine(true)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        }
-
-        val connectBtn = Button(this).apply {
-            text = "CONNECT TO STUDIO"
-            textSize = 15f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#09090d"))
-            setBackgroundColor(Color.parseColor("#00ff88"))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                52.dp
-            ).apply { bottomMargin = 10.dp }
-        }
-        connectBtn.setOnClickListener {
-            var raw = addressBar.text.toString().trim()
-            val manualToken = tokenInput.text.toString().trim()
-            if (manualToken.isNotBlank()) {
-                prefs.edit().putString("wifi_token", manualToken).apply()
-            }
-            if (raw.isNotBlank()) {
-                if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
-                    raw = "http://$raw"
-                }
-                val uri = Uri.parse(raw)
-                val url = if (uri.port == -1) {
-                    "$raw:48273"
-                } else {
-                    raw
-                }
+        val ui = CompanionUiHelper.buildConnectScreenView(
+            activity = this,
+            prefs = prefs,
+            errorMessage = errorMessage,
+            onConnectUrl = { url ->
                 val cleanUrl = extractAndPersistToken(url)
                 if (!SafStorageHelper.isLocalLanUrl(cleanUrl)) {
                     Toast.makeText(this, "Only private LAN addresses are allowed.", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
+                } else {
+                    prefs.edit().putString("last_url", cleanUrl).apply()
+                    openWebView(cleanUrl)
                 }
-                prefs.edit().putString("last_url", cleanUrl).apply()
-                openWebView(cleanUrl)
-            } else {
-                Toast.makeText(this, "Please enter your PC's IP or tap Auto-Detect", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        val autoDetectBtn = Button(this).apply {
-            text = "🔍 AUTO-DETECT STUDIO PC"
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#00ff88"))
-            setBackgroundColor(Color.parseColor("#0d281e"))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                48.dp
-            ).apply { bottomMargin = 16.dp }
-        }
-        autoDetectBtn.setOnClickListener {
-            val manualToken = tokenInput.text.toString().trim()
-            if (manualToken.isNotBlank()) {
-                prefs.edit().putString("wifi_token", manualToken).apply()
-            }
-            startAutoDetect()
-        }
-
-        val otaBtn = Button(this).apply {
-            text = "🚀 CHECK FOR OTA UPDATES"
-            textSize = 12f
-            setTextColor(Color.parseColor("#94a3b8"))
-            setBackgroundColor(Color.parseColor("#141923"))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                42.dp
-            ).apply { bottomMargin = 12.dp }
-        }
-        otaBtn.setOnClickListener {
-            checkOtaUpdates(silent = false)
-        }
-
-        root.addView(input)
-        root.addView(tokenInput)
-        root.addView(connectBtn)
-        root.addView(autoDetectBtn)
-        root.addView(otaBtn)
-
-        container.addView(root)
+            },
+            onAutoDetect = { startAutoDetect() },
+            onCheckOta = { checkOtaUpdates(silent = false) }
+        )
+        container.addView(ui.rootView)
     }
 
     // ── WebView Screen UI ──────────────────────────────────────────────────
@@ -755,8 +575,6 @@ class MainActivity : ComponentActivity() {
             elevation = 8.dp.toFloat()
         }
 
-        var selectedSubDir = prefs.getString("phone_download_dir", Environment.DIRECTORY_DOWNLOADS) ?: Environment.DIRECTORY_DOWNLOADS
-
         val backBtn = TextView(this).apply {
             text = "← PC"
             textSize = 13f
@@ -804,123 +622,14 @@ class MainActivity : ComponentActivity() {
         SafStorageHelper.updateFolderLabel(prefs, folderBtn)
 
         folderBtn.setOnClickListener {
-            val options = arrayOf(
-                "📥 Downloads (/Download)",
-                "🖼️ Pictures (/Pictures)",
-                "📷 DCIM (/DCIM)",
-                "📄 Documents (/Documents)",
-                "🎬 Movies (/Movies)",
-                "📂 Custom Folder (System Picker)...",
-                "➕ Set Subfolder Name...",
-                "🔄 Reset to Default Downloads",
-                "🚀 Check for Updates (v${updateManager.currentVersionName})"
+            CompanionUiHelper.showStorageDestinationDialog(
+                activity = this@MainActivity,
+                prefs = prefs,
+                folderBtn = folderBtn,
+                appVersionName = updateManager.currentVersionName,
+                onLaunchFolderPicker = { folderPickerLauncher.launch(null) },
+                onCheckOta = { checkOtaUpdates(silent = false) }
             )
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle("📁 Companion Storage Destination")
-                .setItems(options) { _, which ->
-                    when (which) {
-                        0 -> {
-                            selectedSubDir = Environment.DIRECTORY_DOWNLOADS
-                            prefs.edit()
-                                .putString("phone_download_dir", selectedSubDir)
-                                .putString("custom_tree_uri", "")
-                                .putString("custom_folder_name", "")
-                                .putString("custom_subfolder_name", "")
-                                .apply()
-                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
-                            Toast.makeText(this@MainActivity, "Destination set to: Downloads", Toast.LENGTH_SHORT).show()
-                        }
-                        1 -> {
-                            selectedSubDir = Environment.DIRECTORY_PICTURES
-                            prefs.edit()
-                                .putString("phone_download_dir", selectedSubDir)
-                                .putString("custom_tree_uri", "")
-                                .putString("custom_folder_name", "")
-                                .putString("custom_subfolder_name", "")
-                                .apply()
-                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
-                            Toast.makeText(this@MainActivity, "Destination set to: Pictures", Toast.LENGTH_SHORT).show()
-                        }
-                        2 -> {
-                            selectedSubDir = Environment.DIRECTORY_DCIM
-                            prefs.edit()
-                                .putString("phone_download_dir", selectedSubDir)
-                                .putString("custom_tree_uri", "")
-                                .putString("custom_folder_name", "")
-                                .putString("custom_subfolder_name", "")
-                                .apply()
-                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
-                            Toast.makeText(this@MainActivity, "Destination set to: DCIM", Toast.LENGTH_SHORT).show()
-                        }
-                        3 -> {
-                            selectedSubDir = Environment.DIRECTORY_DOCUMENTS
-                            prefs.edit()
-                                .putString("phone_download_dir", selectedSubDir)
-                                .putString("custom_tree_uri", "")
-                                .putString("custom_folder_name", "")
-                                .putString("custom_subfolder_name", "")
-                                .apply()
-                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
-                            Toast.makeText(this@MainActivity, "Destination set to: Documents", Toast.LENGTH_SHORT).show()
-                        }
-                        4 -> {
-                            selectedSubDir = Environment.DIRECTORY_MOVIES
-                            prefs.edit()
-                                .putString("phone_download_dir", selectedSubDir)
-                                .putString("custom_tree_uri", "")
-                                .putString("custom_folder_name", "")
-                                .putString("custom_subfolder_name", "")
-                                .apply()
-                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
-                            Toast.makeText(this@MainActivity, "Destination set to: Movies", Toast.LENGTH_SHORT).show()
-                        }
-                        5 -> {
-                            try {
-                                folderPickerLauncher.launch(null)
-                            } catch (e: Exception) {
-                                Toast.makeText(this@MainActivity, "Storage picker error: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        6 -> {
-                            val input = EditText(this@MainActivity).apply {
-                                hint = "e.g. CosmoShare"
-                                setText(prefs.getString("custom_subfolder_name", "") ?: "")
-                                setPadding(16.dp, 12.dp, 16.dp, 12.dp)
-                            }
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("➕ Set Subfolder Name")
-                                .setMessage("Files will be saved in ${SafStorageHelper.getSaveDestinationPath(prefs)}/[subfolder]:")
-                                .setView(input)
-                                .setPositiveButton("Set") { _, _ ->
-                                    val newFolderName = SafStorageHelper.sanitizeFileName(input.text.toString().trim())
-                                    prefs.edit().putString("custom_subfolder_name", newFolderName).apply()
-                                    SafStorageHelper.updateFolderLabel(prefs, folderBtn)
-                                    Toast.makeText(this@MainActivity, "Destination: ${SafStorageHelper.getSaveDestinationPath(prefs)}", Toast.LENGTH_LONG).show()
-                                }
-                                .setNegativeButton("Clear Subfolder") { _, _ ->
-                                    prefs.edit().putString("custom_subfolder_name", "").apply()
-                                    SafStorageHelper.updateFolderLabel(prefs, folderBtn)
-                                    Toast.makeText(this@MainActivity, "Subfolder cleared. Destination: ${SafStorageHelper.getSaveDestinationPath(prefs)}", Toast.LENGTH_SHORT).show()
-                                }
-                                .show()
-                        }
-                        7 -> {
-                            selectedSubDir = Environment.DIRECTORY_DOWNLOADS
-                            prefs.edit()
-                                .putString("phone_download_dir", selectedSubDir)
-                                .putString("custom_tree_uri", "")
-                                .putString("custom_folder_name", "")
-                                .putString("custom_subfolder_name", "")
-                                .apply()
-                            SafStorageHelper.updateFolderLabel(prefs, folderBtn)
-                            Toast.makeText(this@MainActivity, "Reset to Default Downloads", Toast.LENGTH_SHORT).show()
-                        }
-                        8 -> {
-                            checkOtaUpdates(silent = false)
-                        }
-                    }
-                }
-                .show()
         }
 
         val otaBtn = TextView(this).apply {

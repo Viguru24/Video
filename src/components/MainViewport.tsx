@@ -27,17 +27,12 @@ interface MainViewportProps {
   collections: any;
   setVideos: React.Dispatch<React.SetStateAction<VideoItem[]>>;
   setCollections: any;
-  rotationInterval: number;
-  setRotationInterval: any;
   search: string;
   setSearch: any;
   setGlobalControl: any;
   handleUpdate: any;
   handleDecommission: any;
   onToggleFocus: any;
-  handleBatchRemove: any;
-  handleBatchMute: any;
-  handleBatchPlay: any;
   focusedId: string | null;
   showSettings: boolean;
   setShowSettings: any;
@@ -45,20 +40,15 @@ interface MainViewportProps {
   setShowCollections: any;
   showLogs: boolean;
   setShowLogs: any;
-  newCollectionName: string;
-  setNewCollectionName: any;
   logs: any;
   confirmDeletion: boolean;
   setConfirmDeletion: any;
-  showHelp: boolean;
-  setShowHelp: any;
   handleTriggerWifiShare: () => void;
   isSlideshowActive: boolean;
   setIsSlideshowActive: any;
   slideshowInterval: number;
   setSlideshowInterval: any;
   rotating: boolean;
-  setRotating: any;
   toggleMasterMute: any;
   globalControl: any;
   handlePurgeWorkspace: () => void;
@@ -126,17 +116,12 @@ export const MainViewport: React.FC<MainViewportProps> = ({
   collections,
   setVideos,
   setCollections,
-  rotationInterval,
-  setRotationInterval,
   search,
   setSearch,
   setGlobalControl,
   handleUpdate,
   handleDecommission,
   onToggleFocus,
-  handleBatchRemove,
-  handleBatchMute,
-  handleBatchPlay,
   focusedId,
   showSettings,
   setShowSettings,
@@ -144,20 +129,15 @@ export const MainViewport: React.FC<MainViewportProps> = ({
   setShowCollections,
   showLogs,
   setShowLogs,
-  newCollectionName,
-  setNewCollectionName,
   logs,
   confirmDeletion,
   setConfirmDeletion,
-  showHelp,
-  setShowHelp,
   handleTriggerWifiShare,
   isSlideshowActive,
   setIsSlideshowActive,
   slideshowInterval,
   setSlideshowInterval,
   rotating,
-  setRotating,
   toggleMasterMute,
   globalControl,
   handlePurgeWorkspace,
@@ -253,45 +233,26 @@ export const MainViewport: React.FC<MainViewportProps> = ({
                 collections={collections}
                 setVideos={setVideos}
                 setCollections={setCollections}
-                rotationInterval={rotationInterval}
-                setRotationInterval={setRotationInterval}
                 snapshotDir={snapshotDir}
                 setSnapshotDir={setSnapshotDir}
                 search={search}
                 setSearch={setSearch}
                 setGlobalControl={setGlobalControl}
                 addLog={addLog}
-                onUpdateVideo={handleUpdate}
-                onRemoveVideo={handleDecommission}
-                onToggleFocus={onToggleFocus}
-                onLog={addLog}
-                onBatchRemove={handleBatchRemove}
-                onBatchMute={handleBatchMute}
-                onBatchPlay={handleBatchPlay}
-                filtered={filtered}
-                focusedId={focusedId}
                 showSettings={showSettings}
                 setShowSettings={setShowSettings}
                 showCollections={showCollections}
                 setShowCollections={setShowCollections}
                 showLogs={showLogs}
                 setShowLogs={setShowLogs}
-                newCollectionName={newCollectionName}
-                setNewCollectionName={setNewCollectionName}
                 logs={logs}
                 confirmDeletion={confirmDeletion}
                 setConfirmDeletion={setConfirmDeletion}
-                isPopout={isPopout}
-                showHelp={showHelp}
-                setShowHelp={setShowHelp}
                 onOpenWifiShare={handleTriggerWifiShare}
                 isSlideshowActive={isSlideshowActive}
                 setIsSlideshowActive={setIsSlideshowActive}
                 slideshowInterval={slideshowInterval}
                 setSlideshowInterval={setSlideshowInterval}
-                rotating={rotating}
-                setRotating={setRotating}
-                toggleMasterMute={toggleMasterMute}
                 globalControl={globalControl}
                 onPurgeWorkspace={handlePurgeWorkspace}
                 onForceSetup={() => {

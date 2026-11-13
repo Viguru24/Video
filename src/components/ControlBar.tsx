@@ -1,74 +1,38 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { toCosmoUrl, isTauri, showConfirm, generateUUID } from '../utils/videoUtils';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { motion } from 'framer-motion';
-import type { VideoItem, RepeatMode, SortOption } from '../types';
-import { ContextMenu } from './ContextMenu';
+import { showConfirm } from '../utils/videoUtils';
+import type { VideoItem } from '../types';
 import { useStore } from '../store/useStore';
 import { CollectionsModal } from './modals/CollectionsModal';
 import { SettingsModal } from './modals/SettingsModal';
 import { MIN_ZOOM, MAX_ZOOM } from '../constants';
-import { validateCollectionName } from '../utils/validation';
 import { SortDropdown } from './controlbar/SortDropdown';
 import { QuickFoldersMenu } from './controlbar/QuickFoldersMenu';
 import { SystemBadges } from './controlbar/SystemBadges';
 import { ColorTagFilterBar } from './controlbar/ColorTagFilterBar';
 import { LayoutPresetDropdown } from './controlbar/LayoutPresetDropdown';
+import { WindowControlsMenu } from './controlbar/WindowControlsMenu';
+import { ThemeSelector } from './controlbar/ThemeSelector';
+import { useWindowControls } from './controlbar/useWindowControls';
 import {
   Play,
   Pause,
-  Square,
   RefreshCw,
-  Camera,
   Repeat,
-  Repeat1,
   Volume2,
   VolumeX,
-  GripVertical,
-  Maximize2,
-  Minimize2,
-  FolderOpen,
   X,
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
-  Maximize,
   LayoutGrid,
   Bookmark,
-  ListRestart,
   Search,
-  RotateCcw,
-  Layers,
-  Zap,
-  Settings,
   Eye,
   EyeOff,
   Trash2,
   Monitor,
-  Plus,
-  FilePlus,
   Gauge,
-  FastForward,
-  HelpCircle,
-  Palette,
-  Share2,
-  Save,
-  MousePointer2,
-  ArrowUpDown,
-  Check,
-  Download,
-  ExternalLink,
-  Command,
-  Keyboard,
-  Info,
-  Hash,
   Type,
   Image as ImageIcon,
   Film,
-  ChevronDown,
-  Cpu,
-  Sparkles,
   Wifi
 } from 'lucide-react';
 
@@ -77,42 +41,22 @@ interface ControlBarProps {
   collections: Record<string, VideoItem[]>;
   setVideos: React.Dispatch<React.SetStateAction<VideoItem[]>>;
   setCollections: React.Dispatch<React.SetStateAction<Record<string, VideoItem[]>>>;
-  rotationInterval: number;
-  setRotationInterval: React.Dispatch<React.SetStateAction<number>>;
   snapshotDir: string;
   setSnapshotDir: React.Dispatch<React.SetStateAction<string>>;
   search: string;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
   addLog: (msg: string) => void;
-  onUpdateVideo: (id: any, updates: any) => void;
-  onRemoveVideo: (id: string) => void;
-  onToggleFocus: (id: string | null) => void;
-  onLog: (msg: string) => void;
-  onBatchRemove: () => void;
-  onBatchMute: (mute: boolean) => void;
-  onBatchPlay: (play: boolean) => void;
-  filtered: VideoItem[];
-  focusedId: string | null;
   showSettings: boolean;
   setShowSettings: React.Dispatch<React.SetStateAction<boolean>>;
   showCollections: boolean;
   setShowCollections: React.Dispatch<React.SetStateAction<boolean>>;
   showLogs: boolean;
   setShowLogs: React.Dispatch<React.SetStateAction<boolean>>;
-  newCollectionName: string;
-  setNewCollectionName: React.Dispatch<React.SetStateAction<string>>;
   logs: { t: string; m: string }[];
   setGlobalControl: React.Dispatch<React.SetStateAction<string | null>>;
   confirmDeletion: boolean;
   setConfirmDeletion: React.Dispatch<React.SetStateAction<boolean>>;
-
-  isPopout: boolean;
-  showHelp: boolean;
-  setShowHelp: React.Dispatch<React.SetStateAction<boolean>>;
-  toggleMasterMute: (soloId?: string) => void;
   globalControl: string | null;
-  rotating: boolean;
-  setRotating: (val: boolean) => void;
   isSlideshowActive: boolean;
   setIsSlideshowActive: (val: boolean) => void;
   slideshowInterval: number;
@@ -128,41 +72,22 @@ export function ControlBar({
   collections,
   setVideos,
   setCollections,
-  rotationInterval,
-  setRotationInterval,
   snapshotDir,
   setSnapshotDir,
   search,
   setSearch,
   addLog,
-  onUpdateVideo,
-  onRemoveVideo,
-  onToggleFocus,
-  onLog,
-  onBatchRemove,
-  onBatchMute,
-  onBatchPlay,
-  filtered,
-  focusedId,
   showSettings,
   setShowSettings,
   showCollections,
   setShowCollections,
   showLogs,
   setShowLogs,
-  newCollectionName,
-  setNewCollectionName,
   logs,
   setGlobalControl,
   confirmDeletion,
   setConfirmDeletion,
-  isPopout,
-  showHelp,
-  setShowHelp,
-  toggleMasterMute,
   globalControl,
-  rotating,
-  setRotating,
   isSlideshowActive,
   setIsSlideshowActive,
   slideshowInterval,
@@ -176,24 +101,15 @@ export function ControlBar({
     mediaMode, setMediaMode,
     theme, setTheme,
     alwaysOnTop, setAlwaysOnTop,
-    isFS, setIsFS,
     masterPlaying, setMasterPlaying,
-    masterMuted, setMasterMuted,
-    globalVolume, setGlobalVolume,
+    masterMuted,
+    globalVolume,
     speed, setSpeed,
-    globalRepeat, setGlobalRepeat,
-    fitMode, setFitMode,
+    globalRepeat,
     zoom, setZoom,
     immersive, setImmersive,
-    masterShowUI, setMasterShowUI,
-    selectedIds, setSelectedIds,
     renameHistory,
     aiHardwareStatus,
-    quickFolders, setQuickFolders,
-    autoSyncFolders, toggleAutoSyncFolder,
-    showInAppBrowser, setShowInAppBrowser,
-    inAppBrowserPath, setInAppBrowserPath,
-    setInAppBrowserCollapsed,
     enableSlideshowPanZoom, setEnableSlideshowPanZoom,
     sortOrder, setSortOrder,
     slideshowInterval: storeSlideshowInterval,
@@ -201,16 +117,14 @@ export function ControlBar({
     showBatchRename,
     setShowBatchRename
   } = useStore();
+
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [sortDropdownPos, setSortDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const sortButtonRef = useRef<HTMLButtonElement>(null);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
-  const [isSpanned, setIsSpanned] = useState(false);
-  const [showMaxMenu, setShowMaxMenu] = useState(false);
-  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
-  const [showQuickFoldersDropdown, setShowQuickFoldersDropdown] = useState(false);
-  const quickFoldersRef = useRef<HTMLDivElement>(null);
+
+  const windowCtrl = useWindowControls();
 
   // Close sort dropdown on outside click
   useEffect(() => {
@@ -227,103 +141,10 @@ export function ControlBar({
     return () => window.removeEventListener('mousedown', handleSortOutside);
   }, [showSortDropdown]);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (quickFoldersRef.current && !quickFoldersRef.current.contains(event.target as Node)) {
-        setShowQuickFoldersDropdown(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
-  const handlePinNewFolder = async () => {
-    try {
-      const path = await invoke<string>('select_folder_cmd');
-      if (path === 'Cancelled') return;
-      
-      const parts = path.split(/[\\/]/);
-      const defaultName = parts[parts.length - 1] || parts[parts.length - 2] || "Folder";
-      
-      const label = (window as any).__customPromptHandler
-        ? await (window as any).__customPromptHandler("Enter a name/label for this pinned folder:", defaultName, { title: "PIN WORKSPACE FOLDER" })
-        : prompt("Enter a name/label for this pinned folder:", defaultName);
-      if (label === null) return;
-      
-      const nextFolders = [
-        {
-          id: generateUUID(),
-          name: label.trim() || defaultName,
-          path
-        },
-        ...quickFolders
-      ];
-      setQuickFolders(nextFolders);
-      addLog(`SUCCESS: Pinned directory "${label || defaultName}" (${path})`);
-      
-      // Automatically open the folder in the In-App Browser on selection
-      handleOpenInAppBrowser(path);
-    } catch (err: any) {
-      if (err !== 'Cancelled') {
-        console.error("Failed to pin folder:", err);
-      }
-    }
-  };
-
-  const handleRenamePinnedFolder = (id: string) => {
-    const folder = quickFolders.find(f => f.id === id);
-    if (!folder) return;
-    const label = prompt("Enter a new name for this pinned folder:", folder.name);
-    if (label === null) return;
-    
-    const nextFolders = quickFolders.map(f => 
-      f.id === id ? { ...f, name: label.trim() || f.name } : f
-    );
-    setQuickFolders(nextFolders);
-    addLog(`SUCCESS: Renamed pinned folder to "${label}"`);
-  };
-
-  const handleUnpinFolder = async (id: string) => {
-    const folder = quickFolders.find(f => f.id === id);
-    if (!folder) return;
-    if (await showConfirm(`Are you sure you want to unpin "${folder.name}"?`, { title: 'Unpin Folder', kind: 'warning' })) {
-      setQuickFolders(quickFolders.filter(f => f.id !== id));
-      addLog(`SUCCESS: Unpinned folder "${folder.name}"`);
-    }
-  };
-
-  const handleOpenInAppBrowser = (path: string) => {
-    setInAppBrowserPath(path);
-    setInAppBrowserCollapsed(false);
-    setShowInAppBrowser(true);
-    setShowQuickFoldersDropdown(false);
-  };
-
-  useEffect(() => {
-    if (!isTauri()) return;
-    const checkMax = async () => {
-      try {
-        const max = await getCurrentWindow().isMaximized();
-        setIsWindowMaximized(max);
-      } catch { /* ignore window state check failure */ }
-    };
-    checkMax();
-    let unlisten: (() => void) | null = null;
-    getCurrentWindow().onResized(() => {
-      checkMax();
-    }).then(u => { unlisten = u; });
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-
   const filteredHistory = useMemo(() => {
     if (!renameHistory) return [];
     if (!search.trim()) return renameHistory;
-    return renameHistory.filter(name => 
+    return renameHistory.filter((name) =>
       name.toLowerCase().includes(search.toLowerCase())
     );
   }, [renameHistory, search]);
@@ -339,373 +160,181 @@ export function ControlBar({
       setShowBatchRename(true);
       setGlobalControl(null);
     }
-  }, [globalControl, setGlobalControl]);
+  }, [globalControl, setGlobalControl, setShowBatchRename]);
 
-  const handleHeaderMouseDown = useCallback(async (e: React.MouseEvent) => {
-    if (!isTauri()) return;
-    if (e.button !== 0) return; // Only left click
-
-    const target = e.target as HTMLElement;
-    if (target.closest('[data-no-drag]') || target.closest('a') || target.closest('button') || target.closest('input') || target.closest('select')) {
-      return;
-    }
-
-    const win = getCurrentWindow();
-    const startX = e.screenX;
-    const startY = e.screenY;
-
-    const handleMouseMove = async (moveEvent: MouseEvent) => {
-      const dist = Math.hypot(moveEvent.screenX - startX, moveEvent.screenY - startY);
-      if (dist > 5) {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-
-        const isMax = await win.isMaximized();
-        if (isMax || isSpanned) {
-          if (isSpanned) {
-            await invoke('unspan_monitors').catch(console.error);
-            setIsSpanned(false);
-          } else {
-            await win.unmaximize();
-          }
-          // Small delay for OS to process state transition
-          await new Promise(r => setTimeout(r, 50));
-        }
-
-        await win.startDragging().catch(console.error);
-      }
-    };
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  }, [isSpanned]);
-
-  const handleHeaderDoubleClick = useCallback(async (e: React.MouseEvent) => {
-    if (!isTauri()) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('[data-no-drag]') || target.closest('button') || target.closest('input') || target.closest('select')) {
-      return;
-    }
-
-    const win = getCurrentWindow();
-    if (isSpanned) {
-      await invoke('unspan_monitors').catch(console.error);
-      setIsSpanned(false);
-    } else {
-      const isMax = await win.isMaximized();
-      if (isMax) {
-        await win.unmaximize();
-      } else {
-        await win.maximize();
-      }
-    }
-  }, [isSpanned]);
+  const densityValue = (MAX_ZOOM + MIN_ZOOM) - zoom;
+  const densityPct = ((densityValue - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100;
+  const speedPct = ((speed - 0.25) / 3.75) * 100;
 
   return (
     <>
-        <header 
-          className="app-header"
-          onMouseDown={handleHeaderMouseDown}
-          onDoubleClick={handleHeaderDoubleClick}
-        >
-          <div className="header-row brand-row">
-            <div className="header-left">
-              {/* BRANDING TITLE */}
-              <div 
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '6px', 
-                  marginRight: '12px',
-                  userSelect: 'none'
+      <header
+        className="app-header"
+        onMouseDown={windowCtrl.handleHeaderMouseDown}
+        onDoubleClick={windowCtrl.handleHeaderDoubleClick}
+      >
+        <div className="header-row brand-row">
+          <div className="header-left">
+            {/* BRANDING TITLE */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginRight: '12px',
+                userSelect: 'none'
+              }}
+              data-no-drag
+            >
+              <img src="/logo.png" style={{ height: '20px', width: '20px', objectFit: 'contain', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.85))' }} alt="Cosmo" />
+              <span style={{
+                fontSize: '11.5px',
+                fontWeight: 800,
+                letterSpacing: '1.8px',
+                color: '#f4f4f5',
+                fontFamily: 'var(--font-display)',
+                background: 'linear-gradient(90deg, #ffffff 0%, #e4e4e7 55%, var(--accent-bright, #34d399) 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent'
+              }}>
+                COSMO SYMPHONY
+              </span>
+              <span style={{
+                fontSize: '8px',
+                fontWeight: 700,
+                fontFamily: 'var(--font-mono)',
+                letterSpacing: '1px',
+                color: 'var(--accent-warm, #f59e0b)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                background: 'rgba(245, 158, 11, 0.08)',
+                padding: '1px 5px',
+                borderRadius: '4px',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)'
+              }}>
+                STUDIO
+              </span>
+            </div>
+
+            <div className="search-box" data-no-drag>
+              <Search size={14} className="search-icon-mini" />
+              <input
+                type="text"
+                placeholder={mediaMode === 'video' ? 'Search Videos...' : 'Search Pictures...'}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                onFocus={() => setShowSearchDropdown(true)}
+                onBlur={() => {
+                  setTimeout(() => setShowSearchDropdown(false), 200);
                 }}
-                data-no-drag
-              >
-                <img src="/logo.png" style={{ height: '20px', width: '20px', objectFit: 'contain', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.85))' }} alt="Cosmo" />
-                <span style={{ 
-                  fontSize: '11.5px', 
-                  fontWeight: 800, 
-                  letterSpacing: '1.8px', 
-                  color: '#f4f4f5', 
-                  fontFamily: 'var(--font-display)',
-                  background: 'linear-gradient(90deg, #ffffff 0%, #e4e4e7 55%, var(--accent-bright, #34d399) 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent'
-                }}>
-                  COSMO SYMPHONY
-                </span>
-                <span style={{
-                  fontSize: '8px',
-                  fontWeight: 700,
-                  fontFamily: 'var(--font-mono)',
-                  letterSpacing: '1px',
-                  color: 'var(--accent-warm, #f59e0b)',
-                  border: '1px solid rgba(245, 158, 11, 0.35)',
-                  background: 'rgba(245, 158, 11, 0.08)',
-                  padding: '1px 5px',
-                  borderRadius: '4px',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)'
-                }}>
-                  STUDIO
-                </span>
-              </div>
-
-              <div className="search-box" data-no-drag>
-                <Search size={14} className="search-icon-mini" />
-                <input 
-                  type="text" 
-                  placeholder={mediaMode === 'video' ? "Search Videos..." : "Search Pictures..."}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onMouseDown={e => e.stopPropagation()}
-                  onFocus={() => setShowSearchDropdown(true)}
-                  onBlur={() => {
-                    setTimeout(() => setShowSearchDropdown(false), 200);
-                  }}
-                  className="hdr-search-input"
-                />
-                {search && (
-                  <button 
-                    className="search-clear-btn" 
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={() => setSearch('')}
-                    data-tooltip="Clear Search"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-
-                {showSearchDropdown && filteredHistory.length > 0 && (
-                  <div className="search-history-dropdown" onMouseDown={e => e.stopPropagation()}>
-                    {filteredHistory.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="search-history-item"
-                        onClick={() => {
-                          setSearch(item);
-                          setShowSearchDropdown(false);
-                        }}
-                      >
-                        {item}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="mode-switch-group" data-no-drag>
-                <button 
-                  className={`mode-btn ${mediaMode === 'all' ? 'active' : ''}`}
-                  onClick={() => setMediaMode('all')}
-                  data-tooltip="Show All Media"
-                >
-                  <LayoutGrid size={14} />
-                  <span>ALL</span>
-                </button>
-                <button 
-                  className={`mode-btn ${mediaMode === 'video' ? 'active' : ''}`}
-                  onClick={() => setMediaMode('video')}
-                  data-tooltip="Video Mode"
-                >
-                  <Film size={14} />
-                  <span>VIDEO</span>
-                </button>
-                <button 
-                  className={`mode-btn ${mediaMode === 'picture' ? 'active' : ''}`}
-                  onClick={() => setMediaMode('picture')}
-                  data-tooltip="Picture Mode"
-                >
-                  <ImageIcon size={14} />
-                  <span>STILL</span>
-                </button>
-              </div>
-
-              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
-
-              {/* Wi-Fi Sharing Button */}
-              <button 
-                className="mode-btn"
-                onClick={onOpenWifiShare}
-                data-tooltip="Wi-Fi Sharing Protocol"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span>WI-FI SHARE</span>
-              </button>
-
-              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
-
-              {/* Quick Folders Dropdown */}
-              <QuickFoldersMenu
-                quickFolders={quickFolders}
-                autoSyncFolders={autoSyncFolders}
-                showQuickFoldersDropdown={showQuickFoldersDropdown}
-                setShowQuickFoldersDropdown={setShowQuickFoldersDropdown}
-                quickFoldersRef={quickFoldersRef}
-                handlePinNewFolder={handlePinNewFolder}
-                handleOpenInAppBrowser={handleOpenInAppBrowser}
-                toggleAutoSyncFolder={toggleAutoSyncFolder}
-                handleRenamePinnedFolder={handleRenamePinnedFolder}
-                handleUnpinFolder={handleUnpinFolder}
-                addLog={addLog}
+                className="hdr-search-input"
               />
+              {search && (
+                <button
+                  className="search-clear-btn"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onClick={() => setSearch('')}
+                  data-tooltip="Clear Search"
+                >
+                  <X size={12} />
+                </button>
+              )}
 
-              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+              {showSearchDropdown && filteredHistory.length > 0 && (
+                <div className="search-history-dropdown" onMouseDown={(e) => e.stopPropagation()}>
+                  {filteredHistory.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="search-history-item"
+                      onClick={() => {
+                        setSearch(item);
+                        setShowSearchDropdown(false);
+                      }}
+                    >
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-              {/* "Open Screenshots Folder" button removed as per user request — it was confusing because it didn't open the currently active image folder */}
-              
-              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
-
-              {/* Refresh Tiles Button */}
-              <button 
-                className="mode-btn"
-                onClick={() => {
-                  const cacheBuster = `t=${Date.now()}`;
-                  setVideos(prev => prev.map(v => {
-                    const cleanUrl = v.url.split('?')[0];
-                    return { ...v, url: `${cleanUrl}?${cacheBuster}` };
-                  }));
-                  addLog("SYSTEM: Refreshed all tiles in workspace");
-                }}
-                data-tooltip="Refresh All Tiles"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
+            <div className="mode-switch-group" data-no-drag>
+              <button
+                className={`mode-btn ${mediaMode === 'all' ? 'active' : ''}`}
+                onClick={() => setMediaMode('all')}
+                data-tooltip="Show All Media"
               >
-                <RefreshCw size={14} style={{ color: 'var(--accent, #00ff88)' }} />
-                <span>REFRESH TILES</span>
+                <LayoutGrid size={14} />
+                <span>ALL</span>
+              </button>
+              <button
+                className={`mode-btn ${mediaMode === 'video' ? 'active' : ''}`}
+                onClick={() => setMediaMode('video')}
+                data-tooltip="Video Mode"
+              >
+                <Film size={14} />
+                <span>VIDEO</span>
+              </button>
+              <button
+                className={`mode-btn ${mediaMode === 'picture' ? 'active' : ''}`}
+                onClick={() => setMediaMode('picture')}
+                data-tooltip="Picture Mode"
+              >
+                <ImageIcon size={14} />
+                <span>STILL</span>
               </button>
             </div>
-            
-            {isTauri() && (
-              <div 
-                className="window-controls" 
-                style={{ display: 'flex', gap: '8px', marginLeft: 'auto', paddingRight: '4px', zIndex: 1001, pointerEvents: 'auto', position: 'relative' }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onMouseUp={(e) => e.stopPropagation()}
-              >
-                <button className="win-dot min" onClick={() => getCurrentWindow().minimize()} title="Minimize" />
-                <button className="win-dot max" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMaxMenu(prev => !prev); }} title="Maximize Options" />
-                <button className="win-dot close" onClick={() => getCurrentWindow().close()} title="Close" />
-                
-                {showMaxMenu && (
-                  <div className="max-options-dropdown" style={{
-                    position: 'absolute',
-                    top: '25px',
-                    right: '15px',
-                    background: 'var(--glass-bg, #141418)',
-                    backdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255, 255, 255, 0.12)',
-                    borderRadius: '10px',
-                    padding: '6px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                    boxShadow: 'var(--bevel-panel)',
-                    zIndex: 100002
-                  }}>
-                    <button 
-                      onClick={() => {
-                        getCurrentWindow().maximize();
-                        setShowMaxMenu(false);
-                        setIsSpanned(false);
-                      }}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: '#fff',
-                        fontSize: '11px',
-                        padding: '6px 12px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        borderRadius: '4px',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 'bold'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
-                      Maximize Single Screen
-                    </button>
-                    <button 
-                      onClick={() => {
-                        invoke('span_all_monitors').catch(console.error);
-                        setShowMaxMenu(false);
-                        setIsSpanned(true);
-                      }}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--accent, #00ff88)',
-                        fontSize: '11px',
-                        padding: '6px 12px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        borderRadius: '4px',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 'bold'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
-                      Span Dual/All Screens
-                    </button>
-                    {(isSpanned || isWindowMaximized) && (
-                      <button 
-                        onClick={async () => {
-                          if (isSpanned) {
-                            invoke('unspan_monitors').catch(console.error);
-                            setIsSpanned(false);
-                          } else {
-                            const win = getCurrentWindow();
-                            if (await win.isMaximized()) {
-                              win.unmaximize();
-                            }
-                          }
-                          setShowMaxMenu(false);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#ff4d4d',
-                          fontSize: '11px',
-                          padding: '6px 12px',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          borderRadius: '4px',
-                          whiteSpace: 'nowrap',
-                          fontWeight: 'bold'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                      >
-                        Restore Window
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+
+            <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+
+            <button
+              className="mode-btn"
+              onClick={onOpenWifiShare}
+              data-tooltip="Wi-Fi Sharing Protocol"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+              <span>WI-FI SHARE</span>
+            </button>
+
+            <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+
+            <QuickFoldersMenu addLog={addLog} />
+
+            <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 16px' }} />
+
+            <button
+              className="mode-btn"
+              onClick={() => {
+                const cacheBuster = `t=${Date.now()}`;
+                setVideos((prev) => prev.map((v) => ({
+                  ...v,
+                  url: `${v.url.split('?')[0]}?${cacheBuster}`
+                })));
+                addLog('SYSTEM: Refreshed all tiles in workspace');
+              }}
+              data-tooltip="Refresh All Tiles"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <RefreshCw size={14} style={{ color: 'var(--accent, #00ff88)' }} />
+              <span>REFRESH TILES</span>
+            </button>
           </div>
-          
-          <div className="header-row controls-row" data-no-drag>
-            <div className="header-menu-container" data-no-drag>
 
+          <WindowControlsMenu
+            isSpanned={windowCtrl.isSpanned}
+            setIsSpanned={windowCtrl.setIsSpanned}
+            showMaxMenu={windowCtrl.showMaxMenu}
+            setShowMaxMenu={windowCtrl.setShowMaxMenu}
+            isWindowMaximized={windowCtrl.isWindowMaximized}
+          />
+        </div>
 
+        <div className="header-row controls-row" data-no-drag>
+          <div className="header-menu-container" data-no-drag>
             {/* SYMPHONY WORKSHOP */}
             <div className="ctrl-group symphony-group">
               <button onClick={() => setShowCollections(!showCollections)} className={`hdr-btn ${showCollections ? 'active-accent' : ''}`} data-tooltip="Sets">
@@ -716,7 +345,6 @@ export function ControlBar({
               </button>
             </div>
 
-            {/* SORTING CONTROLS */}
             <SortDropdown
               sortOrder={sortOrder}
               setSortOrder={setSortOrder}
@@ -728,13 +356,11 @@ export function ControlBar({
               sortDropdownRef={sortDropdownRef}
             />
 
-            {/* COLOR TAG FILTER BAR */}
             <ColorTagFilterBar videos={videos} />
 
             {/* PLAYBACK ENGINE */}
             {mediaMode === 'video' && (
               <div className="ctrl-group playback-group">
-                {/* HORIZONTAL SPEED */}
                 <div className="slider-h-box" data-tooltip={`Speed: ${speed}x`}>
                   <Gauge size={12} className="slider-h-icon" />
                   <input
@@ -747,22 +373,20 @@ export function ControlBar({
                     onMouseDown={(e) => e.stopPropagation()}
                     className="h-range speed-range"
                     style={{
-                      background: `linear-gradient(to right, var(--accent, #00ff88) 0%, var(--accent, #00ff88) ${((speed - 0.25) / 3.75) * 100}%, rgba(255, 255, 255, 0.12) ${((speed - 0.25) / 3.75) * 100}%, rgba(255, 255, 255, 0.12) 100%)`
+                      background: `linear-gradient(to right, var(--accent, #00ff88) 0%, var(--accent, #00ff88) ${speedPct}%, rgba(255, 255, 255, 0.12) ${speedPct}%, rgba(255, 255, 255, 0.12) 100%)`
                     }}
                   />
                 </div>
-                
-                {/* MODALIZED VOLUME & MIXER BUTTON */}
+
                 <button
                   onClick={onOpenVolumeRepeat}
                   className={`hdr-btn ${masterMuted ? 'active-danger' : globalVolume > 0 ? 'active-accent' : ''}`}
-                  data-tooltip={masterMuted ? "Volume: MUTED (Click to Open Mixer)" : `Volume: ${Math.round(globalVolume * 100)}% (Click to Open Mixer)`}
+                  data-tooltip={masterMuted ? 'Volume: MUTED (Click to Open Mixer)' : `Volume: ${Math.round(globalVolume * 100)}% (Click to Open Mixer)`}
                   onMouseDown={(e) => e.stopPropagation()}
                 >
                   {masterMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
                 </button>
 
-                {/* MODALIZED REPEAT BUTTON */}
                 <button
                   onClick={onOpenVolumeRepeat}
                   className={`hdr-btn ${globalRepeat !== 'none' ? 'active-accent' : ''}`}
@@ -774,10 +398,9 @@ export function ControlBar({
                   {(globalRepeat === 'none' || globalRepeat === 'once') && <Repeat size={14} style={{ opacity: 0.5 }} />}
                 </button>
 
-                {/* PLAY/PAUSE */}
-                <button 
-                  onClick={toggleMasterPlay} 
-                  className={`hdr-btn main-play ${masterPlaying ? 'active-accent' : ''}`} 
+                <button
+                  onClick={toggleMasterPlay}
+                  className={`hdr-btn main-play ${masterPlaying ? 'active-accent' : ''}`}
                   data-tooltip="Play/Pause"
                   onMouseDown={(e) => e.stopPropagation()}
                 >
@@ -789,11 +412,10 @@ export function ControlBar({
             {/* DENSITY & UI */}
             <div className="ctrl-group density-group">
               <LayoutPresetDropdown onApplyPreset={(p) => addLog('Layout Preset: ' + p.name + ' applied')} />
-              {/* HORIZONTAL DENSITY */}
-              <div className="slider-h-box" data-tooltip={`Density: ${(MAX_ZOOM + MIN_ZOOM) - zoom}`}>
-                <LayoutGrid 
-                  size={12} 
-                  className="slider-h-icon" 
+              <div className="slider-h-box" data-tooltip={`Density: ${densityValue}`}>
+                <LayoutGrid
+                  size={12}
+                  className="slider-h-icon"
                   style={{ cursor: 'pointer' }}
                   onClick={() => setZoom(4)}
                 />
@@ -801,12 +423,12 @@ export function ControlBar({
                   type="range"
                   min={MIN_ZOOM}
                   max={MAX_ZOOM}
-                  value={ (MAX_ZOOM + MIN_ZOOM) - zoom }
+                  value={densityValue}
                   onChange={(e) => setZoom((MAX_ZOOM + MIN_ZOOM) - parseInt(e.target.value))}
                   onMouseDown={(e) => e.stopPropagation()}
                   className="h-range density-range"
                   style={{
-                    background: `linear-gradient(to right, var(--accent, #00ff88) 0%, var(--accent, #00ff88) ${((( (MAX_ZOOM + MIN_ZOOM) - zoom ) - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100}%, rgba(255, 255, 255, 0.12) ${((( (MAX_ZOOM + MIN_ZOOM) - zoom ) - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100}%, rgba(255, 255, 255, 0.12) 100%)`
+                    background: `linear-gradient(to right, var(--accent, #00ff88) 0%, var(--accent, #00ff88) ${densityPct}%, rgba(255, 255, 255, 0.12) ${densityPct}%, rgba(255, 255, 255, 0.12) 100%)`
                   }}
                 />
               </div>
@@ -819,83 +441,42 @@ export function ControlBar({
               </button>
             </div>
 
-
             {/* SYSTEM TOOLS */}
             <div className="ctrl-group system-group">
-              <button onClick={() => { if (onPurgeWorkspace) onPurgeWorkspace(); else { showConfirm('Purge Set? This will clear all cards.', { title: 'Purge Set', kind: 'error' }).then(yes => { if (yes) setVideos([]); }); } }} className="hdr-btn" data-tooltip="Purge Set"><Trash2 size={14} /></button>
-              <button 
+              <button
+                onClick={() => {
+                  if (onPurgeWorkspace) onPurgeWorkspace();
+                  else {
+                    showConfirm('Purge Set? This will clear all cards.', { title: 'Purge Set', kind: 'error' }).then((yes) => {
+                      if (yes) setVideos([]);
+                    });
+                  }
+                }}
+                className="hdr-btn"
+                data-tooltip="Purge Set"
+              >
+                <Trash2 size={14} />
+              </button>
+              <button
                 onClick={() => {
                   const nextState = !alwaysOnTop;
                   setAlwaysOnTop(nextState);
                   invoke('set_always_on_top', { flag: nextState });
-                }} 
-                className={`hdr-btn ${alwaysOnTop ? 'active-accent' : ''}`} 
+                }}
+                className={`hdr-btn ${alwaysOnTop ? 'active-accent' : ''}`}
                 data-tooltip="Always on Top"
               >
                 <Monitor size={14} />
               </button>
-              <button 
-                onClick={onOpenWifiShare} 
-                className="hdr-btn" 
+              <button
+                onClick={onOpenWifiShare}
+                className="hdr-btn"
                 data-tooltip="Wi-Fi Sharing Protocol"
               >
                 <Wifi size={14} style={{ color: 'var(--accent, #00ff88)' }} />
               </button>
-              {/* THEME SELECTOR ENGINE */}
-              <div className="theme-select-container" onMouseDown={(e) => e.stopPropagation()}>
-                <button
-                  className="hdr-btn theme-trigger-btn"
-                >
-                  <Palette size={14} />
-                  <span className="theme-text-lbl">
-                    {theme === 'midnight' ? 'TUNGSTEN' : theme === 'nordic' ? 'SURGICAL' : theme === 'cobalt' ? 'TITANIUM' : 'OBSIDIAN'}
-                  </span>
-                  <ChevronDown size={10} className="theme-arrow-icon" />
-                </button>
-                <div className="theme-glass-dropdown">
-                  <div 
-                    className={`theme-dropdown-item ${theme === 'symphony' || (!['symphony', 'midnight', 'nordic', 'cobalt'].includes(theme)) ? 'active' : ''}`}
-                    onClick={() => {
-                      setTheme('symphony');
-                      addLog('THEME SHIFT: OBSIDIAN EMERALD');
-                    }}
-                  >
-                    <span className="theme-preview-dot aurora-dot" />
-                    <span className="theme-dropdown-lbl">Obsidian Emerald</span>
-                  </div>
-                  <div 
-                    className={`theme-dropdown-item ${theme === 'midnight' ? 'active' : ''}`}
-                    onClick={() => {
-                      setTheme('midnight');
-                      addLog('THEME SHIFT: TUNGSTEN CINEMA');
-                    }}
-                  >
-                    <span className="theme-preview-dot velvet-dot" />
-                    <span className="theme-dropdown-lbl">Tungsten Cinema</span>
-                  </div>
-                  <div 
-                    className={`theme-dropdown-item ${theme === 'nordic' ? 'active' : ''}`}
-                    onClick={() => {
-                      setTheme('nordic');
-                      addLog('THEME SHIFT: SURGICAL TEAL');
-                    }}
-                  >
-                    <span className="theme-preview-dot frost-dot" />
-                    <span className="theme-dropdown-lbl">Surgical Teal</span>
-                  </div>
-                  <div 
-                    className={`theme-dropdown-item ${theme === 'cobalt' ? 'active' : ''}`}
-                    onClick={() => {
-                      setTheme('cobalt');
-                      addLog('THEME SHIFT: TITANIUM STUDIO');
-                    }}
-                  >
-                    <span className="theme-preview-dot cobalt-dot" />
-                    <span className="theme-dropdown-lbl">Titanium Studio</span>
-                  </div>
-                </div>
-              </div>
 
+              <ThemeSelector theme={theme} setTheme={setTheme} addLog={addLog} />
 
               <SystemBadges
                 onForceSetup={onForceSetup}
@@ -906,15 +487,13 @@ export function ControlBar({
                 setStoreSlideshowInterval={setStoreSlideshowInterval}
                 isSlideshowActive={isSlideshowActive}
                 setIsSlideshowActive={setIsSlideshowActive}
-                setShowSettings={setShowSettings}
                 enableSlideshowPanZoom={enableSlideshowPanZoom}
                 setEnableSlideshowPanZoom={setEnableSlideshowPanZoom}
               />
             </div>
-            
-            </div>
           </div>
-        </header>
+        </div>
+      </header>
 
       {showSettings && (
         <SettingsModal
@@ -966,4 +545,3 @@ export function ControlBar({
     </>
   );
 }
-

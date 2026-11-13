@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
-  X, Play, Pause, RotateCcw, ArrowLeftRight, Sliders, 
+  X, Play, Pause, ArrowLeftRight, Sliders, 
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Volume2, VolumeX 
 } from 'lucide-react';
 import type { VideoItem } from '../../types';
@@ -66,17 +66,17 @@ export const DualCompareModal: React.FC<DualCompareModalProps> = ({
     });
   };
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
     setCurrentTime(time);
     if (videoLeftRef.current) videoLeftRef.current.currentTime = time;
     if (videoRightRef.current) videoRightRef.current.currentTime = time;
-  };
+  }, []);
 
-  const handleFrameStep = (frames: number) => {
+  const handleFrameStep = useCallback((frames: number) => {
     const step = frames * (1 / 30);
     const newTime = Math.max(0, Math.min(duration || 1000, currentTime + step));
     handleSeek(newTime);
-  };
+  }, [duration, currentTime, handleSeek]);
 
   const handleSwap = () => {
     setLeft(right);
@@ -153,7 +153,7 @@ export const DualCompareModal: React.FC<DualCompareModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, currentTime, duration]);
+  }, [onClose, handleFrameStep]);
 
   const leftUrl = toCosmoUrl(left.realPath || left.url);
   const rightUrl = toCosmoUrl(right.realPath || right.url);

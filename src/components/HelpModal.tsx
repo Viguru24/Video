@@ -2,8 +2,8 @@ import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, HelpCircle, Monitor, Zap, Command, 
-  Play, Camera, Maximize, MousePointer2, 
-  Keyboard, Info, ExternalLink, Download
+  Play, Maximize, MousePointer2, 
+  Keyboard, Info, Download
 } from 'lucide-react';
 
 interface HelpModalProps {

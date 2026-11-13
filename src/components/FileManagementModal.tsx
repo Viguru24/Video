@@ -48,8 +48,11 @@ export function FileManagementModal({
     filename: string;
     resolve: (choice: 'overwrite' | 'keep-both' | 'skip' | 'cancel', applyToAll: boolean) => void;
   } | null>(null);
-  const [applyToAllChoice, setApplyToAllChoice] = useState<'overwrite' | 'keep-both' | 'skip' | null>(null);
   const applyToAllRef = useRef<HTMLInputElement>(null);
+  const addLogRef = useRef(addLog);
+  useEffect(() => {
+    addLogRef.current = addLog;
+  }, [addLog]);
   
   useEffect(() => {
     if (!isOpen) return;
@@ -108,7 +111,7 @@ export function FileManagementModal({
         .then(setSubdirectories)
         .catch(err => {
           console.error("Failed to fetch subdirectories:", err);
-          addLog(`FS Error: Unable to list subdirectories: ${err}`);
+          addLogRef.current(`FS Error: Unable to list subdirectories: ${err}`);
         });
     }
 
@@ -217,7 +220,6 @@ export function FileManagementModal({
     }
 
     setIsProcessing(true);
-    setApplyToAllChoice(null); // Reset choice for new operation
     const updatedItemsList: { originalId: string; newPath: string }[] = [];
     const opLabel = mode === 'move' ? 'Moving' : 'Copying';
     
@@ -273,7 +275,6 @@ export function FileManagementModal({
                 resolve: (userChoice, applyToAll) => {
                   if (applyToAll && userChoice !== 'cancel') {
                     localApplyToAllChoice = userChoice;
-                    setApplyToAllChoice(userChoice);
                   }
                   resolve(userChoice);
                 }

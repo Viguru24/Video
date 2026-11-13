@@ -82,11 +82,7 @@ export function VideoGrid({
   snapshotDir,
   setSnapshotDir,
   globalControl,
-  rowOffsets,
-  rotIdx,
-  rotating,
   scrollRef,
-  idToRow,
   onDragStart,
   onDragEnd,
   onUpdateVideo,
@@ -100,9 +96,6 @@ export function VideoGrid({
   toggleMasterPlay,
   onContextMenu,
   onDeepFocus,
-  onReorder,
-  onToggleFocus,
-  jumpToUnit,
   selectedIds,
   onToggleSelect,
   selectionMode,
@@ -121,7 +114,6 @@ export function VideoGrid({
   onBgContextMenu,
   onLoadDemos
 }: VideoGridProps) {
-  const mediaMode = useStore((state) => state.mediaMode);
   const setZoom = useStore((state) => state.setZoom);
   const setSelectedIds = useStore((state) => state.setSelectedIds);
   const setSelectionMode = useStore((state) => state.setSelectionMode);

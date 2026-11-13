@@ -56,6 +56,9 @@ function VideoCardInternal(props: VideoCardProps) {
     return isSingleVideo ? 'always' : 'folder';
   })();
 
+  const { isCropping, isFocused, onDeepFocus, onCloseFocus } = props;
+  const { zoomScale, resetZoom, getCurrentTime } = state;
+
   const handleCardDoubleClick = React.useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     if (
@@ -75,18 +78,18 @@ function VideoCardInternal(props: VideoCardProps) {
     e.preventDefault();
     e.stopPropagation();
 
-    if (props.isCropping) return;
+    if (isCropping) return;
 
-    if (!props.isFocused) {
-      props.onDeepFocus(state.getCurrentTime());
+    if (!isFocused) {
+      onDeepFocus(getCurrentTime());
     } else {
-      if (state.zoomScale > 1) {
-        state.resetZoom();
+      if (zoomScale > 1) {
+        resetZoom();
       } else {
-        props.onCloseFocus();
+        onCloseFocus();
       }
     }
-  }, [props.isCropping, props.isFocused, props.onDeepFocus, props.onCloseFocus, state.zoomScale, state.resetZoom, state.getCurrentTime]);
+  }, [isCropping, isFocused, onDeepFocus, onCloseFocus, zoomScale, resetZoom, getCurrentTime]);
 
   return (
     <motion.div

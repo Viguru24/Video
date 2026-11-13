@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -58,7 +58,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
     }
   };
 
-  const addLog = (text: string, isError = false) => {
+  const addLog = useCallback((text: string, isError = false) => {
     const id = logIdRef.current++;
     setLogs(prev => [...prev.slice(-60), { id, text, isError }]);
     setTimeout(() => {
@@ -66,9 +66,9 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
         logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
       }
     }, 50);
-  };
+  }, []);
 
-  const startModelDownload = async () => {
+  const startModelDownload = useCallback(async () => {
     addLog('Starting AI model weight downloads...');
     try {
       await invoke('download_models');
@@ -76,7 +76,12 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
       setErrorMsg(String(err));
       setPhase('error');
     }
-  };
+  }, [addLog]);
+
+  const startModelDownloadRef = useRef(startModelDownload);
+  useEffect(() => {
+    startModelDownloadRef.current = startModelDownload;
+  }, [startModelDownload]);
 
   // Listen for install progress events
   useEffect(() => {
@@ -86,7 +91,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
     let unlistenGPU: (() => void) | undefined;
 
     listen<SetupProgressEvent>('setup-progress', (event) => {
-      const { step, message, percent, done, error } = event.payload;
+      const { message, percent, done, error } = event.payload;
       setInstallPercent(percent);
       setStatusMessage(message);
       addLog(message, !!error);
@@ -96,12 +101,12 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
         setPhase('error');
       } else if (done) {
         setPhase('models');
-        startModelDownload();
+        startModelDownloadRef.current();
       }
     }).then(fn => { unlistenInstall = fn; });
 
     listen<SetupProgressEvent>('model-download-progress', (event) => {
-      const { step, message, percent, done, error } = event.payload;
+      const { message, percent, done, error } = event.payload;
       setModelPercent(percent);
       setStatusMessage(message);
       addLog(message, !!error);
@@ -115,7 +120,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
     }).then(fn => { unlistenModels = fn; });
 
     listen<SetupProgressEvent>('gpu-pack-progress', (event) => {
-      const { step, message, percent, done, error } = event.payload;
+      const { message, percent, done, error } = event.payload;
       setInstallPercent(percent);
       setStatusMessage(message);
       addLog(message, !!error);
@@ -133,7 +138,7 @@ export function SetupWizard({ onComplete, force }: SetupWizardProps) {
       unlistenModels?.();
       unlistenGPU?.();
     };
-  }, []);
+  }, [addLog]);
 
   const startInstall = async () => {
     setPhase('installing');

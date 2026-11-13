@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Sparkles, Film, Loader2, Music, CheckCircle2, Terminal, Save, ArrowRight, Trash2, AlertTriangle, RotateCw } from 'lucide-react';
-import { showConfirm } from '../utils/videoUtils';
+import { X, Sparkles, Film, Loader2, Music, CheckCircle2, Terminal, Save, ArrowRight, AlertTriangle, RotateCw } from 'lucide-react';
 
 interface SymphonyWorkshopProps {
   onClose: () => void;
@@ -19,10 +18,8 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
   });
   
   const [productionStep, setProductionStep] = useState<ProductionStep>('idle');
-  const [error, setError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
-  const [showLibrary, setShowLibrary] = useState(false);
   const [showProductionForm, setShowProductionForm] = useState(false);
   const [productionMetadata, setProductionMetadata] = useState(() => ({
     name: '',
@@ -113,55 +110,6 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
     }
   };
 
-  const loadProject = (p: any) => {
-    setProjectName(p.name);
-    setPrompt(p.prompt);
-    setMusicPrompt(p.music_prompt || '');
-    setScript(p.script);
-    setShowLibrary(false);
-
-    const projectRenders = renders.filter(r => r.name.toLowerCase().startsWith(p.name.toLowerCase()));
-    let maxVer = 1.0;
-    projectRenders.forEach(r => {
-      const match = r.name.match(/v(\d+(\.\d+)?)/i);
-      if (match) {
-        const v = parseFloat(match[1]);
-        if (v >= maxVer) maxVer = Math.floor(v) + 1.0;
-      }
-    });
-
-    setProductionMetadata(prev => ({
-      ...prev,
-      name: `${p.name} - v${maxVer.toFixed(1)}`,
-      version: maxVer.toFixed(1)
-    }));
-
-    internalLog(`Switched: ${p.name} (Auto-Version: ${maxVer.toFixed(1)})`);
-  };
-  
-  const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!await showConfirm('Permanently delete this project definition?', { title: 'Delete Project', kind: 'error' })) return;
-    try {
-      await fetch(`${API_BASE}/api/delete_project/${id}`, { method: 'DELETE' });
-      internalLog(`Project Deleted.`);
-      refreshProjects();
-    } catch (e) {
-      console.error(e);
-    }
-  };
-  
-  const handleDeleteAllProjects = async () => {
-    if (!await showConfirm('CRITICAL: Purge ALL project definitions? This cannot be undone.', { title: 'Purge Library', kind: 'error' })) return;
-    try {
-      await fetch(`${API_BASE}/api/delete_all_projects`, { method: 'DELETE' });
-      internalLog(`Library Purged.`);
-      refreshProjects();
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const handleScanWebsite = async () => {
     if (!websiteUrl.trim()) return;
     setIsScanning(true);
@@ -190,7 +138,6 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
   const handleGenerateScript = async () => {
     if (!prompt.trim()) return;
     setProductionStep('generating_script');
-    setError(null);
     internalLog(`Groq Agent: Reasoning about "${prompt}"...`);
 
     try {
@@ -208,7 +155,6 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
       setMusicPrompt(data.script.music_prompt || 'Upbeat tech background');
       internalLog(`Groq Agent: Script successfully drafted (Seed: ${productionMetadata.seed}).`);
     } catch (e: any) {
-      setError(e.message);
       internalLog(`Error: ${e.message}`);
     } finally {
       setProductionStep('idle');
@@ -235,7 +181,6 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
     await handleSaveProject();
 
     setProductionStep('composing_music');
-    setError(null);
     internalLog(`Agent: Production Pipeline initialized for ${updatedMetadata.name}...`);
 
     try {
@@ -272,15 +217,6 @@ export function SymphonyWorkshop({ onClose, addLog }: SymphonyWorkshopProps) {
     } catch (e: any) {
       internalLog(`Production Failed: ${e.message}`);
       setProductionStep('idle');
-      setError(e.message);
-    }
-  };
-
-  const handleOpenRender = async () => {
-    try {
-      await fetch(`${API_BASE}/api/open_render`, { method: 'POST' });
-    } catch (e) {
-      console.error(e);
     }
   };
 

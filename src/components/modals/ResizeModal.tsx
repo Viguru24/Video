@@ -30,7 +30,6 @@ export const ResizeModal: React.FC<ResizeModalProps> = ({
   const [height, setHeight] = useState<string>('1080');
   const [lockAspect, setLockAspect] = useState(true);
   const [originalRatio, setOriginalRatio] = useState<number>(16 / 9);
-  const [loadingDimensions, setLoadingDimensions] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
@@ -50,7 +49,6 @@ export const ResizeModal: React.FC<ResizeModalProps> = ({
   useEffect(() => {
     if (!isOpen || !target || !target.realPath) return;
 
-    setLoadingDimensions(true);
     invoke<{ width: number; height: number }>('get_video_metadata', { path: target.realPath })
       .then((meta) => {
         if (meta && meta.width && meta.height) {
@@ -61,9 +59,6 @@ export const ResizeModal: React.FC<ResizeModalProps> = ({
       })
       .catch((err) => {
         console.error('Failed to get media dimensions for resize:', err);
-      })
-      .finally(() => {
-        setLoadingDimensions(false);
       });
   }, [isOpen, target]);
 

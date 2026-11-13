@@ -76,7 +76,7 @@ export function useWifiTransfer({ videos, selectedIds, addLog, setToast, setToas
             }
           }
         }
-      } catch (err) {
+      } catch {
         // Silent error ignore on idle check
       } finally {
         isCheckingRef.current = false;

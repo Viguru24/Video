@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { VideoItem, BookmarkItem, ColorTag } from '../../types';
+import type { VideoItem, BookmarkItem } from '../../types';
 
 describe('Color Tagging and Bookmarks Logic', () => {
   const sampleVideos: VideoItem[] = [

@@ -49,7 +49,7 @@ export function useVideoCardMediaSource({
       busted = `${url}${url.includes('?') ? '&' : '?'}t=${reloadKey}`;
     }
     return busted;
-  }, [video.realPath, video.url, reloadKey, customProtocolOverride]);
+  }, [video, reloadKey, customProtocolOverride]);
 
   const effectiveImgSrc = imageFallbackSrc || displayUrl;
 

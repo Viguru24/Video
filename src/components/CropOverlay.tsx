@@ -78,7 +78,7 @@ export function CropOverlay({
   useEffect(() => {
     // Run AI person auto-detect automatically when crop overlay opens
     detectSubject();
-  }, [video]);
+  }, [detectSubject]);
 
   useEffect(() => {
     const fetchDims = async () => {

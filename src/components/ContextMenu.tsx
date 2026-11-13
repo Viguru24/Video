@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { 
-  Play, Pause, Trash2, FolderOpen, Maximize2, Camera, Square, CheckSquare, Volume2, VolumeX, 
+  Play, Pause, Trash2, FolderOpen, Camera, Square, CheckSquare, Volume2, VolumeX, 
   ExternalLink, Edit2, ChevronLeft, ChevronRight, 
   Minimize2, Repeat, Crop, Sparkles, Sliders, Copy, ShieldAlert,
   ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, Wifi, FileCode2, Zap
@@ -60,7 +60,6 @@ export function ContextMenu({
       : (video.realPath || video.url)
     : '';
   const isImage = effectivePath ? isValidPictureExtension(effectivePath) : false;
-  const isDemo = false;
 
   const [positionState, setPositionState] = useState<{
     top: number;

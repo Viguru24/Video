@@ -16,7 +16,6 @@ export function useSelectionManager({
   filtered,
   selectedIds,
   setSelectedIds,
-  selectionMode,
   setSelectionMode,
   addLog,
 }: UseSelectionManagerParams) {

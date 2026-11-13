@@ -35,16 +35,19 @@ export function PortraitBlurStudioModal({
 
   // Blur Control State
   const [blurRadius, setBlurRadius] = useState<number>(25); // 0 to 60px bokeh blur
-  const [edgeTrim, setEdgeTrim] = useState<number>(2); // 0 to 8px edge choke trim
-  const [antiHaloBleed, setAntiHaloBleed] = useState<boolean>(true); // Erase subject skin bleed from background
+  const edgeTrim = 2; // 0 to 8px edge choke trim
   const [subjectBrightness, setSubjectBrightness] = useState<number>(1.0); // 0.8 to 1.3
   const [showSplitView, setShowSplitView] = useState<boolean>(false);
-  const [splitPos, setSplitPos] = useState<number>(0.5);
+  const splitPos = 0.5;
 
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   const originalImgRef = useRef<HTMLImageElement | null>(null);
   const cutoutImgRef = useRef<HTMLImageElement | null>(null);
+  const onLogRef = useRef(onLog);
+  useEffect(() => {
+    onLogRef.current = onLog;
+  }, [onLog]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -74,7 +77,7 @@ export function PortraitBlurStudioModal({
           setImgSize({ w: origImg.naturalWidth || 800, h: origImg.naturalHeight || 600 });
         }
 
-        if (onLog) onLog(`AI: Isolating subject for Portrait Blur from: ${video.title}...`);
+        if (onLogRef.current) onLogRef.current(`AI: Isolating subject for Portrait Blur from: ${video.title}...`);
 
         // 2. Invoke AI Subject Cutout in Rust Backend
         const cutoutPath = await invoke<string>('extract_subject_on_disk', { path: targetPath });
@@ -90,7 +93,7 @@ export function PortraitBlurStudioModal({
 
         if (isSubscribed) {
           setIsLoadingAi(false);
-          if (onLog) onLog(`AI Portrait Segmentation complete! Subject isolated successfully.`);
+          if (onLogRef.current) onLogRef.current(`AI Portrait Segmentation complete! Subject isolated successfully.`);
         }
       } catch (err: any) {
         console.error('AI Portrait Segmentation error:', err);
@@ -214,7 +217,7 @@ export function PortraitBlurStudioModal({
       ctx.fillStyle = 'var(--accent, #00ff88)';
       ctx.fillText('AI PORTRAIT', splitX + 15, 34);
     }
-  }, [blurRadius, edgeTrim, antiHaloBleed, subjectBrightness, showSplitView, splitPos]);
+  }, [blurRadius, edgeTrim, subjectBrightness, showSplitView, splitPos]);
 
   useEffect(() => {
     if (isOpen && !isLoadingAi) renderCanvas();
@@ -246,11 +249,6 @@ export function PortraitBlurStudioModal({
 
       if (setVideos) {
         if (saveAsCopy) {
-          const separator = savedPath.includes('\\') ? '\\' : '/';
-          const fileNameWithExt = savedPath.substring(savedPath.lastIndexOf(separator) + 1);
-          const extIdx = fileNameWithExt.lastIndexOf('.');
-          const cleanTitle = extIdx !== -1 ? fileNameWithExt.substring(0, extIdx) : fileNameWithExt;
-
           const newUnit: VideoItem = {
             id: `portrait-${Date.now()}`,
             title: `${video.title.replace(/\s*\(Portrait\)/i, '')} (Portrait)`,

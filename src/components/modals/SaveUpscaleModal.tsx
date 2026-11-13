@@ -25,7 +25,6 @@ export const SaveUpscaleModal: React.FC<SaveUpscaleModalProps> = ({
   onOpenResize
 }) => {
   const [dimensions, setDimensions] = useState<{ width: number; height: number; size?: string } | null>(null);
-  const [loadingMeta, setLoadingMeta] = useState(false);
   const [restoreFaces, setRestoreFaces] = useState(() => {
     const saved = localStorage.getItem('cosmo_upscale_restore_faces');
     return saved !== null ? saved === 'true' : true;
@@ -69,7 +68,6 @@ export const SaveUpscaleModal: React.FC<SaveUpscaleModalProps> = ({
       return;
     }
 
-    setLoadingMeta(true);
     invoke<{ width: number; height: number; size?: string }>('get_video_metadata', { path: target.realPath })
       .then((meta) => {
         if (meta && meta.width && meta.height) {
@@ -78,9 +76,6 @@ export const SaveUpscaleModal: React.FC<SaveUpscaleModalProps> = ({
       })
       .catch((err) => {
         console.error('Failed to probe media dimensions for upscale warning:', err);
-      })
-      .finally(() => {
-        setLoadingMeta(false);
       });
   }, [isOpen, target?.realPath]);
 

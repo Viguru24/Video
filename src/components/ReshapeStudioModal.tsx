@@ -46,8 +46,7 @@ export function ReshapeStudioModal({
 
   // 1. Interactive Before / After Split View state
   const [showSplitView, setShowSplitView] = useState<boolean>(false);
-  const [splitPos, setSplitPos] = useState<number>(0.5); // 0.0 to 1.0
-  const isDraggingSplitRef = useRef<boolean>(false);
+  const splitPos = 0.5; // 0.0 to 1.0
 
   // 2. Multi-Step Undo / Redo History Stack
   const [historyStack, setHistoryStack] = useState<ImageData[]>([]);
@@ -103,6 +102,11 @@ export function ReshapeStudioModal({
     ctx.restore();
   }, [scaleX, scaleY, showSplitView, splitPos]);
 
+  const renderCanvasRef = useRef(renderCanvas);
+  useEffect(() => {
+    renderCanvasRef.current = renderCanvas;
+  }, [renderCanvas]);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -134,7 +138,7 @@ export function ReshapeStudioModal({
         if (ctx) {
           ctx.drawImage(img, 0, 0);
           offscreenCanvasRef.current = off;
-          renderCanvas();
+          renderCanvasRef.current();
           // Save initial pristine image as history step 0
           const initialData = ctx.getImageData(0, 0, off.width, off.height);
           setHistoryStack([initialData]);
@@ -256,7 +260,7 @@ export function ReshapeStudioModal({
     setHistoryStep((prev) => Math.min(24, prev + 1));
   };
 
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (historyStep <= 0 || !historyStack[historyStep - 1] || !offscreenCanvasRef.current) return;
     const prevData = historyStack[historyStep - 1];
     const ctx = offscreenCanvasRef.current.getContext('2d');
@@ -265,9 +269,9 @@ export function ReshapeStudioModal({
       setHistoryStep((prev) => prev - 1);
       renderCanvas();
     }
-  };
+  }, [historyStep, historyStack, renderCanvas]);
 
-  const handleRedo = () => {
+  const handleRedo = useCallback(() => {
     if (historyStep >= historyStack.length - 1 || !historyStack[historyStep + 1] || !offscreenCanvasRef.current) return;
     const nextData = historyStack[historyStep + 1];
     const ctx = offscreenCanvasRef.current.getContext('2d');
@@ -276,7 +280,7 @@ export function ReshapeStudioModal({
       setHistoryStep((prev) => prev + 1);
       renderCanvas();
     }
-  };
+  }, [historyStep, historyStack, renderCanvas]);
 
   // Keyboard Shortcuts: Ctrl+Z (Undo) / Ctrl+Y (Redo) / [ and ] (Brush Size)
   useEffect(() => {
@@ -309,7 +313,7 @@ export function ReshapeStudioModal({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, historyStep, historyStack, brushSize, showSplitView]);
+  }, [isOpen, handleRedo, handleUndo, brushSize, showSplitView]);
 
   useEffect(() => {
     if (isOpen) renderCanvas();
@@ -508,11 +512,6 @@ export function ReshapeStudioModal({
 
       if (setVideos) {
         if (saveAsCopy) {
-          const separator = savedPath.includes('\\') ? '\\' : '/';
-          const fileNameWithExt = savedPath.substring(savedPath.lastIndexOf(separator) + 1);
-          const extIdx = fileNameWithExt.lastIndexOf('.');
-          const cleanTitle = extIdx !== -1 ? fileNameWithExt.substring(0, extIdx) : fileNameWithExt;
-
           const newUnit: VideoItem = {
             id: `reshaped-${Date.now()}`,
             title: `${video.title.replace(/\s*\(Reshaped\)/i, '')} (Reshaped)`,

@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import { X, Share2, Type, Layout, Palette, Play, Download, Camera } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { convertToVideoUrl } from '../utils/videoUtils';

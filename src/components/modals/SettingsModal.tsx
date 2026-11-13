@@ -34,10 +34,6 @@ export function SettingsModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
   const {
-    theme,
-    setTheme,
-    alwaysOnTop,
-    setAlwaysOnTop,
     fitMode,
     setFitMode,
     smartCulling,
@@ -50,12 +46,10 @@ export function SettingsModal({
     setSlideshowInterval,
     autoAddNewFiles,
     setAutoAddNewFiles,
-    aiHardwareStatus,
     setAiHardwareStatus
   } = useStore();
   
   const [customPath, setCustomPath] = useState<string>('');
-  const [isUninstalling, setIsUninstalling] = useState(false);
   const [uninstallStatus, setUninstallStatus] = useState<string>('');
   const [showConfirmUninstall, setShowConfirmUninstall] = useState(false);
 
@@ -94,7 +88,6 @@ export function SettingsModal({
 
   const handleUninstall = async () => {
     setShowConfirmUninstall(false);
-    setIsUninstalling(true);
     setUninstallStatus('Uninstalling AI Add-ons...');
     try {
       const report = await invoke<string>('uninstall_addons');
@@ -249,7 +242,7 @@ export function SettingsModal({
               {uninstallStatus}
               {uninstallStatus.includes('successfully') && (
                 <button 
-                  onClick={() => { setUninstallStatus(''); setIsUninstalling(false); }}
+                  onClick={() => { setUninstallStatus(''); }}
                   className="browse-btn"
                   style={{ display: 'block', marginTop: '10px', height: '22px', fontSize: '9px' }}
                 >

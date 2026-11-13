@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { 
-  X, Play, Pause, Volume2, VolumeX,
-  Layers, ChevronLeft, ChevronRight, Plus, 
-  Trash2, Maximize2, Sparkles, FileVideo, Camera, Printer, Folder,
-  Crop, Expand
+  Play, Pause, Volume2, VolumeX,
+  ChevronRight, 
+  Trash2, Sparkles, Camera, Printer, Folder
 } from 'lucide-react';
 import type { VideoItem, CollageItem, CollageConfig } from '../types';
 import { isValidPictureExtension, toCosmoUrl } from '../utils/videoUtils';
@@ -165,7 +164,7 @@ export function CollageWorkspace({
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [activeAction, collageItems]);
+  }, [activeAction, collageItems, setCollageItems]);
 
   // Bring to Front (increases z-index to maximum + 1)
   const bringToFront = (id: string) => {

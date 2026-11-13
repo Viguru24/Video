@@ -77,7 +77,6 @@ export function SoloPlayer({
   onUpdateVideo,
   globalRepeat,
   speed,
-  fitMode,
   handleDecommission,
   handleAnnihilate,
   addLog,
@@ -115,7 +114,6 @@ export function SoloPlayer({
   showImmersiveUI,
   isFocusedImage,
   focusedVideo,
-  navDirection,
   startFrameStep,
   stopFrameStep,
   setShowSaveCropOptions,
@@ -128,15 +126,11 @@ export function SoloPlayer({
   const [showFrameModal, setShowFrameModal] = React.useState(false);
   const [showPortraitBlurModal, setShowPortraitBlurModal] = React.useState(false);
   const [showAiMenu, setShowAiMenu] = React.useState(false);
-  const selectedIds = useStore((state) => state.selectedIds);
-  const setSelectedIds = useStore((state) => state.setSelectedIds);
-  const setSelectionMode = useStore((state) => state.setSelectionMode);
   const trimCropModalTarget = useStore((state) => state.trimCropModalTarget);
 
   const isEditingOrModalOpen = isCropping || !!trimCropModalTarget || showReshapeModal || showFrameModal || showPortraitBlurModal;
 
   const lastFocusedIdRef = useRef<string | null>(null);
-  const isEntering = lastFocusedIdRef.current === null;
 
   useEffect(() => {
     lastFocusedIdRef.current = focusedId;

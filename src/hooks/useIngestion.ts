@@ -327,5 +327,5 @@ export function useIngestion({
         }
       }
     };
-  }, [isPopout, setVideos, addLog, masterPlayingRef, masterMutedRef, setDragFile]);
+  }, [isPopout, setVideos, addLog, masterPlayingRef, masterMutedRef, setDragFile, setConvertingStatus, setMediaMode]);
 }

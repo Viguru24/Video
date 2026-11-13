@@ -105,7 +105,6 @@ export const AppModals: React.FC<AppModalsProps> = ({
       setCustomPrompt={customDialogs.setCustomPrompt}
       wifiShareOpen={wifiTransfer.wifiShareOpen}
       setWifiShareOpen={wifiTransfer.setWifiShareOpen}
-      wifiShareItems={wifiTransfer.wifiShareItems}
       setWifiShareItems={wifiTransfer.setWifiShareItems}
       onClearSharedFiles={() => wifiTransfer.setWifiShareItems([])}
       handleIngestPaths={handleIngestPaths}

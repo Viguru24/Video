@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, useDragControls } from 'framer-motion';
 import { X, Sliders, Save, Loader2, Check, AlertTriangle } from 'lucide-react';
@@ -33,13 +33,13 @@ export function ColorAdjustmentPanel({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'failed'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
 
-  const updateFilter = (key: keyof ColorFilters, value: any) => {
+  const updateFilter = useCallback((key: keyof ColorFilters, value: any) => {
     const updatedFilters = {
       ...filters,
       [key]: value
     };
     onUpdateVideo(video.id, { colorFilters: updatedFilters });
-  };
+  }, [filters, onUpdateVideo, video.id]);
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -71,7 +71,7 @@ export function ColorAdjustmentPanel({
     return () => {
       el.removeEventListener('wheel', handleWheel);
     };
-  }, [filters]);
+  }, [filters, updateFilter]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -195,7 +195,7 @@ export function ColorAdjustmentPanel({
               reject(err);
             }
           };
-          img.onerror = (err) => {
+          img.onerror = () => {
             reject(new Error(`Failed to load source image: ${video.url}`));
           };
           img.src = video.url;

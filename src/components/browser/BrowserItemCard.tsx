@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Folder, File, Plus, Image as ImageIcon, Film, Check } from 'lucide-react';
 import { toCosmoUrl, isValidMediaExtension, isTauri } from '../../utils/videoUtils';
@@ -110,7 +110,7 @@ export function ImageThumbnail({ path, name }: { path: string; name: string }) {
   const ext = path.split('.').pop()?.toUpperCase() || 'IMG';
   const isRaw = ['DNG', 'CR2', 'CR3', 'NEF', 'ARW', 'RAW', 'ORF', 'RW2', 'PEF'].includes(ext);
 
-  const getInitialSrc = () => {
+  const getInitialSrc = useCallback(() => {
     if (isRaw) {
       return `http://cosmo.localhost/${encodeURIComponent(path)}?thumb=1`;
     }
@@ -120,7 +120,7 @@ export function ImageThumbnail({ path, name }: { path: string; name: string }) {
       } catch { /* fallback to cosmo URL */ }
     }
     return toCosmoUrl(path);
-  };
+  }, [isRaw, path]);
 
   const [imgSrc, setImgSrc] = useState(getInitialSrc);
   const [hasError, setHasError] = useState(false);
@@ -134,7 +134,7 @@ export function ImageThumbnail({ path, name }: { path: string; name: string }) {
     setFallbackStage(0);
     setIsLoaded(false);
     setRetryCount(0);
-  }, [path]);
+  }, [getInitialSrc]);
 
   const handleError = () => {
     if (fallbackStage === 0) {
@@ -225,7 +225,6 @@ export function ImageThumbnail({ path, name }: { path: string; name: string }) {
 
 export function BrowserItemCard({ 
   item, 
-  index,
   layoutMode, 
   isSelected = false,
   hasSelection = false,

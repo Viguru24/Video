@@ -96,7 +96,6 @@ interface ModalOrchestratorProps {
   // Wifi Share
   wifiShareOpen: boolean;
   setWifiShareOpen: (open: boolean) => void;
-  wifiShareItems: any[];
   setWifiShareItems?: React.Dispatch<React.SetStateAction<any[]>>;
   onClearSharedFiles?: () => void;
   handleIngestPaths: (paths: string[]) => Promise<VideoItem[] | void>;
@@ -156,7 +155,6 @@ export function ModalOrchestrator({
   setCustomPrompt,
   wifiShareOpen,
   setWifiShareOpen,
-  wifiShareItems,
   setWifiShareItems,
   onClearSharedFiles,
   handleIngestPaths,
@@ -237,7 +235,6 @@ export function ModalOrchestrator({
           <WifiShareModal
             isOpen={wifiShareOpen}
             onClose={() => setWifiShareOpen(false)}
-            sharedFiles={wifiShareItems}
             setWifiShareItems={setWifiShareItems}
             onClearSharedFiles={onClearSharedFiles}
             onLog={addLog}

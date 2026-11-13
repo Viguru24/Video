@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { 
   X, 
   MessageSquare, 
@@ -10,10 +10,7 @@ import {
   Smartphone, 
   Check, 
   Share2, 
-  Film, 
-  Image as ImageIcon,
   Sparkles, 
-  Clock, 
   HardDrive,
   Globe,
   Send,

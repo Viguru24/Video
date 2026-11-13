@@ -149,7 +149,6 @@ export default function App() {
     localStorage.setItem('cosmo-media-mode', mediaMode);
   }, [mediaMode]);
 
-  const [newCollectionName, setNewCollectionName] = useState('');
   const pendingScrollIdRef = useRef<string | null>(null);
   const isSlideshowActiveRef = useRef(false);
   const [fatalError] = useState<Error | null>(null);
@@ -189,7 +188,7 @@ export default function App() {
   const {
     videos, setVideos,
     collections, setCollections,
-    rotationInterval, setRotationInterval,
+    rotationInterval,
     snapshotDir, setSnapshotDir,
     confirmDeletion, setConfirmDeletion,
     isInitialized, setIsInitialized
@@ -364,8 +363,6 @@ export default function App() {
     handleAnnihilate,
     handleFileManagementSuccess,
     handleBatchRemove,
-    handleBatchMute,
-    handleBatchPlay,
   } = useWorkspaceMediaOps({
     videos,
     setVideos,
@@ -815,17 +812,12 @@ export default function App() {
           collections={collections}
           setVideos={setVideos}
           setCollections={setCollections}
-          rotationInterval={rotationInterval}
-          setRotationInterval={setRotationInterval}
           search={search}
           setSearch={setSearch}
           setGlobalControl={setGlobalControl}
           handleUpdate={handleUpdate}
           handleDecommission={handleDecommission}
           onToggleFocus={onToggleFocus}
-          handleBatchRemove={handleBatchRemove}
-          handleBatchMute={handleBatchMute}
-          handleBatchPlay={handleBatchPlay}
           focusedId={focusedId}
           showSettings={showSettings}
           setShowSettings={setShowSettings}
@@ -833,20 +825,15 @@ export default function App() {
           setShowCollections={setShowCollections}
           showLogs={showLogs}
           setShowLogs={setShowLogs}
-          newCollectionName={newCollectionName}
-          setNewCollectionName={setNewCollectionName}
           logs={logs}
           confirmDeletion={confirmDeletion}
           setConfirmDeletion={setConfirmDeletion}
-          showHelp={showHelp}
-          setShowHelp={setShowHelp}
           handleTriggerWifiShare={() => wifiTransfer.handleTriggerWifiShare()}
           isSlideshowActive={isSlideshowActive}
           setIsSlideshowActive={setIsSlideshowActive}
           slideshowInterval={slideshowInterval}
           setSlideshowInterval={setSlideshowInterval}
           rotating={rotating}
-          setRotating={setRotating}
           toggleMasterMute={toggleMasterMute}
           globalControl={globalControl}
           handlePurgeWorkspace={handlePurgeWorkspace}

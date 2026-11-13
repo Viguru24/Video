@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
   useSensors,
   useSensor,
@@ -28,8 +28,6 @@ interface UseWorkspaceDndProps {
 export function useWorkspaceDnd({
   videos,
   setVideos,
-  masterPlaying,
-  masterMuted,
   selectedIds,
   setSelectedIds,
   setSelectionMode,

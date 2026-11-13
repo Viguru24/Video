@@ -1,6 +1,5 @@
 import React from 'react';
 import type { ErrorInfo } from 'react';
-import type { VideoItem } from '../types';
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;

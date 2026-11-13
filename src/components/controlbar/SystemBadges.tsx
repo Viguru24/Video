@@ -11,7 +11,6 @@ interface SystemBadgesProps {
   setStoreSlideshowInterval?: (val: number | ((prev: number) => number)) => void;
   isSlideshowActive: boolean;
   setIsSlideshowActive: (val: boolean) => void;
-  setShowSettings: (val: boolean) => void;
   enableSlideshowPanZoom: boolean;
   setEnableSlideshowPanZoom: (val: boolean) => void;
 }
@@ -25,7 +24,6 @@ export const SystemBadges: React.FC<SystemBadgesProps> = ({
   setStoreSlideshowInterval,
   isSlideshowActive,
   setIsSlideshowActive,
-  setShowSettings,
   enableSlideshowPanZoom,
   setEnableSlideshowPanZoom,
 }) => {

@@ -1,6 +1,6 @@
 ﻿import { describe, it, expect } from 'vitest';
 import type { VideoItem } from '../../types';
-import { sortVideoItems, normalizeTimestamp, compareVideoItems } from '../sortUtils';
+import { sortVideoItems, normalizeTimestamp } from '../sortUtils';
 
 describe('sorting and filtering logic tests', () => {
   const sampleItems: VideoItem[] = [

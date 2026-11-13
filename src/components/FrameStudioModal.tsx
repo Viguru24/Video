@@ -26,6 +26,10 @@ export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos, onF
   const [useBlurBackdrop, setUseBlurBackdrop] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [imgEl, setImgEl] = useState<HTMLImageElement | null>(null);
+  const onLogRef = useRef(onLog);
+  useEffect(() => {
+    onLogRef.current = onLog;
+  }, [onLog]);
 
   const effectivePath = video
     ? (video.folderFiles && video.currentIdx !== undefined)
@@ -38,7 +42,7 @@ export function FrameStudioModal({ video, isOpen, onClose, onLog, setVideos, onF
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => setImgEl(img);
-    img.onerror = () => { onLog?.('FrameStudio: failed to load image'); };
+    img.onerror = () => { onLogRef.current?.('FrameStudio: failed to load image'); };
     // Resolve the real disk path and convert to a cosmo:// URL the browser can load
     const realPath = toRealPath(effectivePath) || effectivePath;
     img.src = toCosmoUrl(realPath);

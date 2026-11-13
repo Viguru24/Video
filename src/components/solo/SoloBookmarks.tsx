@@ -1,6 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Bookmark, Trash2, Edit2, Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { BookmarkItem, VideoItem } from '../../types';
+
+function formatBookmarkTime(seconds: number): string {
+  if (isNaN(seconds) || seconds < 0) return '00:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
 
 interface SoloBookmarksProps {
   video: VideoItem;
@@ -13,7 +20,6 @@ interface SoloBookmarksProps {
 export const SoloBookmarks: React.FC<SoloBookmarksProps> = ({
   video,
   currentTime,
-  duration,
   onSeek,
   onUpdateVideo,
 }) => {
@@ -21,21 +27,15 @@ export const SoloBookmarks: React.FC<SoloBookmarksProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
 
-  const bookmarks: BookmarkItem[] = video.bookmarks || [];
+  const bookmarks = useMemo<BookmarkItem[]>(() => video.bookmarks || [], [video.bookmarks]);
+  const formatTime = formatBookmarkTime;
 
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds) || seconds < 0) return '00:00';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const handleAddBookmark = () => {
+  const handleAddBookmark = useCallback(() => {
     const time = Math.round(currentTime * 10) / 10;
     const newBookmark: BookmarkItem = {
       id: `bm-${Date.now()}`,
       time: time,
-      label: `Marker @ ${formatTime(time)}`,
+      label: `Marker @ ${formatBookmarkTime(time)}`,
       createdAt: Date.now(),
     };
     const next = [...bookmarks, newBookmark].sort((a, b) => a.time - b.time);
@@ -43,7 +43,7 @@ export const SoloBookmarks: React.FC<SoloBookmarksProps> = ({
     setEditingId(newBookmark.id);
     setEditLabel(newBookmark.label);
     setShowDrawer(true);
-  };
+  }, [bookmarks, currentTime, onUpdateVideo, video.id]);
 
   const handleDeleteBookmark = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -57,17 +57,17 @@ export const SoloBookmarks: React.FC<SoloBookmarksProps> = ({
     setEditingId(null);
   };
 
-  const handleJumpPrev = () => {
+  const handleJumpPrev = useCallback(() => {
     const prev = [...bookmarks].reverse().find(b => b.time < currentTime - 0.5);
     if (prev) onSeek(prev.time);
     else if (bookmarks.length > 0) onSeek(bookmarks[bookmarks.length - 1].time);
-  };
+  }, [bookmarks, currentTime, onSeek]);
 
-  const handleJumpNext = () => {
+  const handleJumpNext = useCallback(() => {
     const next = bookmarks.find(b => b.time > currentTime + 0.5);
     if (next) onSeek(next.time);
     else if (bookmarks.length > 0) onSeek(bookmarks[0].time);
-  };
+  }, [bookmarks, currentTime, onSeek]);
 
   // Shortcut 'b' or 'B' drops bookmark at current time
   useEffect(() => {
@@ -87,7 +87,7 @@ export const SoloBookmarks: React.FC<SoloBookmarksProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTime, bookmarks, video.id]);
+  }, [handleAddBookmark, handleJumpNext, handleJumpPrev]);
 
   return (
     <div className="solo-bookmarks-root" style={{ position: 'relative' }}>

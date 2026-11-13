@@ -86,7 +86,7 @@ export function BatchRenameModal({ videos, setVideos, addLog, onClose }: BatchRe
           }
           folderStartNums[parentDir] = maxNum + 1;
           addLog(`Sequence continuation for "${batchPrefix}" in "${parentDir.split(/[\\/]/).pop()}": starting at ${String(maxNum + 1).padStart(3, '0')}`);
-        } catch (err) {
+        } catch {
           folderStartNums[parentDir] = 1;
         }
       }

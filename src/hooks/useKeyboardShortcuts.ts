@@ -377,7 +377,7 @@ export function useKeyboardShortcuts({
     immersive, confirmDeletion, setImmersive, handleDecommission, selectedIds, 
     handleAnnihilate, handleBatchRemove, isPopout, setSelectedIds, setSelectionMode,
     onNavigateSibling, jumpToUnit, onDeepFocus, setShowHelp, setShowSettings, 
-    setShowCollections, setShowLogs,
+    setShowCollections, setShowLogs, triggerGlobalHud,
     isSlideshowActive, setIsSlideshowActive, exitSoloMode, onSelectAll
   ]);
 }
