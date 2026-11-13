@@ -136,8 +136,7 @@ export function VideoCardOverlayHeader({ props, state, immersive }: VideoCardOve
           data-tooltip="Refresh Tile"
           style={{
             pointerEvents: 'auto',
-            background: 'rgba(10, 10, 12, 0.45)',
-            backdropFilter: 'blur(8px)',
+            background: 'rgba(10, 10, 12, 0.72)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             color: 'rgba(255, 255, 255, 0.7)',
             borderRadius: '6px',
@@ -152,12 +151,12 @@ export function VideoCardOverlayHeader({ props, state, immersive }: VideoCardOve
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.color = '#fff';
-            e.currentTarget.style.background = 'rgba(10, 10, 12, 0.8)';
+            e.currentTarget.style.background = 'rgba(10, 10, 12, 0.88)';
             e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
-            e.currentTarget.style.background = 'rgba(10, 10, 12, 0.45)';
+            e.currentTarget.style.background = 'rgba(10, 10, 12, 0.72)';
             e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
           }}
         >
@@ -184,8 +183,7 @@ export function VideoCardOverlayHeader({ props, state, immersive }: VideoCardOve
           data-tooltip="Pop Out Player"
           style={{
             pointerEvents: 'auto',
-            background: 'rgba(10, 10, 12, 0.45)',
-            backdropFilter: 'blur(8px)',
+            background: 'rgba(10, 10, 12, 0.72)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             color: 'rgba(255, 255, 255, 0.7)',
             borderRadius: '6px',
@@ -200,12 +198,12 @@ export function VideoCardOverlayHeader({ props, state, immersive }: VideoCardOve
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.color = '#fff';
-            e.currentTarget.style.background = 'rgba(10, 10, 12, 0.8)';
+            e.currentTarget.style.background = 'rgba(10, 10, 12, 0.88)';
             e.currentTarget.style.borderColor = 'var(--accent, #00ff88)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
-            e.currentTarget.style.background = 'rgba(10, 10, 12, 0.45)';
+            e.currentTarget.style.background = 'rgba(10, 10, 12, 0.72)';
             e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
           }}
         >

@@ -126,3 +126,12 @@ export function buildFallbackMediaUrl(
   const sep = assetUrl.includes('?') ? '&' : '?';
   return `${assetUrl}${sep}t=${cacheBuster}`;
 }
+
+/**
+ * Only `.temp.mp4` and yt-dlp `.f<id>.<ext>` intermediate filenames can be auto-resolved
+ * by the custom `cosmo://` backend handler when the original filename no longer exists.
+ */
+export function shouldTryTempVideoFallback(rawPath: string | null | undefined): boolean {
+  if (!rawPath) return false;
+  return /\.temp\.mp4$/i.test(rawPath) || /\.f[\da-z-]+\.[^./\\]+$/i.test(rawPath);
+}

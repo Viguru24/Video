@@ -5,6 +5,7 @@ import App from './App.tsx'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from './utils/videoUtils'
+import { initAppActivityTracking } from './utils/appActivity'
 
 if (typeof window !== 'undefined') {
   window.addEventListener('error', (event) => {
@@ -48,25 +49,8 @@ if (typeof window !== 'undefined') {
     }
   });
 
-  // Pause CSS animations when unfocused/hidden and re-paint when becoming active
-  const syncWindowActivityClass = () => {
-    document.documentElement.classList.toggle('app-inactive', document.hidden || !document.hasFocus());
-  };
-  syncWindowActivityClass();
-  window.addEventListener('blur', syncWindowActivityClass);
-  window.addEventListener('focus', syncWindowActivityClass);
-
-  // Re-paint on visibility change when tab/window becomes active again
-  document.addEventListener('visibilitychange', () => {
-    syncWindowActivityClass();
-    if (document.visibilityState === 'visible') {
-      window.requestAnimationFrame(() => {
-        document.body.style.display = 'none';
-        void document.body.offsetHeight; // force reflow
-        document.body.style.display = '';
-      });
-    }
-  });
+  // Pause CSS animations, video playback, and polling when unfocused, minimized, or hidden
+  initAppActivityTracking();
 
   // Watchdog: Ensure window is revealed and responsive
   setTimeout(() => {

@@ -3,6 +3,7 @@ import {
   buildFallbackMediaUrl,
   classifyLocalMediaFailure,
   classifyNonLocalMediaFailure,
+  shouldTryTempVideoFallback,
   splitPathForDisplay,
 } from '../mediaErrorUtils';
 
@@ -59,5 +60,12 @@ describe('mediaErrorUtils', () => {
 
     const asset = buildFallbackMediaUrl('G:\\Isabel 2026\\a.jpg', false, 456, (p) => `http://asset.localhost/${encodeURIComponent(p)}`);
     expect(asset).toBe('http://asset.localhost/G%3A%5CIsabel%202026%5Ca.jpg?t=456');
+  });
+
+  it('limits missing-file cosmo fallback retries strictly to intermediate video filenames', () => {
+    expect(shouldTryTempVideoFallback('G:\\Isabel 2026\\clip.temp.mp4')).toBe(true);
+    expect(shouldTryTempVideoFallback('G:\\Isabel 2026\\clip.f137.mp4')).toBe(true);
+    expect(shouldTryTempVideoFallback('G:\\Isabel 2026\\Girl_using_Windows_PC_202607151735.mp4')).toBe(false);
+    expect(shouldTryTempVideoFallback('G:\\Isabel 2026\\20260730_200454.jpg')).toBe(false);
   });
 });

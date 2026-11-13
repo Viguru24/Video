@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core';
 import { SWIPE_THRESHOLD, FPS } from '../../constants';
 import { isValidPictureExtension } from '../../utils/videoUtils';
+import { isAppActive } from '../../utils/appActivity';
 import { useStore } from '../../store/useStore';
 import type { VideoItem, RepeatMode } from '../../types';
 import { DEFAULT_COLOR_FILTERS } from '../../types';
@@ -425,11 +426,11 @@ export function useVideoCard({
 
   useEffect(() => {
     if (isImage || !videoRef.current) return;
-    if (trimCropModalTarget || isCropping) {
+    if (trimCropModalTarget || isCropping || error || errorInfo || isSyncingOrRecovering) {
       videoRef.current.pause();
       return;
     }
-    if (focusedId && focusedId !== video.id && !inSoloMode) {
+    if ((focusedId && focusedId !== video.id && !inSoloMode) || !isAppActive()) {
       videoRef.current.pause();
     } else {
       if (video.playing) {
@@ -438,7 +439,19 @@ export function useVideoCard({
         videoRef.current.pause();
       }
     }
-  }, [video.playing, video.id, isImage, focusedId, inSoloMode, video.url, trimCropModalTarget, isCropping]);
+  }, [
+    video.playing,
+    video.id,
+    isImage,
+    focusedId,
+    inSoloMode,
+    video.url,
+    trimCropModalTarget,
+    isCropping,
+    error,
+    errorInfo,
+    isSyncingOrRecovering
+  ]);
 
   useEffect(() => {
     if (isImage || !videoRef.current) return;
@@ -456,15 +469,25 @@ export function useVideoCard({
     if (v) v.playbackRate = globalSpeed;
   }, [globalSpeed, isImage]);
 
-  // Recovery monitor — only active while video is playing & tab is visible
+  // Recovery monitor — only active while video is playing without an explicit media failure & app is active
   useEffect(() => {
-    if (isImage || !video.playing) return;
+    if (isImage || !video.playing || error || errorInfo || isSyncingOrRecovering) return;
     const v = videoRef.current;
     if (!v) return;
     let recoveryTimeout: ReturnType<typeof setTimeout> | null = null;
     const monitor = setInterval(() => {
-      if (document.hidden) return;
-      if (video.playing && v.paused && !v.ended && v.readyState < 2 && !recovering) {
+      if (!isAppActive() || document.hidden) return;
+      if (
+        video.playing &&
+        v.paused &&
+        !v.ended &&
+        !v.error &&
+        v.readyState < 2 &&
+        !recovering &&
+        !error &&
+        !errorInfo &&
+        !isSyncingOrRecovering
+      ) {
         setRecovering(true);
         setError("RECOVERING...");
         if (recoveryTimeout) clearTimeout(recoveryTimeout);
@@ -480,7 +503,7 @@ export function useVideoCard({
       clearInterval(monitor);
       if (recoveryTimeout) clearTimeout(recoveryTimeout);
     };
-  }, [video.playing, video.url, recovering, isImage, setError]);
+  }, [video.playing, video.url, recovering, isImage, error, errorInfo, isSyncingOrRecovering, setError]);
 
   // Global control listener
   useEffect(() => {

@@ -6,6 +6,7 @@ import {
   buildFallbackMediaUrl,
   classifyLocalMediaFailure,
   classifyNonLocalMediaFailure,
+  shouldTryTempVideoFallback,
   type DrivePathStatus,
   type MediaLoadErrorInfo,
 } from './mediaErrorUtils';
@@ -162,8 +163,8 @@ export function useVideoCardMediaSource({
         }
 
         if (!status.exists) {
-          // Only videos support `.temp.mp4` fallback via cosmo.localhost; give one fast attempt for that
-          if (type === 'video' && attempt === 1) {
+          // Only intermediate yt-dlp / `.temp.mp4` files can auto-resolve on cosmo.localhost
+          if (type === 'video' && attempt === 1 && shouldTryTempVideoFallback(rawPath)) {
             scheduleFallbackRetry(type, rawPath, true, 150, token);
             return;
           }

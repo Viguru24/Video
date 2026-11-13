@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { isAppActive, subscribeAppActivity } from '../utils/appActivity';
 
 export function ClockDisplay() {
   const [time, setTime] = useState(() => new Date().toLocaleTimeString());
@@ -16,14 +17,14 @@ export function ClockDisplay() {
         t = null;
       }
     };
-    const onVisibility = () => {
-      if (document.hidden) stop();
-      else start();
+    const onActivity = (active: boolean) => {
+      if (active) start();
+      else stop();
     };
-    if (!document.hidden) start();
-    document.addEventListener('visibilitychange', onVisibility);
+    onActivity(isAppActive());
+    const unsubscribe = subscribeAppActivity(onActivity);
     return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
+      unsubscribe();
       stop();
     };
   }, []);

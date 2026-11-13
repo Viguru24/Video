@@ -590,5 +590,10 @@
 }
 
 .pulse-gold {
-  animation: pulse-gold 2s ease-in-out infinite;
+  /* Zero idle compositor wakeups; animate only on direct pointer hover */
+  opacity: 0.95;
+}
+
+.ai-status-badge.status-gpu:hover .ai-status-icon {
+  transform: scale(1.12);
 }

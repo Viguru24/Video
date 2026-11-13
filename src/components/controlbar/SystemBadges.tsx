@@ -63,7 +63,7 @@ export const SystemBadges: React.FC<SystemBadgesProps> = ({
         }
       >
         {aiHardwareStatus.includes('GPU') ? (
-          <Sparkles size={11} className="ai-status-icon pulse-gold" />
+          <Sparkles size={11} className="ai-status-icon" />
         ) : (
           <Cpu size={11} className={`ai-status-icon ${aiHardwareStatus === 'Detecting...' ? 'spin-slow' : ''}`} />
         )}

@@ -380,7 +380,6 @@
 .icon-large {
   margin-bottom: 20px;
   filter: drop-shadow(0 20px 40px #000);
-  animation: float 6s ease-in-out infinite;
 }
 
 @keyframes float {

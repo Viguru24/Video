@@ -176,7 +176,6 @@
   left: 50%;
   transform: translateX(-50%) translateY(6px);
   background: linear-gradient(180deg, #1d1d22 0%, #111115 100%);
-  backdrop-filter: blur(14px);
   color: #f4f4f5;
   padding: 6px 11px;
   border-radius: 6px;
@@ -337,7 +336,6 @@
   height: 6px;
   background: var(--accent);
   border-radius: 50%;
-  animation: pulse 1.5s infinite;
 }
 
 /* === GENERIC RANGE SLIDERS === */

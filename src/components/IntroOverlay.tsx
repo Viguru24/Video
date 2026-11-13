@@ -15,11 +15,15 @@ export function IntroOverlay({ isPopout }: IntroOverlayProps) {
       return;
     }
 
-    // Play warm sci-fi rising startup sound
+    // Play warm sci-fi rising startup sound and close AudioContext right after sweep completes
+    // so WebAudio/AudioService consumes zero idle CPU.
+    let startupCtx: AudioContext | null = null;
+    let closeAudioTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
         const ctx = new AudioCtx();
+        startupCtx = ctx;
         const now = ctx.currentTime;
         
         // Root oscillator (Sine for deep clean sub-bass)
@@ -66,6 +70,11 @@ export function IntroOverlay({ isPopout }: IntroOverlayProps) {
         osc1.stop(now + 3.0);
         osc2.stop(now + 3.0);
         osc3.stop(now + 3.0);
+
+        closeAudioTimer = setTimeout(() => {
+          closeAudioTimer = null;
+          ctx.close().catch(() => {});
+        }, 3150);
       }
     } catch (e) {
       console.warn('Startup sound audio context blocked or unsupported:', e);
@@ -96,6 +105,10 @@ export function IntroOverlay({ isPopout }: IntroOverlayProps) {
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      if (closeAudioTimer) clearTimeout(closeAudioTimer);
+      if (startupCtx && startupCtx.state !== 'closed') {
+        startupCtx.close().catch(() => {});
+      }
       window.removeEventListener('pointerdown', handleUserInput);
       window.removeEventListener('keydown', handleUserInput);
       window.removeEventListener('wheel', handleUserInput);

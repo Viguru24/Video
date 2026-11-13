@@ -2,13 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauri } from '../utils/videoUtils';
+import { isAppActive, subscribeAppActivity } from '../utils/appActivity';
 
 export function useAppLifecycle(isPopout: boolean) {
   const [showShutdown, setShowShutdown] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
-  // Pre-warm the AudioContext on user interaction so that
-  // WebView2 allows immediate audio playback without autoplay restrictions.
+  // Pre-warm then immediately suspend the AudioContext so WebAudio AudioService
+  // uses 0% CPU while idle, yet unlocks cleanly for shutdown audio.
   useEffect(() => {
     if (isPopout) return;
     const warmUp = () => {
@@ -16,47 +17,51 @@ export function useAppLifecycle(isPopout: boolean) {
         if (!audioCtxRef.current) {
           const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
           if (AudioCtx) {
-            audioCtxRef.current = new AudioCtx();
-            // An idle AudioContext without connected nodes uses 0% CPU while staying in 'running' state
+            const ctx = new AudioCtx();
+            audioCtxRef.current = ctx;
+            ctx.suspend().catch(() => {});
           }
-        } else if (audioCtxRef.current.state === 'suspended') {
-          audioCtxRef.current.resume().catch(() => {});
         }
       } catch { /* silently ignore */ }
     };
 
-    document.addEventListener('pointerdown', warmUp, { passive: true });
-    document.addEventListener('keydown', warmUp, { passive: true });
+    document.addEventListener('pointerdown', warmUp, { passive: true, once: true });
+    document.addEventListener('keydown', warmUp, { passive: true, once: true });
     return () => {
       document.removeEventListener('pointerdown', warmUp);
       document.removeEventListener('keydown', warmUp);
+      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
     };
   }, [isPopout]);
 
-  // Pause playing video elements when the window/tab is hidden/minimized and resume on return
+  // Pause playing video elements when the window is unfocused, minimized, or hidden and resume on return
   useEffect(() => {
-    const pausedByHide = new Set<HTMLVideoElement>();
-    const onVisibilityChange = () => {
-      if (document.hidden) {
+    const pausedByInactive = new Set<HTMLVideoElement>();
+    const syncVideoPlayback = (active: boolean) => {
+      if (!active) {
         document.querySelectorAll('video').forEach((v) => {
           if (!v.paused && !v.ended) {
-            pausedByHide.add(v);
+            pausedByInactive.add(v);
             v.pause();
           }
         });
-      } else if (pausedByHide.size > 0) {
-        pausedByHide.forEach((v) => {
-          if (v.isConnected) {
+      } else if (pausedByInactive.size > 0) {
+        pausedByInactive.forEach((v) => {
+          if (v.isConnected && !v.error) {
             v.play().catch(() => {});
           }
         });
-        pausedByHide.clear();
+        pausedByInactive.clear();
       }
     };
-    document.addEventListener('visibilitychange', onVisibilityChange);
+    syncVideoPlayback(isAppActive());
+    const unsubscribe = subscribeAppActivity(syncVideoPlayback);
     return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      pausedByHide.clear();
+      unsubscribe();
+      pausedByInactive.clear();
     };
   }, []);
 

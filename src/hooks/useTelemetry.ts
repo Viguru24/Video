@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { TELEMETRY_INTERVAL } from '../constants';
 import { handleError, isAbortError } from '../utils/errorHandler';
 import { isTauri } from '../utils/videoUtils';
+import { isAppActive, subscribeAppActivity } from '../utils/appActivity';
 import type { TelemetryData } from '../types';
 
 /**
@@ -23,7 +24,7 @@ export function useTelemetry(isPopout: boolean = false) {
     let interval: ReturnType<typeof setInterval> | null = null;
     
     const poll = async () => {
-      if (!mounted || abortController.signal.aborted || document.hidden) return;
+      if (!mounted || abortController.signal.aborted || !isAppActive()) return;
       
       try {
         const data = await invoke<TelemetryData>('get_telemetry');
@@ -50,23 +51,21 @@ export function useTelemetry(isPopout: boolean = false) {
       }
     };
 
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopPolling();
-      } else {
+    const onActivity = (active: boolean) => {
+      if (active) {
         startPolling();
+      } else {
+        stopPolling();
       }
     };
 
-    if (!document.hidden) {
-      startPolling();
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    onActivity(isAppActive());
+    const unsubscribe = subscribeAppActivity(onActivity);
     
     return () => {
       mounted = false;
       abortController.abort();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      unsubscribe();
       stopPolling();
     };
   }, [isPopout]);

@@ -714,7 +714,6 @@
 
 .color-adjustment-panel .animate-pulse-gold {
   color: #fbbf24;
-  animation: pulse-gold 2s infinite alternate;
 }
 
 @keyframes pulse-gold {
@@ -762,8 +761,7 @@ html[data-theme="distorted"] body::after {
   background-size: 100% 4px, 6px 100%;
   z-index: 999999;
   pointer-events: none;
-  opacity: 0.9;
-  animation: crt-flicker 0.2s infinite;
+  opacity: 0.88;
 }
 
 @keyframes crt-flicker {
@@ -785,7 +783,6 @@ html[data-theme="distorted"] .workshop-offline-banner {
   border-bottom: 2px dashed #f59e0b !important;
   color: #fde68a !important;
   font-family: var(--font-mono) !important;
-  animation: banner-alert 2.2s infinite steps(2);
 }
 
 @keyframes banner-alert {
