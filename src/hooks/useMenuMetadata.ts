@@ -85,12 +85,19 @@ export function useMenuMetadata({
           const targetPath = toRealPath(pathClean) || pathClean;
           const data = await invoke<any>('get_video_metadata', { path: targetPath });
           if (data) {
-            metadataCache.current[pathClean] = data;
+            const merged = {
+              ...initialMeta,
+              ...data,
+              path: data.path || targetPath || initialMeta.path,
+              width: data.width || initialMeta.width,
+              height: data.height || initialMeta.height,
+            };
+            metadataCache.current[pathClean] = merged;
             setMenuMetadata((curr: any) => ({
               ...curr,
-              ...data,
-              width: data.width || curr?.width,
-              height: data.height || curr?.height
+              ...merged,
+              width: merged.width || curr?.width,
+              height: merged.height || curr?.height,
             }));
           }
         } catch (e: any) {

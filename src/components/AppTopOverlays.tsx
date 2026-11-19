@@ -17,6 +17,7 @@ interface AppTopOverlaysProps {
   setAiHardwareStatus: (status: string) => void;
   toast: string | null;
   toastPath: string | null;
+  onDismissToast?: () => void;
   globalHud: { label: string; val: string } | null;
   dragFile: boolean;
   convertingStatus: { current: number; total: number; filename: string } | null;
@@ -32,6 +33,7 @@ export const AppTopOverlays: React.FC<AppTopOverlaysProps> = ({
   setAiHardwareStatus,
   toast,
   toastPath,
+  onDismissToast,
   globalHud,
   dragFile,
   convertingStatus,
@@ -63,7 +65,7 @@ export const AppTopOverlays: React.FC<AppTopOverlaysProps> = ({
       <ResizeHandles />
       <div className="nebula-bg" />
 
-      <AppToast toast={toast} toastPath={toastPath} />
+      <AppToast toast={toast} toastPath={toastPath} onDismiss={onDismissToast} />
       <GlobalHud globalHud={globalHud} />
 
       {dragFile && (

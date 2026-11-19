@@ -28,7 +28,8 @@ export const FPS = 30; // Frames per second for frame-accurate seeking
 export const STEP_INTERVAL = 100; // ms - Interval between frame steps when holding button
 export const STEP_DELAY = 400; // ms - Delay before repeating frame steps
 
-// Snapshot
+// Snapshot & Toasts
+export const DEFAULT_TOAST_DURATION = 3500; // ms - Default auto-dismiss duration for bottom-right toast notifications
 export const SNAPSHOT_TOAST_DURATION = 8000; // ms - How long to show snapshot notification
 export const SNAPSHOT_THUMBNAIL_DURATION = 8000; // ms - Duration for the toast with Open Folder button
 

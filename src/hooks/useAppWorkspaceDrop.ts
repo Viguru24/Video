@@ -36,11 +36,11 @@ export function useAppWorkspaceDrop({
           const newPath = await invoke<string>('duplicate_file_on_disk', { srcPath: internalPath });
           addLog(`Successfully duplicated file: ${newPath}`);
           handleIngestPaths([newPath]);
+          setToast(`Duplicate added to workspace`);
         } catch (err) {
           console.error('Duplicate via drag-drop failed:', err);
           addLog(`ERROR: Failed to duplicate - ${err}`);
           setToast(`Duplicate failed: ${err}`);
-          setTimeout(() => setToast(null), 4000);
         }
       } else {
         handleIngestPaths([internalPath]);

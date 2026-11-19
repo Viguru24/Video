@@ -623,9 +623,10 @@ export function useContextMenuActions({
       }
       case 'folder': {
         // For folder units, open the currently-displayed file (not always the first)
-        const folderEffectivePath = (v.folderFiles && v.currentIdx !== undefined)
-          ? v.folderFiles[v.currentIdx]?.path
-          : v.realPath;
+        const rawFolderPath = (v.folderFiles && v.currentIdx !== undefined)
+          ? (v.folderFiles[v.currentIdx]?.path || v.folderFiles[v.currentIdx]?.url)
+          : (v.realPath || v.url);
+        const folderEffectivePath = toRealPath(rawFolderPath) || rawFolderPath;
         if (folderEffectivePath) {
           invoke('open_folder', { path: folderEffectivePath })
             .then(() => addLog(`SYSTEM: Opened folder displaying "${folderEffectivePath}"`))

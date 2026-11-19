@@ -1,13 +1,19 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { 
-  Play, Pause, Trash2, FolderOpen, Camera, Square, CheckSquare, Volume2, VolumeX, 
-  ExternalLink, Edit2, ChevronLeft, ChevronRight, 
+  Play, Pause, Trash2, Folder, FolderOpen, Camera, Square, CheckSquare, Volume2, VolumeX, 
+  ExternalLink, Edit2, ChevronLeft, ChevronRight, Info, Check,
   Minimize2, Repeat, Crop, Sparkles, Sliders, Copy, ShieldAlert,
   ChevronDown, ChevronUp, Share2, RefreshCw, Scissors, Wifi, FileCode2, Zap
 } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { isValidPictureExtension, isTauri } from '../utils/videoUtils';
 import { ContextMenuColorTags } from './contextmenu/ContextMenuColorTags';
+import {
+  extractLocationInfo,
+  formatAspectRatioLabel,
+  formatMegapixels,
+  formatPlayTime,
+} from './contextmenu/contextMenuMetaUtils';
 
 interface ContextMenuProps {
   x: number;
@@ -48,11 +54,13 @@ export function ContextMenu({
   const deleteTriggerRef = useRef<HTMLDivElement>(null);
   const closeSubmenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openSubmenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const [submenuPos, setSubmenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [isSubmenuOnRight, setIsSubmenuOnRight] = useState<boolean>(true);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
+  const [copiedField, setCopiedField] = useState<'folder' | 'file' | null>(null);
 
   const effectivePath = video 
     ? (video.folderFiles && video.currentIdx !== undefined) 
@@ -60,6 +68,25 @@ export function ContextMenu({
       : (video.realPath || video.url)
     : '';
   const isImage = effectivePath ? isValidPictureExtension(effectivePath) : false;
+  const locationInfo = extractLocationInfo(metadata?.path || effectivePath);
+  const displayName = metadata?.name || locationInfo?.fileName || video?.title || 'Unknown';
+  const playTime = formatPlayTime(metadata?.duration);
+  const aspectRatioLabel = formatAspectRatioLabel(metadata?.width, metadata?.height);
+  const megapixelsLabel = formatMegapixels(metadata?.width, metadata?.height);
+
+  const handleCopyPath = async (text: string, field: 'folder' | 'file') => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+      copyFeedbackTimerRef.current = setTimeout(() => {
+        setCopiedField(null);
+      }, 1500);
+    } catch (err) {
+      console.error('Failed to copy path to clipboard:', err);
+    }
+  };
 
   const [positionState, setPositionState] = useState<{
     top: number;
@@ -95,6 +122,7 @@ export function ContextMenu({
       clearTimeout(timer);
       if (closeSubmenuTimerRef.current) clearTimeout(closeSubmenuTimerRef.current);
       if (openSubmenuTimerRef.current) clearTimeout(openSubmenuTimerRef.current);
+      if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
       window.removeEventListener('click', handleClickOutside);
       window.removeEventListener('contextmenu', handleClickOutside);
       window.removeEventListener('keydown', handleKeyDown);
@@ -106,8 +134,8 @@ export function ContextMenu({
     if (!menuRef.current || hasPositionedRef.current) return;
 
     const el = menuRef.current;
-    const menuW = el.offsetWidth || 210;
-    const menuH = el.offsetHeight || 300;
+    const menuW = el.offsetWidth || 252;
+    const menuH = el.offsetHeight || 360;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const PAD = 8;
@@ -128,6 +156,22 @@ export function ContextMenu({
     });
     hasPositionedRef.current = true;
   }, [x, y]);
+
+  // Re-clamp vertical position if expanding extra details pushes menu below viewport
+  useLayoutEffect(() => {
+    if (!menuRef.current || !hasPositionedRef.current) return;
+    const el = menuRef.current;
+    const vh = window.innerHeight;
+    const PAD = 8;
+    const menuH = el.offsetHeight;
+    setPositionState((prev) => {
+      const maxTop = Math.max(PAD, vh - menuH - PAD);
+      if (prev.top > maxTop) {
+        return { ...prev, top: maxTop };
+      }
+      return prev;
+    });
+  }, [showMoreInfo, metadata]);
 
   // Submenu positioning & buffering
   const openSubmenu = (name: string, elem: HTMLElement | null) => {
@@ -278,59 +322,76 @@ export function ContextMenu({
   return (
     <>
       <div 
-        className="context-menu" 
+        className="context-menu media-context-menu" 
         ref={menuRef} 
         style={menuStyle}
         onClick={(e) => e.stopPropagation()}
         onMouseLeave={scheduleCloseSubmenu}
       >
-        {/* COMPACT METADATA HEADER */}
-        {metadata && (
-          <div style={{
-            padding: '6px 8px 5px',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
-            marginBottom: '3px',
-            background: 'rgba(255,255,255,0.02)',
-            borderRadius: '6px 6px 0 0',
-            boxSizing: 'border-box'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginBottom: '3px' }}>
-              <span 
-                title={metadata.name || 'Unknown'} 
-                style={{
-                  fontSize: '10.5px',
-                  fontWeight: 700,
-                  color: '#fff',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '135px'
-                }}
-              >
-                {metadata.name || 'Unknown'}
-              </span>
-              <div style={{ display: 'flex', gap: '3px', alignItems: 'center', flexShrink: 0 }}>
-                {metadata.has_comfyui && (
-                  <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(245, 158, 11, 0.18)', color: '#fcd34d', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
-                    COMFYUI
-                  </span>
-                )}
-                {metadata.has_exif && (
-                  <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(56, 189, 248, 0.18)', color: '#7dd3fc', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
-                    EXIF{metadata.has_gps ? '+GPS' : ''}
-                  </span>
-                )}
-                {!metadata.has_comfyui && !metadata.has_exif && (
-                  <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(0, 255, 136, 0.12)', color: 'var(--accent, #00ff88)' }}>
-                    CLEAN
-                  </span>
-                )}
+        {/* RESTORED MEDIA DETAILS & FOLDER LOCATION HEADER */}
+        {(metadata || locationInfo) && (
+          <div className="context-details-panel">
+            {/* Title bar + metadata badges */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+                <Info size={10} style={{ color: 'var(--accent, #00ff88)', flexShrink: 0 }} />
+                <span style={{
+                  fontSize: '8.5px',
+                  fontWeight: 800,
+                  color: 'var(--accent, #00ff88)',
+                  letterSpacing: '0.8px',
+                  textTransform: 'uppercase',
+                  fontFamily: 'var(--font-mono, monospace)',
+                }}>
+                  {isImage ? 'Picture Details' : 'Video Details'}
+                </span>
               </div>
+              {metadata && (
+                <div style={{ display: 'flex', gap: '3px', alignItems: 'center', flexShrink: 0 }}>
+                  {metadata.has_comfyui && (
+                    <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(245, 158, 11, 0.18)', color: '#fcd34d', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
+                      COMFYUI
+                    </span>
+                  )}
+                  {metadata.has_exif && (
+                    <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(56, 189, 248, 0.18)', color: '#7dd3fc', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
+                      EXIF{metadata.has_gps ? '+GPS' : ''}
+                    </span>
+                  )}
+                  {!metadata.has_comfyui && !metadata.has_exif && (
+                    <span style={{ fontSize: '7.5px', fontWeight: 800, padding: '1px 4px', borderRadius: '3px', background: 'rgba(0, 255, 136, 0.12)', color: 'var(--accent, #00ff88)' }}>
+                      CLEAN
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '9px', color: 'rgba(255,255,255,0.48)' }}>
-              <span>
-                {[metadata.format, metadata.size, metadata.width && metadata.height ? `${metadata.width}×${metadata.height}` : null].filter(Boolean).join(' • ')}
+            {/* File name (readable, selectable) */}
+            <div
+              title={displayName}
+              style={{
+                fontSize: '10.5px',
+                fontWeight: 700,
+                color: '#ffffff',
+                wordBreak: 'break-word',
+                lineHeight: '1.3',
+                userSelect: 'text',
+                cursor: 'text',
+              }}
+            >
+              {displayName}
+            </div>
+
+            {/* Quick specs + More/Less toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', fontSize: '9px', color: '#a1a1aa' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {[
+                  metadata?.format,
+                  metadata?.size,
+                  metadata?.width && metadata?.height ? `${metadata.width}×${metadata.height}` : null,
+                  !isImage ? playTime : null,
+                ].filter(Boolean).join(' • ') || 'Loading info...'}
               </span>
               <button
                 type="button"
@@ -345,7 +406,8 @@ export function ContextMenu({
                   padding: '1px 2px',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '2px'
+                  gap: '2px',
+                  flexShrink: 0,
                 }}
               >
                 {showMoreInfo ? 'Less' : 'More'}
@@ -353,69 +415,124 @@ export function ContextMenu({
               </button>
             </div>
 
-            {/* EXPANDABLE EXTRA METADATA */}
-            {showMoreInfo && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '5px', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                {metadata.width && metadata.height && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
-                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Ratio</span>
-                    <strong style={{ color: '#fff' }}>
-                      {(() => {
-                        const r = metadata.width / metadata.height;
-                        if (Math.abs(r - 16/9) < 0.05) return '16:9';
-                        if (Math.abs(r - 4/3) < 0.05) return '4:3';
-                        if (Math.abs(r - 1) < 0.05) return '1:1';
-                        if (Math.abs(r - 9/16) < 0.05) return '9:16';
-                        return `${r.toFixed(2)}:1`;
-                      })()}
-                    </strong>
-                  </div>
-                )}
-                {metadata.duration !== undefined && metadata.duration !== null && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
-                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Play Time</span>
-                    <strong style={{ color: '#fff' }}>
-                      {(() => {
-                        const seconds = Number(metadata.duration);
-                        if (isNaN(seconds) || seconds <= 0) return '0:00';
-                        const mins = Math.floor(seconds / 60);
-                        const secs = Math.floor(seconds % 60);
-                        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-                      })()}
-                    </strong>
-                  </div>
-                )}
-                {metadata.created && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
-                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Created</span>
-                    <strong style={{ color: '#fff' }}>{metadata.created}</strong>
-                  </div>
-                )}
-                {metadata.upscaled_by && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
-                    <span style={{ color: 'rgba(255,255,255,0.4)' }}>Enhanced</span>
-                    <strong style={{ color: '#fde68a' }}>{metadata.upscaled_by}</strong>
-                  </div>
-                )}
+            {/* ALWAYS-VISIBLE FOLDER & LOCATION INFO */}
+            {locationInfo && locationInfo.folderPath && (
+              <div className="context-folder-block">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                  <span className="context-folder-name" title={locationInfo.folderPath}>
+                    <Folder size={10} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {locationInfo.folderName}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className={`context-copy-btn ${copiedField === 'folder' ? 'copied' : ''}`}
+                    title="Copy folder path"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyPath(locationInfo.folderPath, 'folder');
+                    }}
+                  >
+                    {copiedField === 'folder' ? <Check size={9} /> : <Copy size={9} />}
+                    <span>{copiedField === 'folder' ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+
+                <div
+                  className="context-folder-path"
+                  title={locationInfo.fullPath}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {locationInfo.folderPath}
+                </div>
+
                 {isTauri() && (
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); executeAction('folder'); }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '4px',
-                      marginTop: '3px',
-                      padding: '3px 6px',
-                      background: 'rgba(255,255,255,0.06)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '4px',
-                      color: 'var(--accent, #00ff88)',
-                      fontSize: '8.5px',
-                      fontWeight: 600,
-                      cursor: 'pointer'
+                    className="context-folder-open-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      executeAction('folder');
                     }}
+                  >
+                    <FolderOpen size={10} />
+                    Open Folder
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* EXPANDABLE EXTRA METADATA */}
+            {showMoreInfo && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '3px', paddingTop: '5px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                {metadata?.width > 0 && metadata?.height > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: '#a1a1aa' }}>Dimensions</span>
+                    <strong style={{ color: '#ffffff' }}>{metadata.width} × {metadata.height}</strong>
+                  </div>
+                )}
+                {aspectRatioLabel && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: '#a1a1aa' }}>Aspect Ratio</span>
+                    <strong style={{ color: '#ffffff' }}>{aspectRatioLabel}</strong>
+                  </div>
+                )}
+                {megapixelsLabel && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: '#a1a1aa' }}>Total Pixels</span>
+                    <strong style={{ color: '#ffffff' }}>{megapixelsLabel}</strong>
+                  </div>
+                )}
+                {playTime && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: '#a1a1aa' }}>Play Time</span>
+                    <strong style={{ color: '#ffffff' }}>{playTime}</strong>
+                  </div>
+                )}
+                {metadata?.created && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: '#a1a1aa' }}>Created</span>
+                    <strong style={{ color: '#ffffff' }}>{metadata.created}</strong>
+                  </div>
+                )}
+                {metadata?.upscaled_by && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '8.5px' }}>
+                    <span style={{ color: '#a1a1aa' }}>Enhancement</span>
+                    <strong style={{ color: '#fde68a', textAlign: 'right' }}>{metadata.upscaled_by}</strong>
+                  </div>
+                )}
+                {locationInfo?.fullPath && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                      <span style={{ fontSize: '8.5px', color: '#a1a1aa' }}>Full Path</span>
+                      <button
+                        type="button"
+                        className={`context-copy-btn ${copiedField === 'file' ? 'copied' : ''}`}
+                        title="Copy full file path"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyPath(locationInfo.fullPath, 'file');
+                        }}
+                      >
+                        {copiedField === 'file' ? <Check size={9} /> : <Copy size={9} />}
+                        <span>{copiedField === 'file' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
+                    <div
+                      className="context-folder-path"
+                      title={locationInfo.fullPath}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {locationInfo.fullPath}
+                    </div>
+                  </div>
+                )}
+                {isTauri() && (!locationInfo || !locationInfo.folderPath) && (
+                  <button
+                    type="button"
+                    className="context-folder-open-btn"
+                    onClick={(e) => { e.stopPropagation(); executeAction('folder'); }}
                   >
                     <FolderOpen size={10} />
                     Open Folder

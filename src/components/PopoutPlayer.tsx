@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ZoomIn, RotateCcw } from 'lucide-react';
 import type { VideoItem } from '../types';
 import { DEFAULT_COLOR_FILTERS } from '../types';
+import { DEFAULT_TOAST_DURATION } from '../constants';
 import { useStore } from '../store/useStore';
 import { 
   toCosmoUrl, 
@@ -74,6 +75,14 @@ export function PopoutPlayer({ url }: PopoutPlayerProps) {
   const [showUI, setShowUI] = useState(true);
   const uiTimeoutRef = useRef<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => {
+      setToast(null);
+    }, DEFAULT_TOAST_DURATION);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   // Speed and HUD states
   const [speed, setSpeed] = useState(1.0);

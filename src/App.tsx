@@ -157,6 +157,7 @@ export default function App() {
   const {
     toast,
     setToast,
+    dismissToast,
     toastPath,
     setToastPath,
     logs,
@@ -720,6 +721,7 @@ export default function App() {
         setAiHardwareStatus={setAiHardwareStatus}
         toast={toast}
         toastPath={toastPath}
+        onDismissToast={dismissToast}
         globalHud={globalHud}
         dragFile={dragFile}
         convertingStatus={convertingStatus}

@@ -485,6 +485,113 @@ input[type="range"]:active::-webkit-slider-thumb {
 }
 
 /* Unit Summary inside Context Menu */
+.context-menu.media-context-menu {
+  min-width: 238px;
+  max-width: 268px;
+}
+
+.context-details-panel {
+  padding: 7px 9px 6px;
+  background: var(--bg-well, #09090b);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: var(--well-recessed);
+  border-radius: 6px;
+  margin-bottom: 3px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.context-folder-block {
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.context-folder-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #34d399;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-folder-path {
+  font-family: var(--font-mono, monospace);
+  font-size: 8.5px;
+  color: #a1a1aa;
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.32;
+  user-select: text;
+  cursor: text;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 3px 5px;
+}
+
+.context-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #d4d4d8;
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 5px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.context-copy-btn:hover {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.38);
+  color: #34d399;
+}
+
+.context-copy-btn.copied {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.45);
+  color: #34d399;
+}
+
+.context-folder-open-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--accent, #34d399);
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.context-folder-open-btn:hover {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.38);
+}
+
 .context-summary {
   padding: 7px 9px;
   background: var(--bg-well, #060608);
