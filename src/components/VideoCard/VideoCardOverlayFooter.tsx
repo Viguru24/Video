@@ -146,11 +146,11 @@ export function VideoCardOverlayFooter({
               className="mini-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                props.onUpdateVideo(props.video.id, { muted: !props.video.muted });
+                state.handleMuteToggle();
               }}
-              data-tooltip={props.video.muted ? "Unmute" : "Mute"}
+              data-tooltip={state.effectiveMuted ? "Unmute" : "Mute"}
             >
-              {props.video.muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+              {state.effectiveMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
             </button>
             <button
               className="mini-btn"

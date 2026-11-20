@@ -430,11 +430,13 @@ export function useVideoCard({
       videoRef.current.pause();
       return;
     }
-    if ((focusedId && focusedId !== video.id && !inSoloMode) || !isAppActive()) {
+    if ((focusedId && !inSoloMode) || !isAppActive()) {
       videoRef.current.pause();
     } else {
       if (video.playing) {
-        videoRef.current.play().catch(() => {});
+        videoRef.current.play().catch((err) => {
+          onLog?.(`SYSTEM: Play failed for [${video.title}] (solo=${inSoloMode}): ${err?.message || err}`);
+        });
       } else {
         videoRef.current.pause();
       }
