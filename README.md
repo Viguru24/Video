@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Download MSIX Bundle](https://img.shields.io/badge/📥%20Download%20MSIX-v1.4.0-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Viguru24/Video/releases/download/v1.4.0/Cosmo.Symphony_1.4.0.0.msixbundle)
+[![Download MSIX Bundle](https://img.shields.io/badge/📥%20Download%20MSIX-v1.4.15-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Viguru24/Video/releases/download/v1.4.15/Cosmo.Symphony_1.4.15.0.msixbundle)
 [![Download Companion APK](https://img.shields.io/badge/📱%20CosmoShare%20APK-v1.3.7-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Viguru24/Video/releases/download/v1.4.0/CosmoShare-v1.3.7.apk)
 [![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-Get%20App-00a4ef?style=for-the-badge&logo=microsoft&logoColor=white)](https://apps.microsoft.com/detail/9P4DFBGWGFF6?hl=en-us&gl=GB&ocid=pdpshare)
 [![Rust](https://img.shields.io/badge/Core-Rust%20%2B%20Tauri%20v2-dea584?style=for-the-badge&logo=rust&logoColor=white)](https://tauri.app)
@@ -89,13 +89,13 @@
 
 ### Windows 10 & 11 (MSIX 1-Click Install)
 
-1. Download the latest release from the **[Releases](https://github.com/Viguru24/Video/releases)** page:
-   * [📥 Download `Cosmo.Symphony_1.4.0.0.msixbundle`](https://github.com/Viguru24/Video/releases/download/v1.4.0/Cosmo.Symphony_1.4.0.0.msixbundle)
+1. Download the latest release from the **[Releases](https://github.com/Viguru24/Video/releases/tag/v1.4.15)** page:
+   * [📥 Download `Cosmo.Symphony_1.4.15.0.msixbundle`](https://github.com/Viguru24/Video/releases/download/v1.4.15/Cosmo.Symphony_1.4.15.0.msixbundle)
 2. **First-Time Install Certificate Setup** (for sideloaded MSIX):
    * Right-click `CosmoSymphony-Developer.cer` ➔ **Install Certificate**.
    * Choose **Local Machine** ➔ Place in **Trusted People** (or **Trusted Root Certification Authorities**).
    * *(Alternatively, right-click `TrustCertificate.bat` and click "Run as Administrator").*
-3. Double-click `Cosmo.Symphony_1.4.0.0.msixbundle` and click **Install**.
+3. Double-click `Cosmo.Symphony_1.4.15.0.msixbundle` and click **Install**.
 
 ---
 
@@ -130,10 +130,14 @@ npm run tauri dev
 
 ## 🌟 The Ecosystem
 
-Explore complementary applications by **[Viguru24](https://github.com/Viguru24)**:
-- 🎬 **[Vixz YouTube Player (Android)](https://github.com/Viguru24/YouTube)** — Ad-free YouTube player with AI summaries and fluid gestures.
-- 🖥️ **[Vixz Desktop (Windows)](https://github.com/Viguru24/VixzDesktop)** — Modern glassmorphic desktop YouTube client.
-- 🎙️ **[CosmoWhisper](https://github.com/Viguru24/CosmoWhisper-Native)** — Native, 100% local AI speech dictation for Windows & macOS.
+Explore the full suite of local-first applications by **[Viguru24](https://github.com/Viguru24)** ([Showcase Portal](https://viguru24.github.io)):
+- 🎙️ **[CosmoWhisper](https://github.com/Viguru24/CosmoWhisper-Native)** — High-performance, 100% local AI voice dictation & transcription for Windows & macOS.
+- 🎬 **[Vixz YouTube Player (Android)](https://github.com/Viguru24/YouTube)** — Ad-free YouTube player with SponsorBlock, AI summaries, offline downloads & fluid gestures.
+- 🖥️ **[Vixz Desktop (Windows)](https://github.com/Viguru24/VixzDesktop)** — Glassmorphic desktop YouTube player & AI Copilot for Windows.
+- 🛰️ **[Kin-Tracker](https://github.com/Viguru24/Kin-Tracker)** — Private, 24/7 real-time family safety radar & GPS transit network for Android.
+- 📖 **[Cosmo Compendium](https://github.com/Viguru24/cosmo-compendium)** — Smart tactile journal for recipes, craft formulas, and maker notes with AI scanning & Cook Mode.
+- 🗣️ **[FluencyAI](https://github.com/Viguru24/FluencyAI)** — AI-powered English language tutoring PWA with interactive roleplay & voice immersion.
+- 🚀 **[MultiGravity Pro](https://github.com/Viguru24/multigravity-pro)** — Run multiple Antigravity IDE profiles simultaneously with isolated accounts & settings.
 
 ---
 
