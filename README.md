@@ -143,5 +143,5 @@ Explore the full suite of local-first applications by **[Viguru24](https://githu
 
 ## 📄 License & Attribution
 
-Cosmo Symphony is released under the **MIT License**.  
+Cosmo Symphony is released under the **GNU General Public License v3.0 (GPL-3.0)**.  
 © 2026 MicroMeadow / Cosmo Symphony. Built with passion for high-performance media orchestration.
